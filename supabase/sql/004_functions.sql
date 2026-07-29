@@ -3,7 +3,7 @@
 -- Funcion SQL que replica EXACTAMENTE el algoritmo de generacion de ID
 -- determinista usado en el frontend (src/lib/itemId.js), para poder
 -- construir vistas en el servidor que agrupen production_movements /
--- returns contra "Pedidos Prueba" usando el mismo item_id de 10 digitos.
+-- returns contra p_pedidosh usando el mismo item_id de 10 digitos.
 --
 -- Algoritmo (debe coincidir con itemId.js):
 --   1. Tomar PedidoNo, Referencia, Talla, MaterialP, ColorP.
@@ -58,4 +58,4 @@ end;
 $$;
 
 comment on function public.generar_item_id is
-  'Genera el ID logico deterministico de 10 digitos para un item de "Pedidos Prueba". Debe coincidir exactamente con src/lib/itemId.js del frontend.';
+  'Genera el ID logico deterministico de 10 digitos para un item de p_pedidosh. Debe coincidir exactamente con src/lib/itemId.js del frontend.';

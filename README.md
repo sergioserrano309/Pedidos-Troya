@@ -2,7 +2,7 @@
 
 Sistema web para que los operarios de fábrica gestionen el flujo de producción de suelas (Refilado → Acabado / Mateado → Empaque), con devoluciones y trazabilidad completa, sobre Supabase.
 
-> Este sistema **nunca modifica** la tabla original `Pedidos Prueba` (sincronizada por un ERP externo). Toda la actividad de producción se registra en tablas nuevas (`production_movements`, `returns`) y el progreso se **calcula** en cada consulta.
+> Este sistema **nunca modifica** la tabla original `p_pedidosh` (sincronizada por un ERP externo o importada desde CSV). Toda la actividad de producción se registra en tablas nuevas (`production_movements`, `returns`) y el progreso se **calcula** en cada consulta.
 
 ## Stack
 
@@ -14,7 +14,7 @@ No hay componente Python en este proyecto, por lo que no existe `requirements.tx
 
 ## 1. Crear el proyecto de Supabase
 
-1. Crea un proyecto en [supabase.com](https://supabase.com) (o usa uno existente que ya tenga la tabla `Pedidos Prueba` sincronizada desde el ERP).
+1. Crea un proyecto en [supabase.com](https://supabase.com) (o usa uno existente).
 2. Ve a **SQL Editor** y ejecuta, **en este orden**, los scripts de la carpeta [`supabase/sql/`](supabase/sql):
    1. `001_profiles.sql`
    2. `002_production_movements.sql`
@@ -23,8 +23,9 @@ No hay componente Python en este proyecto, por lo que no existe `requirements.tx
    5. `005_views_dashboard.sql` (vistas de progreso calculado)
    6. `006_rls_policies.sql` (seguridad por rol)
    7. `008_realtime.sql` (habilita Realtime para refresco automático del dashboard)
-3. (Opcional) Usa `007_seed_profiles_example.sql` como referencia únicamente después de crear manualmente los usuarios de prueba en **Authentication → Users**, para vincular cada uno a un rol (`refilado`, `acabado`, `mateado`, `empaque`, `comercial`). El `email` que registres en `profiles` debe coincidir exactamente con el del usuario creado (es lo que se usa para iniciar sesión).
-4. Confirma que la tabla `"Pedidos Prueba"` (con espacio, por eso siempre se referencia entre comillas) ya existe y tiene datos. Si tu tabla real tiene otro nombre, ajústalo en `src/services/ordersService.js` (constante `PEDIDOS_TABLE`).
+   8. `009_create_p_pedidosh.sql` (crea la tabla `p_pedidosh`)
+3. Importa tus datos en la tabla `p_pedidosh` desde CSV o sincronízalos desde el ERP.
+4. (Opcional) Usa `007_seed_profiles_example.sql` como referencia únicamente después de crear manualmente los usuarios de prueba en **Authentication → Users**, para vincular cada uno a un rol (`refilado`, `acabado`, `mateado`, `empaque`, `comercial`). El `email` que registres en `profiles` debe coincidir exactamente con el del usuario creado (es lo que se usa para iniciar sesión).
 
 ## 2. Variables de entorno requeridas
 
@@ -92,4 +93,4 @@ supabase/sql/               Scripts SQL a ejecutar en Supabase (en orden numéri
 
 ## 8. Regla de negocio crítica
 
-La tabla `Pedidos Prueba` es **solo lectura** desde esta aplicación: nunca se ejecuta `INSERT`/`UPDATE`/`DELETE` sobre ella, tanto a nivel de código como reforzado con RLS en la base de datos.
+La tabla `p_pedidosh` es **solo lectura** desde esta aplicación: nunca se ejecuta `INSERT`/`UPDATE`/`DELETE` sobre ella, tanto a nivel de código como reforzado con RLS en la base de datos.

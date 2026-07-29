@@ -2,17 +2,17 @@
 -- 005_views_dashboard.sql
 -- Vistas de solo lectura que calculan el progreso de produccion en
 -- tiempo real (NUNCA almacenado) combinando:
---   "Pedidos Prueba" (solo lectura) + production_movements + returns
+--   p_pedidosh (solo lectura) + production_movements + returns
 --
 -- IMPORTANTE: si el nombre real de tu tabla en Supabase no es
--- exactamente "Pedidos Prueba" (con espacio y mayusculas iniciales),
+-- exactamente "p_pedidosh",
 -- ajusta las referencias en este archivo y en
 -- src/services/ordersService.js (constante PEDIDOS_TABLE).
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
 -- vw_pedidos_con_id
--- "Pedidos Prueba" + el item_id determinista calculado para cada fila.
+-- p_pedidosh + el item_id determinista calculado para cada fila.
 -- ---------------------------------------------------------------------
 create or replace view public.vw_pedidos_con_id
 with (security_invoker = true) as
@@ -25,7 +25,7 @@ select
     pp."MaterialP",
     pp."ColorP"
   ) as item_id
-from public."Pedidos Prueba" pp;
+from public.p_pedidosh pp;
 
 -- ---------------------------------------------------------------------
 -- vw_item_stage
@@ -56,7 +56,7 @@ order by eventos.item_id, eventos.ultima_actualizacion desc;
 
 -- ---------------------------------------------------------------------
 -- vw_item_progreso
--- Progreso calculado por item (fila individual de "Pedidos Prueba").
+-- Progreso calculado por item (fila individual de p_pedidosh).
 -- Usada en el detalle de orden y para filtrar que ve cada rol segun
 -- su etapa_actual.
 -- ---------------------------------------------------------------------
@@ -113,7 +113,7 @@ left join public.vw_item_stage st on st.item_id = p.item_id
 where coalesce(p."Cancelado", false) = false;
 
 comment on view public.vw_item_progreso is
-  'Progreso calculado por item, nunca almacenado. Combina "Pedidos Prueba" (solo lectura) + production_movements + returns. Filtra pedidos cancelados.';
+  'Progreso calculado por item, nunca almacenado. Combina p_pedidosh (solo lectura) + production_movements + returns. Filtra pedidos cancelados.';
 
 -- ---------------------------------------------------------------------
 -- vw_pedido_progreso

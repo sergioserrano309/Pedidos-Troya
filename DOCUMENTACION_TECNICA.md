@@ -219,7 +219,7 @@ PedidoNo, FechaP, Cliente, NombreR, Talla, CantidadP, MaterialP, ColorP,
 Vira, Acabado, Esterilla, Marquilla, DetalleVira, DetalleAcab, DetalleEsterilla
 ```
 
-**Importante sobre nombres:** las columnas tienen mayúsculas específicas (`PedidoNo`, no `pedidono`), por eso en todo el SQL se escriben entre comillas dobles (`"PedidoNo"`). En Postgres, un identificador sin comillas se guarda siempre en minúsculas; para preservar mayúsculas hay que citarlo. Lo mismo pasa con el nombre de la tabla, que tiene un espacio: `"Pedidos Prueba"`.
+**Importante sobre nombres:** las columnas tienen mayúsculas específicas (`PedidoNo`, no `pedidono`), por eso en todo el SQL se escriben entre comillas dobles (`"PedidoNo"`). En Postgres, un identificador sin comillas se guarda siempre en minúsculas; para preservar mayúsculas hay que citarlo. Lo mismo pasa con el nombre de la tabla, que tiene un espacio: `p_pedidosh`.
 
 **Columnas usadas para filtrar/calcular pero no mostradas directamente:**
 - `Cancelado`: si es `true`, el pedido se **excluye completamente** de todas las vistas (se asumió esta regla porque el documento no lo especifica explícitamente, pero es el comportamiento esperable de negocio). Está implementado en el `WHERE` de `vw_item_progreso`.
@@ -333,7 +333,7 @@ Archivo: [`supabase/sql/005_views_dashboard.sql`](supabase/sql/005_views_dashboa
 Todas estas vistas se crean con `with (security_invoker = true)`. Esto es un detalle técnico importante: por defecto en Postgres, una vista se ejecuta con los permisos de **quien la creó** (normalmente un superusuario), lo que podría saltarse las políticas de RLS de las tablas que consulta. Con `security_invoker = true`, la vista se ejecuta con los permisos de **quien la está consultando en ese momento** — es decir, si un usuario no-Comercial consulta una vista que internamente lee `returns`, y `returns` tiene RLS que bloquea a los no-Comercial, esa parte del resultado simplemente no aparece, sin necesidad de replicar la lógica de permisos en cada vista.
 
 #### `vw_pedidos_con_id`
-Es un paso intermedio: toma cada fila de `"Pedidos Prueba"` y le agrega su `item_id` calculado. No se consulta directamente desde el frontend, la usan las otras vistas.
+Es un paso intermedio: toma cada fila de `p_pedidosh` y le agrega su `item_id` calculado. No se consulta directamente desde el frontend, la usan las otras vistas.
 
 #### `vw_item_stage`
 Calcula la **etapa actual** de cada ítem (a qué proceso está asignado ahora mismo). Mira dos fuentes de eventos y se queda con la más reciente:
@@ -544,7 +544,7 @@ Resumen por tabla:
 | Tabla | SELECT | INSERT | UPDATE / DELETE |
 |---|---|---|---|
 | `profiles` | Cualquier usuario autenticado ve todos los perfiles (para mostrar nombres) | Bloqueado (se gestiona desde Supabase Studio) | Bloqueado |
-| `"Pedidos Prueba"` | Cualquier usuario autenticado (todas las filas) | **Bloqueado** | **Bloqueado** |
+| `p_pedidosh` | Cualquier usuario autenticado (todas las filas) | **Bloqueado** | **Bloqueado** |
 | `production_movements` | Cualquier usuario autenticado (todas las filas, para poder calcular progreso) | Solo si `from_process` coincide con el rol del usuario, y `user_id` es el propio | Bloqueado |
 | `returns` | **Solo Comercial** | **Solo Comercial**, y `user_id` debe ser el propio | Bloqueado |
 
@@ -572,7 +572,7 @@ with check (
 
 ### `GRANT` / `REVOKE` como capa extra
 
-Además de RLS, el script hace `GRANT`/`REVOKE` explícitos a nivel de tabla (por ejemplo, `revoke insert, update, delete on public."Pedidos Prueba" from authenticated, anon;`). Esto es una capa de seguridad **adicional y redundante** a propósito: incluso si alguien creara por error una política de RLS demasiado permisiva en el futuro, el `REVOKE` seguiría bloqueando la operación a nivel de permisos de Postgres, antes siquiera de que RLS entre a evaluarse.
+Además de RLS, el script hace `GRANT`/`REVOKE` explícitos a nivel de tabla (por ejemplo, `revoke insert, update, delete on public.p_pedidosh from authenticated, anon;`). Esto es una capa de seguridad **adicional y redundante** a propósito: incluso si alguien creara por error una política de RLS demasiado permisiva en el futuro, el `REVOKE` seguiría bloqueando la operación a nivel de permisos de Postgres, antes siquiera de que RLS entre a evaluarse.
 
 ---
 
@@ -747,7 +747,7 @@ El documento de especificaciones (`Contexto Cursor pedidos.md`) dejaba varios pu
 2. **Estado "Completado" para Empaque.** El HTML original no contemplaba un destino final; se agregó como se explica en la sección 7.3.
 3. **El botón "Registrar Devolución" es por ítem, no solo el del pie del modal.** El HTML original solo tenía un botón genérico en el pie del modal de detalle. Se agregó también un botón "🔄 Devolver" en cada fila de ítem (generado dinámicamente en JS, sin tocar el `index.html` estático), y el botón del pie se activa/desactiva según si hay un ítem seleccionado — para no perder la funcionalidad original pero hacerla utilizable con múltiples ítems por pedido.
 4. **Visibilidad de Acabado/Mateado/Empaque es "a nivel de pedido completo", no "a nivel de ítem individual".** Ver sección 12.4. Alternativa posible: mostrar solo los ítems relevantes de cada pedido en el dashboard (requeriría rediseñar las cards para mostrar "sub-progreso" en vez del pedido completo).
-5. **Nombre de la tabla asumido como `"Pedidos Prueba"`** (con espacio, mayúsculas iniciales), tal como aparece en el documento y fue confirmado por el usuario junto con sus columnas reales.
+5. **Nombre de la tabla asumido como `p_pedidosh`** (con espacio, mayúsculas iniciales), tal como aparece en el documento y fue confirmado por el usuario junto con sus columnas reales.
 6. **El "Devuelto" (todas las devoluciones) vs "Reprocesado" (solo las de tipo REPROCESO) se separaron en dos números distintos** porque la fórmula de "Pendiente" del documento original menciona explícitamente solo "Reprocessed", no "Returns" en general (ver sección 9).
 
 ---
@@ -765,7 +765,7 @@ El documento de especificaciones (`Contexto Cursor pedidos.md`) dejaba varios pu
 ## 19. Checklist para probar el sistema de punta a punta
 
 1. Ejecutar los 8 scripts SQL en orden en el SQL Editor de Supabase (ver README.md).
-2. Confirmar que `"Pedidos Prueba"` tiene datos de prueba.
+2. Confirmar que `p_pedidosh` tiene datos de prueba.
 3. Crear al menos un usuario por rol en Authentication → Users, y su fila correspondiente en `profiles` (mismo email, rol correcto).
 4. Configurar `.env` local (o las variables en Vercel) con `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`.
 5. `npm install && npm run dev`, entrar con el usuario `refilado` → debe ver todos los pedidos pendientes.

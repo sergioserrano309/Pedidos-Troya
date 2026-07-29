@@ -1,13 +1,13 @@
 -- =====================================================================
 -- 006_rls_policies.sql
 -- Row Level Security: define quien puede leer/escribir cada tabla.
--- Regla critica: "Pedidos Prueba" queda con SOLO SELECT (sin politicas
+-- Regla critica: p_pedidosh queda con SOLO SELECT (sin politicas
 -- de insert/update/delete) => bloqueado a nivel de base de datos para
 -- cualquier conexion que no use la service_role key.
 --
--- IMPORTANTE: ejecutar despues de 001-005. Si "Pedidos Prueba" ya tenia
+-- IMPORTANTE: ejecutar despues de 001-005. Si p_pedidosh ya tenia
 -- RLS/policies previas creadas por el proceso de sincronizacion, revisa
--- que no entren en conflicto con "pedidos_prueba_select_authenticated".
+-- que no entren en conflicto con "p_pedidosh_select_authenticated".
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -28,13 +28,13 @@ using (true);
 grant select on public.profiles to authenticated;
 
 -- ---------------------------------------------------------------------
--- "Pedidos Prueba" (SOLO LECTURA — regla critica de negocio)
+-- p_pedidosh (SOLO LECTURA — regla critica de negocio)
 -- ---------------------------------------------------------------------
-alter table public."Pedidos Prueba" enable row level security;
+alter table public.p_pedidosh enable row level security;
 
-drop policy if exists "pedidos_prueba_select_authenticated" on public."Pedidos Prueba";
-create policy "pedidos_prueba_select_authenticated"
-on public."Pedidos Prueba"
+drop policy if exists "p_pedidosh_select_authenticated" on public.p_pedidosh;
+create policy "p_pedidosh_select_authenticated"
+on public.p_pedidosh
 for select
 to authenticated
 using (true);
@@ -43,8 +43,8 @@ using (true);
 -- "authenticated"/"anon". Solo service_role (usado por la sincronizacion
 -- del ERP) puede escribir, porque service_role ignora RLS.
 
-grant select on public."Pedidos Prueba" to authenticated;
-revoke insert, update, delete on public."Pedidos Prueba" from authenticated, anon;
+grant select on public.p_pedidosh to authenticated;
+revoke insert, update, delete on public.p_pedidosh from authenticated, anon;
 
 -- ---------------------------------------------------------------------
 -- production_movements
