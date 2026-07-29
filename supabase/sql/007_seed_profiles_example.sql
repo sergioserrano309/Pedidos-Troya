@@ -1,0 +1,22 @@
+-- =====================================================================
+-- 007_seed_profiles_example.sql  (OPCIONAL — no ejecutar tal cual)
+--
+-- Ejemplo de como crear un perfil de negocio para un usuario ya creado
+-- en Authentication -> Users del Supabase Dashboard.
+--
+-- Pasos:
+--   1. Crea el usuario en Authentication -> Users (con email/password)
+--      o invitalo por correo. Copia su "User UID".
+--   2. Reemplaza los valores de ejemplo abajo y ejecuta el INSERT
+--      correspondiente por cada usuario/rol que necesites para pruebas.
+-- =====================================================================
+
+-- Ejemplo: un usuario por cada rol. El email debe coincidir EXACTAMENTE
+-- con el email del usuario creado en Authentication -> Users (es el que
+-- se usará para iniciar sesión en el login del frontend).
+-- insert into public.profiles (auth_id, name, email, role) values
+--   ('00000000-0000-0000-0000-000000000001', 'Lady (Refilado)',  'refilado@empresa.com',  'refilado'),
+--   ('00000000-0000-0000-0000-000000000002', 'Carlos (Acabado)', 'acabado@empresa.com',   'acabado'),
+--   ('00000000-0000-0000-0000-000000000003', 'Maria (Mateado)',  'mateado@empresa.com',   'mateado'),
+--   ('00000000-0000-0000-0000-000000000004', 'Juan (Empaque)',   'empaque@empresa.com',   'empaque'),
+--   ('00000000-0000-0000-0000-000000000005', 'Ana (Comercial)',  'comercial@empresa.com', 'comercial');

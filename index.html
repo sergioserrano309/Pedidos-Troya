@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Suelas — Producción</title>
+  <style>
+    :root {
+      --bg: #f0f2f5;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --border2: #cbd5e1;
+      --text: #1e293b;
+      --text2: #64748b;
+      --text3: #94a3b8;
+      --blue: #2563eb;
+      --blue-bg: #eff6ff;
+      --green: #16a34a;
+      --green-bg: #f0fdf4;
+      --green-text: #15803d;
+      --red: #dc2626;
+      --red-bg: #fef2f2;
+      --red-text: #b91c1c;
+      --amber: #d97706;
+      --amber-bg: #fffbeb;
+      --amber-text: #b45309;
+      --r: 8px;
+      --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.05);
+      --shadow-md: 0 4px 6px rgba(0,0,0,.07), 0 2px 4px rgba(0,0,0,.06);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* LOGIN */
+    #login-page {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+    }
+
+    .login-card {
+      background: var(--surface);
+      border-radius: 16px;
+      padding: 2.5rem;
+      width: 100%;
+      max-width: 380px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, .2);
+    }
+
+    .login-logo {
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: .25rem;
+      letter-spacing: -1px;
+    }
+
+    .login-logo span {
+      color: var(--blue);
+    }
+
+    .login-sub {
+      font-size: 13px;
+      color: var(--text2);
+      margin-bottom: 2rem;
+    }
+
+    .login-field {
+      margin-bottom: 1rem;
+    }
+
+    .login-field label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text2);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+
+    .login-field input {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1.5px solid var(--border2);
+      border-radius: var(--r);
+      font-size: 14px;
+      outline: none;
+      transition: border .15s;
+    }
+
+    .login-field input:focus {
+      border-color: var(--blue);
+    }
+
+    .btn-login-full {
+      width: 100%;
+      padding: 11px;
+      background: var(--blue);
+      color: #fff;
+      border: none;
+      border-radius: var(--r);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: .5rem;
+    }
+
+    .btn-login-full:hover {
+      background: #1d4ed8;
+    }
+
+    .btn-login-full:disabled {
+      opacity: .6;
+      cursor: not-allowed;
+    }
+
+    .login-error {
+      background: var(--red-bg);
+      color: var(--red-text);
+      border-radius: var(--r);
+      padding: 10px 14px;
+      font-size: 13px;
+      margin-top: 1rem;
+      display: none;
+    }
+
+    /* APP */
+    #app {
+      display: none;
+      min-height: 100vh;
+    }
+
+    .topbar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 52px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: var(--shadow);
+    }
+
+    .topbar-brand {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -.3px;
+    }
+
+    .topbar-brand span {
+      color: var(--blue);
+    }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .topbar-user {
+      font-size: 12px;
+      color: var(--text2);
+      background: var(--bg);
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-weight: 500;
+    }
+
+    .btn-logout {
+      background: none;
+      border: 1px solid var(--border2);
+      border-radius: var(--r);
+      padding: 5px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      color: var(--text2);
+    }
+
+    .btn-logout:hover {
+      background: var(--bg);
+    }
+
+    .main-layout {
+      display: flex;
+      min-height: calc(100vh - 52px);
+    }
+
+    .sidebar {
+      width: 220px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 1rem 0;
+      flex-shrink: 0;
+    }
+
+    .sidebar-section {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--text3);
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      padding: 12px 16px 4px;
+    }
+
+    .nav-item {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 8px 16px;
+      border: none;
+      background: none;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--text2);
+      border-left: 3px solid transparent;
+      transition: all .1s;
+    }
+
+    .nav-item:hover {
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .nav-item.active {
+      background: var(--blue-bg);
+      color: var(--blue);
+      border-left-color: var(--blue);
+      font-weight: 600;
+    }
+
+    .content {
+      flex: 1;
+      padding: 1.5rem;
+      overflow-y: auto;
+    }
+
+    .page {
+      display: none;
+    }
+
+    .page.active {
+      display: block;
+    }
+
+    /* CARDS */
+    .card {
+      background: var(--surface);
+      border-radius: var(--r);
+      border: 1px solid var(--border);
+      padding: 1.25rem;
+      box-shadow: var(--shadow);
+      margin-bottom: 1rem;
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      color: var(--text);
+    }
+
+    .card-orden {
+      background: var(--surface);
+      border-radius: var(--r);
+      border: 1px solid var(--border);
+      padding: 1rem;
+      margin-bottom: 1rem;
+      cursor: pointer;
+      transition: all .15s;
+    }
+
+    .card-orden:hover {
+      box-shadow: var(--shadow-md);
+      border-color: var(--blue);
+    }
+
+    .orden-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 0.75rem;
+    }
+
+    .orden-num {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .orden-cliente {
+      font-size: 13px;
+      color: var(--text2);
+    }
+
+    .orden-fecha {
+      font-size: 12px;
+      color: var(--text3);
+    }
+
+    .orden-divider {
+      border-top: 1px solid var(--border);
+      margin: 0.75rem 0;
+    }
+
+    .orden-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .stat-item {
+      font-size: 12px;
+    }
+
+    .stat-label {
+      color: var(--text3);
+    }
+
+    .stat-value {
+      color: var(--text);
+      font-weight: 600;
+      margin-top: 2px;
+    }
+
+    .progress-bar {
+      width: 100%;
+      height: 6px;
+      background: var(--border);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-bottom: 0.5rem;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: var(--blue);
+      transition: width .3s;
+    }
+
+    .progress-text {
+      font-size: 11px;
+      color: var(--text3);
+      font-weight: 500;
+    }
+
+    .estado-badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 4px;
+      text-transform: capitalize;
+    }
+
+    .estado-por-procesar {
+      background: var(--bg);
+      color: var(--text2);
+    }
+
+    .estado-en-proceso {
+      background: var(--amber-bg);
+      color: var(--amber-text);
+    }
+
+    .estado-completado {
+      background: var(--green-bg);
+      color: var(--green-text);
+    }
+
+    /* BOTONES */
+    .btn {
+      padding: 7px 14px;
+      border-radius: var(--r);
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all .1s;
+    }
+
+    .btn-primary {
+      background: var(--blue);
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      background: #1d4ed8;
+    }
+
+    .btn-secondary {
+      background: var(--bg);
+      border: 1px solid var(--border2);
+      color: var(--text);
+    }
+
+    .btn-secondary:hover {
+      background: var(--border);
+    }
+
+    .btn-success {
+      background: var(--green);
+      color: #fff;
+    }
+
+    .btn-success:hover {
+      background: #15803d;
+    }
+
+    .btn-danger {
+      background: var(--red);
+      color: #fff;
+    }
+
+    .btn-danger:hover {
+      background: #b91c1c;
+    }
+
+    .btn-amber {
+      background: var(--amber);
+      color: #fff;
+    }
+
+    .btn-amber:hover {
+      background: #b45309;
+    }
+
+    .btn-sm {
+      padding: 4px 10px;
+      font-size: 12px;
+    }
+
+    .btn:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+    }
+
+    .btn-block {
+      width: 100%;
+      margin-top: 0.5rem;
+    }
+
+    /* TABS */
+    .tab-btn {
+      padding: 6px 14px;
+      border-radius: var(--r);
+      border: 1px solid var(--border2);
+      background: var(--bg);
+      color: var(--text2);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all .15s;
+      margin-right: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .tab-btn:hover {
+      border-color: var(--blue);
+      color: var(--blue);
+    }
+
+    .tab-btn.active {
+      background: var(--blue);
+      color: #fff;
+      border-color: var(--blue);
+    }
+
+    /* MODALES */
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, .5);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal.open {
+      display: flex;
+    }
+
+    .modal-content {
+      background: var(--surface);
+      border-radius: var(--r);
+      padding: 2rem;
+      width: 100%;
+      max-width: 600px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 25px 50px rgba(0, 0, 0, .3);
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1rem;
+    }
+
+    .modal-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      color: var(--text2);
+    }
+
+    .modal-close:hover {
+      color: var(--text);
+    }
+
+    .form-group {
+      margin-bottom: 1rem;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text2);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1.5px solid var(--border2);
+      border-radius: var(--r);
+      font-size: 14px;
+      font-family: inherit;
+      outline: none;
+      transition: border .15s;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus,
+    .form-group textarea:focus {
+      border-color: var(--blue);
+    }
+
+    .form-group textarea {
+      resize: vertical;
+      min-height: 80px;
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    .form-row.full {
+      grid-template-columns: 1fr;
+    }
+
+    .radio-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .radio-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .radio-item input[type="radio"] {
+      width: auto;
+      margin: 0;
+      cursor: pointer;
+    }
+
+    .radio-item label {
+      margin: 0;
+      text-transform: none;
+      letter-spacing: normal;
+      font-weight: 500;
+      cursor: pointer;
+      text-transform: uppercase;
+      font-size: 12px;
+    }
+
+    /* TOAST */
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      padding: 12px 16px;
+      border-radius: var(--r);
+      font-size: 14px;
+      font-weight: 500;
+      display: none;
+      z-index: 2000;
+      animation: slideIn .3s ease-out;
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    .toast.ok {
+      background: var(--green-bg);
+      color: var(--green-text);
+      border: 1px solid var(--green);
+    }
+
+    .toast.err {
+      background: var(--red-bg);
+      color: var(--red-text);
+      border: 1px solid var(--red);
+    }
+
+    /* TABLA */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    table thead {
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+    }
+
+    table th {
+      padding: 10px 12px;
+      text-align: left;
+      font-weight: 600;
+      color: var(--text2);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+
+    table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    table tbody tr:hover {
+      background: var(--bg);
+    }
+
+    .empty {
+      text-align: center;
+      padding: 2rem;
+      color: var(--text2);
+      font-size: 14px;
+    }
+
+    /* SPINNER */
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 2rem;
+    }
+
+    /* PAGINACION */
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      padding: 1rem 0;
+      font-size: 13px;
+      color: var(--text2);
+    }
+
+    /* RESPONSIVO */
+    @media (max-width: 768px) {
+      .main-layout {
+        flex-direction: column;
+      }
+
+      .sidebar {
+        width: 100%;
+        display: flex;
+        overflow-x: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        padding: 0.5rem;
+      }
+
+      .sidebar-section {
+        display: none;
+      }
+
+      .nav-item {
+        white-space: nowrap;
+        padding: 6px 12px;
+      }
+
+      .form-row {
+        grid-template-columns: 1fr;
+      }
+
+      .orden-stats {
+        grid-template-columns: 1fr;
+      }
+
+      .modal-content {
+        width: 90%;
+        padding: 1.5rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- LOGIN PAGE -->
+  <div id="login-page">
+    <div class="login-card">
+      <div class="login-logo">Suelas<span>.</span></div>
+      <div class="login-sub">Gestión de Órdenes de Producción</div>
+
+      <form id="login-form">
+        <div class="login-field">
+          <label for="login-usuario">Correo electrónico</label>
+          <input type="email" id="login-usuario" placeholder="tu.correo@empresa.com" autocomplete="username" required>
+        </div>
+
+        <div class="login-field">
+          <label for="login-password">Contraseña</label>
+          <input type="password" id="login-password" placeholder="Ingresa tu contraseña" autocomplete="current-password" required>
+        </div>
+
+        <button class="btn-login-full" id="btn-login" type="submit">Ingresar</button>
+      </form>
+
+      <div class="login-error" id="login-error"></div>
+    </div>
+  </div>
+
+  <!-- APP -->
+  <div id="app">
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <div class="topbar-brand">Suelas<span>.</span> Producción</div>
+      <div class="topbar-right">
+        <div class="topbar-user">
+          <span id="topbar-nombre"></span> (<span id="topbar-rol"></span>)
+        </div>
+        <button class="btn-logout" id="btn-logout">Salir</button>
+      </div>
+    </div>
+
+    <!-- MAIN LAYOUT -->
+    <div class="main-layout">
+      <!-- SIDEBAR -->
+      <div class="sidebar">
+        <div class="sidebar-section">Menú</div>
+        <button class="nav-item active" data-page="ordenes">
+          📋 Órdenes
+        </button>
+        <button class="nav-item" data-page="historial">
+          📊 Historial
+        </button>
+      </div>
+
+      <!-- CONTENT -->
+      <div class="content">
+        <!-- PAGE: ÓRDENES -->
+        <div id="page-ordenes" class="page active">
+          <div class="card">
+            <div class="card-title">Órdenes de Producción</div>
+            <div>
+              <button class="tab-btn active" data-tab="activas">Activas</button>
+              <button class="tab-btn" data-tab="completadas">Completadas</button>
+            </div>
+            <input type="text" id="ordenes-buscar" placeholder="Buscar por pedido o cliente..." style="max-width:320px;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+          </div>
+
+          <div id="ordenes-lista"></div>
+          <div id="ordenes-paginacion" class="pagination"></div>
+        </div>
+
+        <!-- PAGE: HISTORIAL -->
+        <div id="page-historial" class="page">
+          <div class="card">
+            <div class="card-title">Historial de Actividades</div>
+            <input type="text" id="historial-buscar" placeholder="Buscar por pedido o usuario..." style="max-width:320px;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+          </div>
+
+          <div class="card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Pedido</th>
+                  <th>Usuario</th>
+                  <th>Acción</th>
+                  <th>Cantidad</th>
+                  <th>Fecha</th>
+                  <th>Hora</th>
+                  <th>Detalles</th>
+                </tr>
+              </thead>
+              <tbody id="historial-tabla">
+                <tr><td colspan="7" class="empty">Cargando...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div id="historial-paginacion" class="pagination"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODALES -->
+  <!-- Modal: Detalle de Orden -->
+  <div id="modal-detalle" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Orden <span id="detalle-pedido"></span></div>
+          <div style="font-size: 12px; color: var(--text2); margin-top: 4px;">
+            <span id="detalle-cliente"></span> • <span id="detalle-fecha"></span>
+          </div>
+        </div>
+        <button class="modal-close" id="btn-cerrar-detalle">×</button>
+      </div>
+
+      <div id="detalle-contenido"></div>
+
+      <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem;">
+        <button class="btn btn-secondary" id="btn-cerrar-detalle-2">Cerrar</button>
+        <button class="btn btn-danger" id="btn-devolucion" style="display: none;">
+          🔄 Registrar Devolución
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Registrar Proceso -->
+  <div id="modal-procesar" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-title">Procesar Suelas</div>
+        <button class="modal-close" id="btn-cerrar-procesar">×</button>
+      </div>
+
+      <div class="form-group">
+        <label>Talla</label>
+        <input type="text" id="procesar-talla" readonly style="background: var(--bg);">
+      </div>
+
+      <div class="form-group">
+        <label>Nombre Suela</label>
+        <input type="text" id="procesar-nombre" readonly style="background: var(--bg);">
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Cantidad Solicitada</label>
+          <input type="number" id="procesar-solicitada" readonly style="background: var(--bg);">
+        </div>
+        <div class="form-group">
+          <label>Ya Procesada</label>
+          <input type="number" id="procesar-yaprocesada" readonly style="background: var(--bg);">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="procesar-cantidad">¿Cuántas procesarás ahora?</label>
+        <input type="number" id="procesar-cantidad" min="1" placeholder="Ingresa cantidad">
+      </div>
+
+      <div class="form-group" id="procesar-destino-group">
+        <label for="procesar-destino">Enviar a Proceso</label>
+        <select id="procesar-destino">
+          <option value="">Selecciona proceso destino</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="procesar-obs">Observaciones</label>
+        <textarea id="procesar-obs" placeholder="(Opcional)"></textarea>
+      </div>
+
+      <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem;">
+        <button class="btn btn-secondary" id="btn-cancelar-procesar">Cancelar</button>
+        <button class="btn btn-primary" id="btn-guardar-procesar">Guardar Procesamiento</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Registrar Devolución -->
+  <div id="modal-devolucion" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-title">Registrar Devolución</div>
+        <button class="modal-close" id="btn-cerrar-devolucion">×</button>
+      </div>
+
+      <div class="form-group">
+        <label>Pedido</label>
+        <input type="text" id="dev-pedido" readonly style="background: var(--bg);">
+      </div>
+
+      <div class="form-group">
+        <label>Talla</label>
+        <input type="text" id="dev-talla" readonly style="background: var(--bg);">
+      </div>
+
+      <div class="form-group">
+        <label for="dev-cantidad">Cantidad a Devolver</label>
+        <input type="number" id="dev-cantidad" min="1" placeholder="Ingresa cantidad">
+      </div>
+
+      <div class="form-group">
+        <label for="dev-causal">Causal</label>
+        <select id="dev-causal">
+          <option value="">Selecciona causal</option>
+          <option value="QA_INTERNO">QA Interno (revisión)</option>
+          <option value="CLIENTE">Cliente (relación comercial)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="dev-proceso">Proceso que Falló</label>
+        <select id="dev-proceso">
+          <option value="">Selecciona proceso</option>
+          <option value="Inyección">Inyección</option>
+          <option value="Refilado">Refilado</option>
+          <option value="Acabado">Acabado</option>
+          <option value="Mateado">Mateado</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Acción</label>
+        <div class="radio-group">
+          <div class="radio-item">
+            <input type="radio" id="dev-molido" name="dev-accion" value="MOLIDO">
+            <label for="dev-molido">Molido (No se reprocesa)</label>
+          </div>
+          <div class="radio-item">
+            <input type="radio" id="dev-reproceso" name="dev-accion" value="REPROCESO">
+            <label for="dev-reproceso">Reproceso</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-group" id="dev-reproceso-destino-group" style="display: none;">
+        <label for="dev-reproceso-destino">Enviar a Proceso</label>
+        <select id="dev-reproceso-destino">
+          <option value="">Selecciona proceso</option>
+          <option value="Refilado">Refilado</option>
+          <option value="Acabado">Acabado</option>
+          <option value="Mateado">Mateado</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="dev-obs">Observaciones</label>
+        <textarea id="dev-obs" placeholder="Describe el defecto"></textarea>
+      </div>
+
+      <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem;">
+        <button class="btn btn-secondary" id="btn-cancelar-devolucion">Cancelar</button>
+        <button class="btn btn-danger" id="btn-guardar-devolucion">Registrar Devolución</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div class="toast" id="toast"></div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
