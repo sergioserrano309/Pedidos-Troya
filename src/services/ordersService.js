@@ -32,6 +32,7 @@ export async function fetchOrders(user, tab = 'activas', options = {}) {
   const { page = 0, filters = {} } = options;
   const { orden = '', cliente = '', material = '', color = '' } = filters;
 
+  // Primero obtén todos los datos sin filtros de material/color (no están en vw_pedido_progreso aún)
   let query = supabase.from('vw_pedido_progreso').select('*', { count: 'exact' });
 
   const proceso = ROLE_TO_PROCESS[user.role];
@@ -55,12 +56,8 @@ export async function fetchOrders(user, tab = 'activas', options = {}) {
   if (cliente.trim()) {
     query = query.ilike('cliente', `%${cliente.trim()}%`);
   }
-  if (material.trim()) {
-    query = query.ilike('material', `%${material.trim()}%`);
-  }
-  if (color.trim()) {
-    query = query.ilike('color', `%${color.trim()}%`);
-  }
+  // Los filtros de material y color se aplicarán en JS por ahora
+  // hasta que verifiquemos que existan en la vista
 
   query = query
     .order('order_number', { ascending: false })
@@ -73,7 +70,20 @@ export async function fetchOrders(user, tab = 'activas', options = {}) {
     throw new Error('No se pudieron cargar las órdenes.');
   }
 
-  return { orders: data || [], count: count || 0 };
+  // Filtrar por material y color en JavaScript
+  let filteredData = data || [];
+  if (material.trim()) {
+    filteredData = filteredData.filter(order =>
+      order.material && order.material.toLowerCase().includes(material.toLowerCase())
+    );
+  }
+  if (color.trim()) {
+    filteredData = filteredData.filter(order =>
+      order.color && order.color.toLowerCase().includes(color.toLowerCase())
+    );
+  }
+
+  return { orders: filteredData, count: count || 0 };
 }
 
 /**
