@@ -125,6 +125,8 @@ select
   order_number,
   max(cliente)        as cliente,
   max(fecha_pedido)   as fecha_pedido,
+  max(material)       as material,
+  max(color)          as color,
   count(*)            as total_items,
   sum(cantidad_solicitada) as total_solicitado,
   sum(cantidad_procesada)  as total_procesado,
