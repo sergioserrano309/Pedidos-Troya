@@ -26,10 +26,11 @@ const PAGE_SIZE = 20;
 /**
  * @param {{ role: string }} user
  * @param {'activas'|'completadas'} tab
- * @param {{ page?: number, search?: string }} options
+ * @param {{ page?: number, filters?: { orden?: string, cliente?: string, material?: string, color?: string } }} options
  */
 export async function fetchOrders(user, tab = 'activas', options = {}) {
-  const { page = 0, search = '' } = options;
+  const { page = 0, filters = {} } = options;
+  const { orden = '', cliente = '', material = '', color = '' } = filters;
 
   let query = supabase.from('vw_pedido_progreso').select('*', { count: 'exact' });
 
@@ -41,7 +42,6 @@ export async function fetchOrders(user, tab = 'activas', options = {}) {
     }
     query = query.in('order_number', orderNumbers);
   }
-  // refilado y comercial: sin filtro adicional, ven todas las órdenes.
 
   if (tab === 'completadas') {
     query = query.eq('porcentaje_completado', 100);
@@ -49,8 +49,11 @@ export async function fetchOrders(user, tab = 'activas', options = {}) {
     query = query.lt('porcentaje_completado', 100);
   }
 
-  if (search) {
-    query = query.or(`order_number.ilike.%${search}%,cliente.ilike.%${search}%`);
+  if (orden.trim()) {
+    query = query.ilike('order_number', `%${orden.trim()}%`);
+  }
+  if (cliente.trim()) {
+    query = query.ilike('cliente', `%${cliente.trim()}%`);
   }
 
   query = query
@@ -64,7 +67,20 @@ export async function fetchOrders(user, tab = 'activas', options = {}) {
     throw new Error('No se pudieron cargar las órdenes.');
   }
 
-  return { orders: data || [], count: count || 0 };
+  let filteredData = data || [];
+
+  if (material.trim()) {
+    filteredData = filteredData.filter(order =>
+      order.material && String(order.material).toLowerCase().includes(material.toLowerCase())
+    );
+  }
+  if (color.trim()) {
+    filteredData = filteredData.filter(order =>
+      order.color && String(order.color).toLowerCase().includes(color.toLowerCase())
+    );
+  }
+
+  return { orders: filteredData, count: count || 0 };
 }
 
 /**
