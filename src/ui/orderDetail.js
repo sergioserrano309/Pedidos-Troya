@@ -21,6 +21,8 @@ export async function abrirDetalleOrden(orderNumber) {
   document.getElementById('detalle-pedido').textContent = orderNumber;
   document.getElementById('detalle-cliente').textContent = '';
   document.getElementById('detalle-fecha').textContent = '';
+  document.getElementById('detalle-especificaciones').innerHTML = '';
+  document.getElementById('detalle-comentarios').innerHTML = '';
   contenedor.innerHTML = '<div class="loading"><div class="spinner"></div> Cargando...</div>';
   modal.classList.add('open');
 
@@ -32,8 +34,12 @@ export async function abrirDetalleOrden(orderNumber) {
     setState({ selectedOrderItems: items });
 
     if (items.length > 0) {
-      document.getElementById('detalle-cliente').textContent = items[0].cliente || '—';
-      document.getElementById('detalle-fecha').textContent = formatearFecha(items[0].fecha_pedido);
+      const firstItem = items[0];
+      document.getElementById('detalle-cliente').textContent = firstItem.cliente || '—';
+      document.getElementById('detalle-fecha').textContent = formatearFecha(firstItem.fecha_pedido);
+
+      renderEspecificaciones(firstItem);
+      renderComentarios(firstItem);
     }
 
     renderDetalleItems(items);
@@ -48,6 +54,45 @@ export async function refrescarDetalleActual() {
   const modal = document.getElementById('modal-detalle');
   if (selectedOrderNumber && modal.classList.contains('open')) {
     await abrirDetalleOrden(selectedOrderNumber);
+  }
+}
+
+function renderEspecificaciones(item) {
+  const specs = [];
+
+  if (item.referencia) specs.push(`Referencia: ${escapeHtml(item.referencia)}`);
+  if (item.color) specs.push(`Color: ${escapeHtml(item.color)}`);
+  if (item.material) specs.push(`Material: ${escapeHtml(item.material)}`);
+
+  const flags = [];
+  if (item.vira) flags.push('Vira ✓');
+  if (item.acabado_spec) flags.push('Acabado ✓');
+  if (item.esterilla) flags.push('Esterilla ✓');
+  if (item.marquilla) flags.push('Marquilla ✓');
+
+  if (flags.length > 0) specs.push(flags.join(' • '));
+
+  document.getElementById('detalle-especificaciones').innerHTML = specs.join(' • ');
+}
+
+function renderComentarios(item) {
+  const comentarios = [];
+
+  if (item.detalle_vira?.trim()) {
+    comentarios.push(`<div style="margin-bottom: 8px;"><strong>Detalles Vira:</strong> ${escapeHtml(item.detalle_vira)}</div>`);
+  }
+  if (item.detalle_acabado?.trim()) {
+    comentarios.push(`<div style="margin-bottom: 8px;"><strong>Detalles Acabado:</strong> ${escapeHtml(item.detalle_acabado)}</div>`);
+  }
+  if (item.detalle_esterilla?.trim()) {
+    comentarios.push(`<div style="margin-bottom: 8px;"><strong>Detalles Esterilla:</strong> ${escapeHtml(item.detalle_esterilla)}</div>`);
+  }
+
+  if (comentarios.length > 0) {
+    document.getElementById('detalle-comentarios').innerHTML =
+      `<div style="background: var(--bg); padding: 10px 12px; border-radius: 6px; border-left: 3px solid var(--blue);">
+        ${comentarios.join('')}
+      </div>`;
   }
 }
 
@@ -73,8 +118,7 @@ function renderDetalleItems(items) {
         <div class="card-orden" data-idx="${idx}">
           <div class="orden-header">
             <div>
-              <div class="orden-num">${escapeHtml(item.nombre_referencia || item.referencia || '')} — Talla ${escapeHtml(item.talla)}</div>
-              <div class="orden-cliente">${escapeHtml(item.material || '')} ${escapeHtml(item.color || '')}</div>
+              <div class="orden-num">Talla ${escapeHtml(item.talla)}</div>
             </div>
             <span class="estado-badge estado-${estado}">${estado.replace('-', ' ')}</span>
           </div>
@@ -84,8 +128,6 @@ function renderDetalleItems(items) {
             <div class="stat-item"><div class="stat-label">Pendiente</div><div class="stat-value">${item.cantidad_pendiente}</div></div>
             <div class="stat-item"><div class="stat-label">Etapa actual</div><div class="stat-value">${escapeHtml(item.etapa_actual)}</div></div>
           </div>
-          <div class="progress-bar"><div class="progress-fill" style="width:${progreso}%"></div></div>
-          <div class="progress-text">${progreso}% completado</div>
           <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
             ${puedeProcesar ? `<button class="btn btn-primary btn-sm btn-item-procesar" data-idx="${idx}">${user.role === 'empaque' ? 'Marcar Completado' : 'Procesar'}</button>` : ''}
             ${puedeDevolver ? `<button class="btn btn-danger btn-sm btn-item-devolver" data-idx="${idx}">🔄 Devolver</button>` : ''}

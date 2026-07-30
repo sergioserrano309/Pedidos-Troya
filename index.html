@@ -878,15 +878,17 @@
   <div id="modal-detalle" class="modal">
     <div class="modal-content">
       <div class="modal-header">
-        <div>
+        <div style="width: 100%;">
           <div class="modal-title">Orden <span id="detalle-pedido"></span></div>
-          <div style="font-size: 12px; color: var(--text2); margin-top: 4px;">
+          <div style="font-size: 12px; color: var(--text2); margin-top: 4px; margin-bottom: 12px;">
             <span id="detalle-cliente"></span> • <span id="detalle-fecha"></span>
           </div>
+          <div id="detalle-especificaciones" style="font-size: 12px; color: var(--text); background: var(--bg); padding: 8px 12px; border-radius: 6px; margin-bottom: 8px;"></div>
         </div>
         <button class="modal-close" id="btn-cerrar-detalle">×</button>
       </div>
 
+      <div id="detalle-comentarios" style="margin-bottom: 1rem;"></div>
       <div id="detalle-contenido"></div>
 
       <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem;">
