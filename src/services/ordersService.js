@@ -32,6 +32,7 @@ export async function fetchOrders(user, tab = 'activas', options = {}) {
   const { page = 0, filters = {} } = options;
   const { orden = '', cliente = '', material = '', color = '' } = filters;
 
+  // Primero obtén todos los datos sin filtros de material/color (no están en vw_pedido_progreso aún)
   let query = supabase.from('vw_pedido_progreso').select('*', { count: 'exact' });
 
   const proceso = ROLE_TO_PROCESS[user.role];

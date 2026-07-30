@@ -8,7 +8,7 @@ const PAGE_SIZE = 20;
 
 let paginaActual = 0;
 let totalRegistros = 0;
-let terminoBusqueda = '';
+let filtros = { orden: '', cliente: '', material: '', color: '' };
 let debounceTimer = null;
 
 export function inicializarPaginaOrdenes() {
@@ -22,14 +22,18 @@ export function inicializarPaginaOrdenes() {
     });
   });
 
-  const buscador = document.getElementById('ordenes-buscar');
-  buscador.addEventListener('input', () => {
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      terminoBusqueda = buscador.value.trim();
-      paginaActual = 0;
-      cargarOrdenes();
-    }, 350);
+  ['filtro-orden', 'filtro-cliente', 'filtro-material', 'filtro-color'].forEach((id) => {
+    const input = document.getElementById(id);
+    if (input) {
+      input.addEventListener('input', () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          filtros[id.replace('filtro-', '')] = input.value.trim();
+          paginaActual = 0;
+          cargarOrdenes();
+        }, 350);
+      });
+    }
   });
 }
 
@@ -43,7 +47,7 @@ export async function cargarOrdenes() {
   try {
     const { orders, count } = await fetchOrders(user, currentTab, {
       page: paginaActual,
-      search: terminoBusqueda
+      filters: filtros
     });
     totalRegistros = count;
     setState({ orders });

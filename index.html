@@ -830,7 +830,12 @@
               <button class="tab-btn active" data-tab="activas">Activas</button>
               <button class="tab-btn" data-tab="completadas">Completadas</button>
             </div>
-            <input type="text" id="ordenes-buscar" placeholder="Buscar por pedido o cliente..." style="max-width:320px;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0.75rem;margin-top:1rem;">
+              <input type="text" id="filtro-orden" placeholder="Número de Orden..." style="padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+              <input type="text" id="filtro-cliente" placeholder="Cliente..." style="padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+              <input type="text" id="filtro-material" placeholder="Material..." style="padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+              <input type="text" id="filtro-color" placeholder="Color..." style="padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+            </div>
           </div>
 
           <div id="ordenes-lista"></div>
