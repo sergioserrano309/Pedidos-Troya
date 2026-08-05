@@ -2,7 +2,6 @@ import { logout as logoutService } from '../services/authService.js';
 import { resetState, setState } from '../state/appState.js';
 import { mostrarLogin } from './login.js';
 import { cargarOrdenes } from './dashboard.js';
-import { cargarHistorial } from './historyPage.js';
 
 export function inicializarNavegacion() {
   document.querySelectorAll('.nav-item[data-page]').forEach((btn) => {
@@ -25,6 +24,5 @@ function cambiarPagina(pagina, btnEl) {
 
   setState({ currentPage: pagina });
 
-  if (pagina === 'ordenes') cargarOrdenes();
-  if (pagina === 'historial') cargarHistorial();
+  cargarOrdenes();
 }

@@ -12,19 +12,15 @@
 
 -- ---------------------------------------------------------------------
 -- vw_pedidos_con_id
--- p_pedidosh + el item_id determinista calculado para cada fila.
+-- item_id ya NO se calcula aqui: es una columna generada+almacenada en
+-- p_pedidosh (ver supabase/sql/016_item_id_materializado.sql), calculada
+-- una sola vez por fila en vez de en cada consulta (generar_item_id hace
+-- SHA-256 + un ciclo de 64 pasos en PL/pgSQL; recalcularlo miles de
+-- veces por consulta era la causa principal de la lentitud del listado).
 -- ---------------------------------------------------------------------
 create or replace view public.vw_pedidos_con_id
 with (security_invoker = true) as
-select
-  pp.*,
-  public.generar_item_id(
-    pp."PedidoNo"::text,
-    pp."Referencia",
-    pp."Talla"::text,
-    pp."MaterialP",
-    pp."ColorP"
-  ) as item_id
+select pp.*
 from public.p_pedidosh pp;
 
 -- ---------------------------------------------------------------------
@@ -118,30 +114,139 @@ comment on view public.vw_item_progreso is
 -- ---------------------------------------------------------------------
 -- vw_pedido_progreso
 -- Progreso agregado por PedidoNo (usado en las cards del dashboard).
+-- Incluye: etapa máxima alcanzada, fecha de finalización, y días transcurridos.
 -- ---------------------------------------------------------------------
 create or replace view public.vw_pedido_progreso
 with (security_invoker = true) as
+with orden_progreso as (
+  -- Fusionado en un solo paso por vw_item_progreso (antes eran dos CTEs
+  -- separados que leian/unian TODO otra vez cada uno: el doble de
+  -- trabajo para exactamente los mismos datos).
+  select
+    order_number::text as order_number,
+    max(cliente)        as cliente,
+    max(fecha_pedido)   as fecha_pedido,
+    max(nombre_referencia) as nombre_referencia,
+    max(material)       as material,
+    max(color)          as color,
+    count(*)            as total_items,
+    sum(cantidad_solicitada) as total_solicitado,
+    sum(cantidad_procesada)  as total_procesado,
+    sum(cantidad_devuelta)   as total_devuelto,
+    sum(cantidad_pendiente)  as total_pendiente,
+    case
+      when sum(cantidad_solicitada) > 0
+        then least(round((sum(cantidad_procesada)::numeric / sum(cantidad_solicitada)::numeric) * 100), 100)
+      else 0
+    end as porcentaje_completado,
+    case
+      when max(case when etapa_actual = 'Empaque' then 4 when etapa_actual = 'Acabado' then 3 when etapa_actual = 'Mateado' then 2 when etapa_actual = 'Refilado' then 1 else 0 end) = 4 then 'E'
+      when max(case when etapa_actual = 'Empaque' then 4 when etapa_actual = 'Acabado' then 3 when etapa_actual = 'Mateado' then 2 when etapa_actual = 'Refilado' then 1 else 0 end) = 3 then 'A'
+      when max(case when etapa_actual = 'Empaque' then 4 when etapa_actual = 'Acabado' then 3 when etapa_actual = 'Mateado' then 2 when etapa_actual = 'Refilado' then 1 else 0 end) = 2 then 'M'
+      when max(case when etapa_actual = 'Empaque' then 4 when etapa_actual = 'Acabado' then 3 when etapa_actual = 'Mateado' then 2 when etapa_actual = 'Refilado' then 1 else 0 end) = 1 then 'R'
+      else 'Sin Procesar'
+    end as etapa_actual
+  from public.vw_item_progreso
+  group by order_number::text
+),
+-- Entradas/salidas por ORDEN (no por item) para cada uno de los 4
+-- procesos, agregando production_movements directamente en una sola
+-- pasada (incluye fecha_fin, fusionado aqui mismo para no leer
+-- production_movements dos veces). Evita unir con vw_item_progreso a
+-- nivel de item (que ya hace su propia agregacion de production_movements)
+-- para no duplicar el costo de la consulta bajo RLS.
+movimientos_orden_calc as (
+  select
+    order_number::text as order_number,
+    sum(quantity) filter (where to_process = 'Refilado')   as in_refilado,
+    sum(quantity) filter (where to_process = 'Acabado')    as in_acabado,
+    sum(quantity) filter (where to_process = 'Mateado')    as in_mateado,
+    sum(quantity) filter (where to_process = 'Empaque')    as in_empaque,
+    -- out_refilado EXCLUYE los movimientos automáticos (es_automatico):
+    -- el enrutamiento por regla no es trabajo que Refilado haya hecho,
+    -- así que no debe sumar a su propio "Procesado".
+    sum(quantity) filter (where from_process = 'Refilado' and not es_automatico) as out_refilado,
+    sum(quantity) filter (where from_process = 'Acabado')  as out_acabado,
+    sum(quantity) filter (where from_process = 'Mateado')  as out_mateado,
+    sum(quantity) filter (where from_process = 'Empaque')  as out_empaque,
+    max(created_at) filter (where to_process = 'Empaque')  as fecha_fin
+  from public.production_movements
+  group by order_number::text
+),
+destino_calc as (
+  select order_number, es_automatico
+  from public.order_destino
+)
 select
-  order_number,
-  max(cliente)        as cliente,
-  max(fecha_pedido)   as fecha_pedido,
-  max(material)       as material,
-  max(color)          as color,
-  count(*)            as total_items,
-  sum(cantidad_solicitada) as total_solicitado,
-  sum(cantidad_procesada)  as total_procesado,
-  sum(cantidad_devuelta)   as total_devuelto,
-  sum(cantidad_pendiente)  as total_pendiente,
+  op.order_number,
+  op.cliente,
+  op.fecha_pedido,
+  op.nombre_referencia,
+  op.material,
+  op.color,
+  op.total_solicitado,
+  op.total_procesado,
+  op.total_devuelto,
+  op.total_pendiente,
+  op.porcentaje_completado,
   case
-    when sum(cantidad_solicitada) > 0
-      then least(round((sum(cantidad_procesada)::numeric / sum(cantidad_solicitada)::numeric) * 100), 100)
+    when op.porcentaje_completado = 100 then 'Completado'
+    else 'En Proceso'
+  end as estatus_general,
+  case
+    when op.porcentaje_completado = 100 then 'Fin'
+    else coalesce(op.etapa_actual, 'R')
+  end as etapa_actual,
+  extract(day from (case when op.porcentaje_completado = 100 and mo.fecha_fin is not null then mo.fecha_fin else now() end) - op.fecha_pedido)::int as dias_orden,
+  -- Cifras especificas de CADA proceso, calculadas contra el TOTAL del
+  -- pedido completo (op.total_solicitado): un pedido completo va SIEMPRE
+  -- a Acabado O a Mateado (nunca dividido entre ambos), y siempre termina
+  -- pasando por Empaque, asi que el % de "mi proceso" si puede llegar a
+  -- 100% de forma consistente. "entrada_X" (solo Acabado/Mateado/Empaque)
+  -- se expone aparte unicamente para decidir VISIBILIDAD en
+  -- ordersService.js (si algo me ha sido enviado realmente), sin afectar
+  -- las cifras mostradas al usuario.
+  (op.total_solicitado + coalesce(mo.in_refilado, 0)) as total_refilado,
+  coalesce(mo.out_refilado, 0) as procesado_refilado,
+  greatest(op.total_solicitado + coalesce(mo.in_refilado, 0) - coalesce(mo.out_refilado, 0), 0) as pendiente_refilado,
+  case when (op.total_solicitado + coalesce(mo.in_refilado, 0)) > 0
+    then least(round((coalesce(mo.out_refilado, 0)::numeric / (op.total_solicitado + coalesce(mo.in_refilado, 0))::numeric) * 100), 100)
     else 0
-  end as porcentaje_completado
-from public.vw_item_progreso
-group by order_number;
+  end as porcentaje_refilado,
+  coalesce(mo.in_acabado, 0) as entrada_acabado,
+  op.total_solicitado as total_acabado,
+  coalesce(mo.out_acabado, 0) as procesado_acabado,
+  greatest(op.total_solicitado - coalesce(mo.out_acabado, 0), 0) as pendiente_acabado,
+  case when op.total_solicitado > 0
+    then least(round((coalesce(mo.out_acabado, 0)::numeric / op.total_solicitado::numeric) * 100), 100)
+    else 0
+  end as porcentaje_acabado,
+  coalesce(mo.in_mateado, 0) as entrada_mateado,
+  op.total_solicitado as total_mateado,
+  coalesce(mo.out_mateado, 0) as procesado_mateado,
+  greatest(op.total_solicitado - coalesce(mo.out_mateado, 0), 0) as pendiente_mateado,
+  case when op.total_solicitado > 0
+    then least(round((coalesce(mo.out_mateado, 0)::numeric / op.total_solicitado::numeric) * 100), 100)
+    else 0
+  end as porcentaje_mateado,
+  coalesce(mo.in_empaque, 0) as entrada_empaque,
+  op.total_solicitado as total_empaque,
+  coalesce(mo.out_empaque, 0) as procesado_empaque,
+  greatest(op.total_solicitado - coalesce(mo.out_empaque, 0), 0) as pendiente_empaque,
+  case when op.total_solicitado > 0
+    then least(round((coalesce(mo.out_empaque, 0)::numeric / op.total_solicitado::numeric) * 100), 100)
+    else 0
+  end as porcentaje_empaque,
+  -- true si el destino de este pedido se confirmó por una regla de
+  -- enrutamiento automático (no por un click humano). Refilado NO debe
+  -- ver estos pedidos en su listado (ver ordersService.js).
+  dc.es_automatico as destino_es_automatico
+from orden_progreso op
+left join movimientos_orden_calc mo on mo.order_number = op.order_number
+left join destino_calc dc on dc.order_number = op.order_number;
 
 comment on view public.vw_pedido_progreso is
-  'Progreso agregado por PedidoNo para las cards del dashboard. Calculado en cada consulta, nunca almacenado.';
+  'Progreso agregado por PedidoNo para las cards del dashboard. Calculado en cada consulta, nunca almacenado. Incluye estatus general, etapa actual, dias transcurridos y cifras especificas por proceso (refilado/acabado/mateado/empaque) para que cada rol vea solo lo que le compete.';
 
 -- ---------------------------------------------------------------------
 -- vw_historial

@@ -9,6 +9,7 @@ import { inicializarModalDetalle, refrescarDetalleActual } from './ui/orderDetai
 import { inicializarModalProcesar } from './ui/processModal.js';
 import { inicializarModalDevolucion } from './ui/returnModal.js';
 import { inicializarPaginaHistorial, cargarHistorial } from './ui/historyPage.js';
+import { inicializarPaginaReglas } from './ui/reglasPage.js';
 import { iniciarRealtime } from './realtime.js';
 
 /**
@@ -24,6 +25,7 @@ function inicializarUI() {
   inicializarModalDetalle();
   inicializarModalProcesar();
   inicializarModalDevolucion();
+  inicializarPaginaReglas();
 
   initLoginPage(iniciarApp);
 }
@@ -35,12 +37,17 @@ async function iniciarApp(user) {
   document.getElementById('topbar-nombre').textContent = user.name;
   document.getElementById('topbar-rol').textContent = ROLE_LABELS[user.role] || user.role;
 
+  // La pestaña "Reglas de Enrutamiento" solo la administra Refilado por
+  // ahora (a futuro pasará a un rol "validador").
+  const tabReglas = document.getElementById('tab-btn-reglas');
+  if (tabReglas) tabReglas.style.display = user.role === 'refilado' ? 'inline-block' : 'none';
+
   await cargarOrdenes();
 
   iniciarRealtime(async () => {
-    const { currentPage } = getState();
-    if (currentPage === 'ordenes') await cargarOrdenes();
-    if (currentPage === 'historial') await cargarHistorial();
+    const { currentTab } = getState();
+    if (currentTab === 'registros') await cargarHistorial();
+    else await cargarOrdenes();
     await refrescarDetalleActual();
   });
 }

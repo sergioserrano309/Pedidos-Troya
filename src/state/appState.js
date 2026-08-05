@@ -14,6 +14,7 @@ const state = {
   selectedOrderNumber: null,
   selectedOrderItems: [],  // resultado de vw_item_progreso para la orden seleccionada
   selectedItem: null,      // item actualmente abierto en el modal de proceso/devolución
+  destinoConfirmadoOrden: null, // { destino, confirmed_by, confirmed_at } de order_destino para la orden abierta, o null si aún no se confirma
   history: []
 };
 
@@ -42,6 +43,7 @@ export function resetState() {
     selectedOrderNumber: null,
     selectedOrderItems: [],
     selectedItem: null,
+    destinoConfirmadoOrden: null,
     history: []
   });
 }

@@ -21,7 +21,7 @@ export const ROLE_TO_PROCESS_NAME = {
  * (se modela como un movimiento especial hacia 'Completado').
  */
 export const DESTINOS_PERMITIDOS_POR_ROL = {
-  refilado: ['Acabado', 'Mateado'],
+  refilado: ['Acabado', 'Mateado', 'Empaque'],
   acabado: ['Empaque'],
   mateado: ['Empaque'],
   empaque: ['Completado']
@@ -45,4 +45,11 @@ export const ROLE_LABELS = {
   mateado: 'Mateado',
   empaque: 'Empaque',
   comercial: 'Comercial'
+};
+
+export const ICONO_PROCESO = {
+  Refilado: '✂️',
+  Acabado: '🖌️',
+  Mateado: '🎨',
+  Empaque: '📦'
 };

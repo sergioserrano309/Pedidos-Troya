@@ -9,79 +9,184 @@ import { supabase } from '../config/supabaseClient.js';
  * siempre se calcula". Este servicio solo consulta esas vistas y aplica
  * la visibilidad por rol.
  *
- * Visibilidad por rol (sección 6 del documento):
- *   - refilado / comercial: ven TODAS las órdenes.
- *   - acabado / mateado / empaque: solo ven órdenes que tengan al menos
- *     un ítem cuya etapa_actual coincida con su proceso.
+ * Visibilidad y cifras por rol:
+ *   - comercial: ve TODAS las órdenes con las cifras globales del pedido
+ *     completo (total_solicitado/procesado/pendiente/porcentaje).
+ *   - refilado: ve TODAS las órdenes (es el punto de entrada).
+ *   - acabado/mateado/empaque: ven solo las órdenes donde algo le ha
+ *     sido enviado a SU proceso (entrada_<proceso> > 0) — un pedido
+ *     completo va SIEMPRE a Acabado O a Mateado, nunca a ambos, así que
+ *     esto no oculta nada que realmente les compete.
+ *   Las cifras mostradas (Total Suelas/Procesadas/Pendientes/%) para
+ *   cualquier rol de proceso se calculan contra el TOTAL del pedido
+ *   completo (no contra "lo que me han enviado hasta ahora"), porque
+ *   eventualmente el 100% del pedido pasa por su proceso (Acabado O
+ *   Mateado, y siempre Empaque) — así el % sí puede llegar a 100% de
+ *   forma consistente y la pestaña "Completadas" es alcanzable.
  */
 
 const ROLE_TO_PROCESS = {
+  refilado: 'Refilado',
   acabado: 'Acabado',
   mateado: 'Mateado',
   empaque: 'Empaque'
 };
 
-const PAGE_SIZE = 20;
+// Columnas especificas por proceso en vw_pedido_progreso (ver
+// supabase/sql/005_views_dashboard.sql). "entrada" solo existe para
+// Acabado/Mateado/Empaque y se usa UNICAMENTE para decidir visibilidad
+// (algo me fue enviado realmente); las cifras mostradas (total/procesado/
+// pendiente/porcentaje) se calculan contra el pedido completo.
+const PROCESO_COLUMNAS = {
+  Refilado: { total: 'total_refilado', procesado: 'procesado_refilado', pendiente: 'pendiente_refilado', porcentaje: 'porcentaje_refilado' },
+  Acabado: { entrada: 'entrada_acabado', total: 'total_acabado', procesado: 'procesado_acabado', pendiente: 'pendiente_acabado', porcentaje: 'porcentaje_acabado' },
+  Mateado: { entrada: 'entrada_mateado', total: 'total_mateado', procesado: 'procesado_mateado', pendiente: 'pendiente_mateado', porcentaje: 'porcentaje_mateado' },
+  Empaque: { entrada: 'entrada_empaque', total: 'total_empaque', procesado: 'procesado_empaque', pendiente: 'pendiente_empaque', porcentaje: 'porcentaje_empaque' }
+};
+
+const PAGE_SIZE = 30;
 
 /**
  * @param {{ role: string }} user
  * @param {'activas'|'completadas'} tab
- * @param {{ page?: number, filters?: { orden?: string, cliente?: string, material?: string, color?: string } }} options
+ * @param {{ page?: number, filters?: { orden?: string, cliente?: string, nombreSuela?: string, material?: string, color?: string, fecha?: string } }} options
  */
 export async function fetchOrders(user, tab = 'activas', options = {}) {
   const { page = 0, filters = {} } = options;
-  const { orden = '', cliente = '', material = '', color = '' } = filters;
-
-  // Primero obtén todos los datos sin filtros de material/color (no están en vw_pedido_progreso aún)
-  let query = supabase.from('vw_pedido_progreso').select('*', { count: 'exact' });
+  const { orden = '', cliente = '', nombreSuela = '', material = '', color = '', fecha = '' } = filters;
 
   const proceso = ROLE_TO_PROCESS[user.role];
-  if (proceso) {
-    const orderNumbers = await obtenerPedidosVisiblesParaProceso(proceso);
-    if (orderNumbers.length === 0) {
-      return { orders: [], count: 0 };
-    }
-    query = query.in('order_number', orderNumbers);
+  const columnas = proceso ? PROCESO_COLUMNAS[proceso] : null;
+
+  // OJO: sin count:'exact' a propósito. Contar el total exacto de filas
+  // obliga a Postgres a calcular la vista COMPLETA (todos los pedidos que
+  // cumplan el filtro) antes de poder aplicar el LIMIT, aunque solo se
+  // vayan a mostrar 30 — eso duplicaba el trabajo real en cada consulta.
+  // En su lugar pedimos PAGE_SIZE+1 filas: si llegan más de PAGE_SIZE,
+  // sabemos que hay una página siguiente, sin necesidad de contar todo.
+  let query = supabase.from('vw_pedido_progreso').select('*');
+
+  if (columnas?.entrada) {
+    // Visibilidad basada en si algo fue REALMENTE enviado a mi proceso
+    // (>0), no en el "ultimo movimiento" del item (que cambia de proceso
+    // cada vez que la orden avanza y hacia que la orden "desapareciera"
+    // para roles previos con trabajo aun pendiente en su propio proceso).
+    // Refilado no tiene columna "entrada": ve todas las ordenes siempre,
+    // EXCEPTO las auto-enrutadas por regla (ver mas abajo).
+    query = query.gt(columnas.entrada, 0);
   }
 
+  if (user.role === 'refilado') {
+    // Los pedidos que una regla de enrutamiento envio automaticamente
+    // (ver supabase/sql/013_auto_enrutamiento_trigger.sql) nunca le
+    // llegan a Refilado: no debe verlos ni procesarlos.
+    query = query.or('destino_es_automatico.is.null,destino_es_automatico.eq.false');
+  }
+
+  const columnaPorcentaje = columnas ? columnas.porcentaje : 'porcentaje_completado';
+
   if (tab === 'completadas') {
-    query = query.eq('porcentaje_completado', 100);
+    query = query.eq(columnaPorcentaje, 100);
   } else {
-    query = query.lt('porcentaje_completado', 100);
+    query = query.lt(columnaPorcentaje, 100);
   }
 
   if (orden.trim()) {
     query = query.ilike('order_number', `%${orden.trim()}%`);
   }
+  // cliente/nombreSuela/material/color son dropdowns con valores EXACTOS tomados
+  // de la base de datos (ver fetchOpcionesCliente/NombreSuela/Material/Color),
+  // así que se filtran con igualdad exacta y del lado del servidor (antes de
+  // paginar, para no perder resultados que caían en otra página).
   if (cliente.trim()) {
-    query = query.ilike('cliente', `%${cliente.trim()}%`);
+    query = query.eq('cliente', cliente.trim());
+  }
+  if (nombreSuela.trim()) {
+    query = query.eq('nombre_referencia', nombreSuela.trim());
+  }
+  if (material.trim()) {
+    query = query.eq('material', material.trim());
+  }
+  if (color.trim()) {
+    query = query.eq('color', color.trim());
+  }
+  if (fecha.trim()) {
+    query = query.eq('fecha_pedido', fecha.trim());
   }
 
   query = query
     .order('order_number', { ascending: false })
-    .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+    .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE); // PAGE_SIZE + 1 filas
 
-  const { data, error, count } = await query;
+  const { data, error } = await query;
 
   if (error) {
     console.error('[ordersService] Error obteniendo órdenes:', error);
     throw new Error('No se pudieron cargar las órdenes.');
   }
 
-  let filteredData = data || [];
+  const hayMas = (data || []).length > PAGE_SIZE;
+  let filteredData = (data || []).slice(0, PAGE_SIZE);
 
-  if (material.trim()) {
-    filteredData = filteredData.filter(order =>
-      order.material && String(order.material).toLowerCase().includes(material.toLowerCase())
-    );
-  }
-  if (color.trim()) {
-    filteredData = filteredData.filter(order =>
-      order.color && String(order.color).toLowerCase().includes(color.toLowerCase())
-    );
+  // Remapea las cifras especificas del proceso del rol a los nombres
+  // genericos que usa el resto del frontend (total_solicitado,
+  // total_procesado, total_pendiente, porcentaje_completado), para que
+  // dashboard.js / orderDetail.js no necesiten saber de esta distincion.
+  if (columnas) {
+    filteredData = filteredData.map((row) => ({
+      ...row,
+      total_solicitado: row[columnas.total],
+      total_procesado: row[columnas.procesado],
+      total_pendiente: row[columnas.pendiente],
+      porcentaje_completado: row[columnas.porcentaje],
+      estatus_general: row[columnas.porcentaje] === 100 ? 'Completado' : 'En Proceso'
+    }));
   }
 
-  return { orders: filteredData, count: count || 0 };
+  return { orders: filteredData, hayMas };
+}
+
+/**
+ * Opciones para los dropdowns de filtro (Nombre Suela/Material/Color),
+ * leídas en vivo de p_pedidosh vía vistas DISTINCT (ver
+ * supabase/sql/011_filtros_opciones.sql). Como se consultan cada vez que
+ * se abre la página de Órdenes, un valor nuevo (ej. un color que nunca se
+ * había usado) aparece automáticamente sin tocar código.
+ */
+export async function fetchOpcionesCliente() {
+  const { data, error } = await supabase.from('vw_clientes').select('cliente');
+  if (error) {
+    console.error('[ordersService] Error obteniendo opciones de cliente:', error);
+    return [];
+  }
+  return data.map((r) => r.cliente).filter(Boolean);
+}
+
+export async function fetchOpcionesNombreSuela() {
+  const { data, error } = await supabase.from('vw_nombres_suela').select('nombre_referencia');
+  if (error) {
+    console.error('[ordersService] Error obteniendo opciones de nombre de suela:', error);
+    return [];
+  }
+  return data.map((r) => r.nombre_referencia).filter(Boolean);
+}
+
+export async function fetchOpcionesMaterial() {
+  const { data, error } = await supabase.from('vw_materiales').select('material');
+  if (error) {
+    console.error('[ordersService] Error obteniendo opciones de material:', error);
+    return [];
+  }
+  return data.map((r) => r.material).filter(Boolean);
+}
+
+export async function fetchOpcionesColor() {
+  const { data, error } = await supabase.from('vw_colores').select('color');
+  if (error) {
+    console.error('[ordersService] Error obteniendo opciones de color:', error);
+    return [];
+  }
+  return data.map((r) => r.color).filter(Boolean);
 }
 
 /**
@@ -103,16 +208,23 @@ export async function fetchOrderDetail(orderNumber) {
   return data || [];
 }
 
-async function obtenerPedidosVisiblesParaProceso(proceso) {
+/**
+ * Movimientos de producción de una orden (todos los ítems), usados para
+ * calcular cuánto queda pendiente en cada proceso específico (ver
+ * src/lib/stageQuantities.js). production_movements tiene SELECT abierto
+ * a todos los autenticados (ver supabase/sql/006_rls_policies.sql).
+ * @param {string} orderNumber
+ */
+export async function fetchMovimientosOrden(orderNumber) {
   const { data, error } = await supabase
-    .from('vw_item_progreso')
-    .select('order_number')
-    .eq('etapa_actual', proceso);
+    .from('production_movements')
+    .select('item_id, from_process, to_process, quantity')
+    .eq('order_number', orderNumber);
 
   if (error) {
-    console.error('[ordersService] Error obteniendo visibilidad por proceso:', error);
+    console.error('[ordersService] Error obteniendo movimientos de orden:', error);
     return [];
   }
 
-  return [...new Set((data || []).map((row) => row.order_number))];
+  return data || [];
 }

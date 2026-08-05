@@ -11,14 +11,15 @@ import { nombreProcesoDeRol, destinosPermitidos } from '../lib/roles.js';
  */
 
 /**
- * @param {object} params
- * @param {object} params.item     Fila de vw_item_progreso (debe incluir item_id, order_number, referencia/nombre_referencia, talla, cantidad_pendiente)
- * @param {number} params.cantidad Cantidad a procesar ahora
- * @param {string} params.destino  Proceso destino ('Acabado' | 'Mateado' | 'Empaque' | 'Completado')
- * @param {string} [params.observacion]
- * @param {{ id: string, role: string }} params.user Usuario autenticado (perfil)
+ * Registra VARIOS movimientos (una talla cada uno) en un solo viaje a la
+ * base de datos, en vez de uno por talla. Cada fila sigue quedando como
+ * un registro independiente en production_movements/Registros — la
+ * diferencia es que se envían todos juntos, mucho más rápido que hacer
+ * N llamadas seguidas.
+ * @param {Array<{ item: object, cantidad: number, pendiente?: number }>} seleccion
+ * @param {{ destino: string, observacion?: string, user: { id: string, role: string } }} opciones
  */
-export async function registrarMovimiento({ item, cantidad, destino, observacion, user }) {
+export async function registrarMovimientosLote(seleccion, { destino, observacion, user }) {
   const origen = nombreProcesoDeRol(user.role);
 
   if (!origen) {
@@ -30,20 +31,20 @@ export async function registrarMovimiento({ item, cantidad, destino, observacion
     throw new Error(`Tu rol (${user.role}) no puede enviar a "${destino}".`);
   }
 
-  const qty = Number(cantidad);
-  if (!Number.isFinite(qty) || qty <= 0) {
-    throw new Error('La cantidad debe ser un número mayor a 0.');
-  }
+  const filas = seleccion.map(({ item, cantidad, pendiente }) => {
+    const qty = Number(cantidad);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      throw new Error(`Talla ${item.talla}: la cantidad debe ser un número mayor a 0.`);
+    }
 
-  if (qty > item.cantidad_pendiente) {
-    throw new Error(
-      `No puedes procesar ${qty} unidades: solo quedan ${item.cantidad_pendiente} pendientes.`
-    );
-  }
+    const limite = pendiente !== undefined ? pendiente : item.cantidad_pendiente;
+    if (qty > limite) {
+      throw new Error(
+        `Talla ${item.talla}: no puedes procesar ${qty} unidades, solo quedan ${limite} pendientes en este proceso.`
+      );
+    }
 
-  const { data, error } = await supabase
-    .from('production_movements')
-    .insert({
+    return {
       item_id: item.item_id,
       order_number: item.order_number,
       reference: item.nombre_referencia || item.referencia || null,
@@ -53,14 +54,37 @@ export async function registrarMovimiento({ item, cantidad, destino, observacion
       to_process: destino,
       user_id: user.id,
       observation: observacion || null
-    })
-    .select()
-    .single();
+    };
+  });
+
+  const { data, error } = await supabase.from('production_movements').insert(filas).select();
 
   if (error) {
-    console.error('[movementsService] Error registrando movimiento:', error);
+    console.error('[movementsService] Error registrando movimientos en lote:', error);
     throw new Error('No se pudo registrar el procesamiento. Intenta nuevamente.');
   }
 
   return data;
+}
+
+/**
+ * Elimina un movimiento propio, con motivo obligatorio (ver
+ * supabase/sql/014_eliminacion_registros.sql). Solo funciona si:
+ *   - el movimiento lo creó el usuario actual, y
+ *   - es el movimiento más reciente de esa talla (nada se creó después
+ *     basándose en él).
+ * Queda registrado en log_eliminaciones automáticamente.
+ * @param {string} movimientoId
+ * @param {string} motivo
+ */
+export async function eliminarMovimientoConMotivo(movimientoId, motivo) {
+  const { error } = await supabase.rpc('eliminar_movimiento_con_motivo', {
+    p_movimiento_id: movimientoId,
+    p_motivo: motivo
+  });
+
+  if (error) {
+    console.error('[movementsService] Error eliminando movimiento:', error);
+    throw new Error(error.message || 'No se pudo eliminar el registro.');
+  }
 }

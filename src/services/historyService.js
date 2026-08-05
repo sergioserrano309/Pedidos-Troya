@@ -15,10 +15,10 @@ const PAGE_SIZE = 50;
 
 /**
  * @param {{ id: string, role: string }} user
- * @param {{ page?: number, search?: string }} options
+ * @param {{ page?: number, orden?: string, fecha?: string }} options
  */
 export async function fetchHistory(user, options = {}) {
-  const { page = 0, search = '' } = options;
+  const { page = 0, orden = '', fecha = '' } = options;
 
   let query = supabase
     .from('vw_historial')
@@ -30,8 +30,14 @@ export async function fetchHistory(user, options = {}) {
     query = query.eq('user_id', user.id);
   }
 
-  if (search) {
-    query = query.or(`order_number.ilike.%${search}%,user_name.ilike.%${search}%`);
+  if (orden.trim()) {
+    query = query.ilike('order_number', `%${orden.trim()}%`);
+  }
+
+  if (fecha) {
+    const inicio = `${fecha}T00:00:00`;
+    const fin = `${fecha}T23:59:59.999`;
+    query = query.gte('created_at', inicio).lte('created_at', fin);
   }
 
   const { data, error, count } = await query;
