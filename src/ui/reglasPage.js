@@ -5,9 +5,13 @@ import { ICONO_PROCESO } from '../lib/roles.js';
 import { mostrarToast } from './toast.js';
 
 let opcionesCargadas = false;
+let idReglaAEliminar = null;
 
 export function inicializarPaginaReglas() {
   document.getElementById('btn-guardar-regla').addEventListener('click', guardarRegla);
+  document.getElementById('btn-cerrar-eliminar-regla').addEventListener('click', cerrarModalEliminarRegla);
+  document.getElementById('btn-cancelar-eliminar-regla').addEventListener('click', cerrarModalEliminarRegla);
+  document.getElementById('btn-confirmar-eliminar-regla').addEventListener('click', confirmarEliminarRegla);
 }
 
 export async function cargarReglas() {
@@ -39,17 +43,36 @@ export async function cargarReglas() {
     .join('');
 
   tbody.querySelectorAll('.btn-eliminar-regla').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      if (!confirm('¿Eliminar esta regla de enrutamiento?')) return;
-      try {
-        await eliminarReglaEnrutamiento(btn.dataset.id);
-        mostrarToast('Regla eliminada.', 'ok');
-        cargarReglas();
-      } catch (err) {
-        mostrarToast(err.message, 'error');
-      }
-    });
+    btn.addEventListener('click', () => abrirModalEliminarRegla(btn.dataset.id));
   });
+}
+
+function abrirModalEliminarRegla(id) {
+  idReglaAEliminar = id;
+  document.getElementById('modal-eliminar-regla').classList.add('open');
+}
+
+function cerrarModalEliminarRegla() {
+  document.getElementById('modal-eliminar-regla').classList.remove('open');
+  idReglaAEliminar = null;
+}
+
+async function confirmarEliminarRegla() {
+  if (!idReglaAEliminar) return;
+
+  const btn = document.getElementById('btn-confirmar-eliminar-regla');
+  btn.disabled = true;
+
+  try {
+    await eliminarReglaEnrutamiento(idReglaAEliminar);
+    mostrarToast('Regla eliminada.', 'ok');
+    cerrarModalEliminarRegla();
+    cargarReglas();
+  } catch (err) {
+    mostrarToast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function poblarSelectsRegla() {

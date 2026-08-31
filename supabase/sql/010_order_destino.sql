@@ -27,7 +27,7 @@ for select
 to authenticated
 using (true);
 
--- Solo Refilado puede confirmar el destino de un pedido.
+-- Solo Refilado (y Validador cuando emula Refilado) pueden confirmar el destino de un pedido.
 drop policy if exists "order_destino_insert_refilado" on public.order_destino;
 create policy "order_destino_insert_refilado"
 on public.order_destino
@@ -37,7 +37,7 @@ with check (
   confirmed_by = (select id from public.profiles where auth_id = auth.uid())
   and exists (
     select 1 from public.profiles pr
-    where pr.auth_id = auth.uid() and lower(pr.role) = 'refilado'
+    where pr.auth_id = auth.uid() and lower(pr.role) in ('refilado', 'validador')
   )
 );
 

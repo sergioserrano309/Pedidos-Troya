@@ -6,6 +6,12 @@ import { mostrarToast } from './toast.js';
 import { cargarHistorial } from './historyPage.js';
 import { cargarReglas } from './reglasPage.js';
 import { generarExcel } from '../services/excelService.js';
+import { esValidador, obtenerRolActivo, establecerRolActivo, usuarioEfectivo, rolEfectivo } from '../services/validatorService.js';
+import { cargarValidadorPage } from './validatorPage.js';
+import { cargarAuditPage } from './auditPage.js';
+import { cargarDespachosTab, configurarUIDespachos } from './despachosPage.js';
+import { cargarCompensacion } from './compensacionPage.js';
+import { inicializarFiltrosCustomSelect, sincronizarEtiquetaFiltro } from './customSelect.js';
 
 const PAGE_SIZE = 30;
 
@@ -13,6 +19,99 @@ let paginaActual = 0;
 let hayPaginaSiguiente = false;
 let filtros = { orden: '', cliente: '', nombreSuela: '', material: '', color: '', fecha: '' };
 let debounceTimer = null;
+
+/**
+ * Se llama DESPUÉS del login (main.js -> iniciarApp), no en el bootstrap
+ * inicial, porque necesita getState().user ya cargado — a diferencia de
+ * inicializarPaginaOrdenes() (que solo registra listeners y sí corre
+ * antes del login).
+ */
+export function configurarUIValidador() {
+  const esVal = esValidador();
+
+  // Descarga de Excel: solo Validador (Refilado/Acabado/Mateado/Empaque
+  // solo necesitan procesar, no descargar el reporte completo).
+  const btnExcel = document.getElementById('btn-descargar-excel');
+  if (btnExcel) btnExcel.style.display = esVal ? '' : 'none';
+
+  if (!esVal) {
+    // Sin esto, un usuario NO-validador que inicia sesión en la misma
+    // pestaña donde antes hubo una sesión de Validador (el logout no
+    // recarga la página, ver navigation.js) sigue viendo estos 4
+    // elementos: nada los ocultaba de nuevo al cambiar de sesión.
+    // "Reglas de Enrutamiento" es exclusiva de Validador — Refilado ya
+    // no la ve (antes era una excepción explícita, se retiró).
+    document.getElementById('tab-btn-reglas').style.display = 'none';
+    document.getElementById('tab-btn-validador').style.display = 'none';
+    document.getElementById('tab-btn-audit').style.display = 'none';
+    document.getElementById('rol-selector-container').style.display = 'none';
+    return;
+  }
+
+  document.getElementById('tab-btn-reglas').style.display = 'inline-block';
+  document.getElementById('tab-btn-validador').style.display = 'inline-block';
+  document.getElementById('tab-btn-audit').style.display = 'inline-block';
+  document.getElementById('rol-selector-container').style.display = 'grid';
+
+  const rolActivo = obtenerRolActivo();
+  let selector = document.getElementById('rol-activo-selector');
+  if (selector) {
+    // Esta función corre una vez por login: sin clonar el nodo, cada
+    // sesión de Validador en la misma pestaña (sin recargar) apilaría
+    // otro listener 'change' sobre el anterior.
+    const selectorLimpio = selector.cloneNode(true);
+    selector.replaceWith(selectorLimpio);
+    selector = selectorLimpio;
+
+    selector.value = rolActivo;
+    sincronizarEtiquetaFiltro('rol-activo-selector');
+    selector.addEventListener('change', async () => {
+      const nuevoRol = selector.value;
+      establecerRolActivo(nuevoRol);
+      mostrarToast(`Actuando como ${nuevoRol}`, 'ok');
+
+      // Mismo Rol Activo, dos selectores (este y el de Compensación) —
+      // mantener el otro sincronizado para que no muestre un valor viejo
+      // si el usuario cambia de página sin volver a iniciar sesión.
+      const selectorComp = document.getElementById('comp-rol-activo-selector');
+      if (selectorComp) {
+        selectorComp.value = nuevoRol;
+        sincronizarEtiquetaFiltro('comp-rol-activo-selector');
+      }
+
+      // La pestaña "Despachos" depende de rolEfectivo(), no del rol real
+      // — un Validador que deja de emular Empaque debe dejar de verla.
+      configurarUIDespachos();
+
+      // Refresca la vista actual con el nuevo rol efectivo — antes el
+      // selector solo guardaba el valor y no pasaba nada visible.
+      // "Rol Activo" es global (topbar), así que también debe refrescar
+      // Compensación si esa es la página activa, no solo Órdenes.
+      const { currentTab, currentPage } = getState();
+      if (currentPage === 'compensacion') {
+        await cargarCompensacion();
+        return;
+      }
+
+      // Si estaba en Despachos y el nuevo rol ya no es Empaque, la
+      // pestaña acaba de ocultarse: regresar a "Activas" en vez de dejar
+      // la sección de Despachos visible sin su botón de pestaña.
+      if (currentTab === 'despachos' && rolEfectivo() !== 'empaque') {
+        document.querySelector('#tabs-primarios .tab-btn[data-tab="activas"]')?.click();
+        return;
+      }
+
+      paginaActual = 0;
+      if (currentTab === 'registros') {
+        await cargarHistorial();
+      } else if (currentTab === 'despachos') {
+        await cargarDespachosTab();
+      } else if (!['validador', 'audit', 'reglas'].includes(currentTab)) {
+        await cargarOrdenes();
+      }
+    });
+  }
+}
 
 export function inicializarPaginaOrdenes() {
   document.querySelectorAll('#page-ordenes .tab-btn[data-tab]').forEach((btn) => {
@@ -24,17 +123,29 @@ export function inicializarPaginaOrdenes() {
 
       const esRegistros = tab === 'registros';
       const esReglas = tab === 'reglas';
-      const esOrdenes = !esRegistros && !esReglas;
+      const esPestanaValidador = tab === 'validador';
+      const esAudit = tab === 'audit';
+      const esDespachos = tab === 'despachos';
+      const esOrdenes = !esRegistros && !esReglas && !esPestanaValidador && !esAudit && !esDespachos;
 
       document.getElementById('ordenes-filtros').style.display = esOrdenes ? 'grid' : 'none';
       document.getElementById('ordenes-seccion').style.display = esOrdenes ? 'block' : 'none';
       document.getElementById('registros-seccion').style.display = esRegistros ? 'block' : 'none';
       document.getElementById('reglas-seccion').style.display = esReglas ? 'block' : 'none';
+      document.getElementById('page-validador').style.display = esPestanaValidador ? 'block' : 'none';
+      document.getElementById('page-audit').style.display = esAudit ? 'block' : 'none';
+      document.getElementById('despachos-seccion').style.display = esDespachos ? 'block' : 'none';
 
       if (esRegistros) {
         cargarHistorial();
       } else if (esReglas) {
         cargarReglas();
+      } else if (esPestanaValidador) {
+        cargarValidadorPage();
+      } else if (esAudit) {
+        cargarAuditPage();
+      } else if (esDespachos) {
+        cargarDespachosTab();
       } else {
         paginaActual = 0;
         cargarOrdenes();
@@ -61,6 +172,7 @@ export function inicializarPaginaOrdenes() {
       el.addEventListener('change', () => {
         filtros[FILTRO_ID_A_CLAVE[id]] = el.value;
         paginaActual = 0;
+        actualizarContadorFiltros();
         cargarOrdenes();
       });
     } else {
@@ -69,6 +181,7 @@ export function inicializarPaginaOrdenes() {
         debounceTimer = setTimeout(() => {
           filtros[FILTRO_ID_A_CLAVE[id]] = el.value.trim();
           paginaActual = 0;
+          actualizarContadorFiltros();
           cargarOrdenes();
         }, 350);
       });
@@ -76,6 +189,9 @@ export function inicializarPaginaOrdenes() {
   });
 
   poblarFiltrosDropdown();
+  inicializarFiltrosCustomSelect();
+  inicializarControlesMobile();
+  actualizarContadorFiltros();
 
   const btnExcel = document.getElementById('btn-descargar-excel');
   if (btnExcel) {
@@ -135,6 +251,45 @@ async function poblarFiltrosDropdown() {
   }
 }
 
+/**
+ * Controles exclusivos de móvil (barra "Filtros (N)"/"Limpiar"). En
+ * desktop/tablet quedan ocultos por CSS y estos listeners simplemente
+ * no se disparan porque los elementos no son visibles/clickeables ahí.
+ */
+function inicializarControlesMobile() {
+  const btnToggleFiltros = document.getElementById('btn-toggle-filtros');
+  const panelFiltros = document.getElementById('ordenes-filtros');
+  btnToggleFiltros?.addEventListener('click', () => {
+    const abierto = panelFiltros.classList.toggle('filtros-abiertos');
+    btnToggleFiltros.classList.toggle('filtros-activo', abierto);
+  });
+
+  document.getElementById('btn-limpiar-filtros')?.addEventListener('click', () => {
+    filtros = { orden: '', cliente: '', nombreSuela: '', material: '', color: '', fecha: '' };
+    ['filtro-orden', 'filtro-cliente', 'filtro-nombre-suela', 'filtro-material', 'filtro-color', 'filtro-fecha'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    ['filtro-cliente', 'filtro-nombre-suela', 'filtro-material', 'filtro-color'].forEach(sincronizarEtiquetaFiltro);
+    paginaActual = 0;
+    actualizarContadorFiltros();
+    cargarOrdenes();
+  });
+}
+
+function actualizarContadorFiltros() {
+  const activos = Object.values(filtros).filter((v) => v && v.trim() !== '').length;
+
+  const contador = document.getElementById('filtros-contador');
+  if (contador) contador.textContent = `(${activos})`;
+
+  // "Limpiar" siempre está visible (estabilidad de layout) pero solo se
+  // activa (azul, clickeable) cuando hay al menos un filtro — deshabilitado
+  // (gris, pointer-events:none vía CSS) cuando no hay ninguno.
+  const btnLimpiar = document.getElementById('btn-limpiar-filtros');
+  if (btnLimpiar) btnLimpiar.classList.toggle('activo', activos > 0);
+}
+
 // Evita que una respuesta VIEJA (ej. de un llamado disparado por realtime
 // justo antes de cambiar de pestaña/filtro) sobreescriba el listado con
 // datos desactualizados si llega DESPUÉS de una petición más reciente.
@@ -150,7 +305,10 @@ export async function cargarOrdenes() {
   contenedor.innerHTML = '<div class="loading"><div class="spinner"></div> Cargando órdenes...</div>';
 
   try {
-    const { orders, hayMas } = await fetchOrders(user, currentTab, {
+    // Validador con un "Rol Activo" de proceso (Refilado/Acabado/...) ve
+    // exactamente lo que vería ese rol real (usuarioEfectivo() reemplaza
+    // solo el campo role, conserva id/nombre reales para auditoría).
+    const { orders, hayMas } = await fetchOrders(usuarioEfectivo(), currentTab, {
       page: paginaActual,
       filters: filtros
     });
@@ -170,6 +328,23 @@ export async function cargarOrdenes() {
   }
 }
 
+/**
+ * Para Validador: en vez del badge/barra global (que puede ser engañoso,
+ * ver 018_fix_etapa_fin.sql), muestra el % de CADA proceso por separado —
+ * cada uno se calcula independiente contra el total del pedido, así que
+ * Mateado en 0% no se confunde con "el pedido ya terminó".
+ */
+function renderBadgesPorProceso(orden) {
+  return `
+    <div style="display:flex; gap:4px; flex-wrap:wrap;">
+      <span style="background:var(--blue-bg); color:var(--blue); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:600;" title="Refilado">R ${orden.porcentaje_refilado ?? 0}%</span>
+      <span style="background:var(--green-bg); color:var(--green-text); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:600;" title="Acabado">A ${orden.porcentaje_acabado ?? 0}%</span>
+      <span style="background:var(--purple-bg); color:var(--purple-text); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:600;" title="Mateado">M ${orden.porcentaje_mateado ?? 0}%</span>
+      <span style="background:var(--amber-bg); color:var(--amber-text); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:600;" title="Empaque">E ${orden.porcentaje_empaque ?? 0}%</span>
+    </div>
+  `;
+}
+
 function renderOrdenes(orders) {
   const contenedor = document.getElementById('ordenes-lista');
 
@@ -178,11 +353,29 @@ function renderOrdenes(orders) {
     return;
   }
 
+  // Los badges por proceso (4 en 1) solo aplican en la vista MAESTRA de
+  // Validador (Rol Activo = "Validador"). Si Validador está actuando
+  // como un proceso específico, ve el mismo badge/barra que vería ese
+  // rol real — "exactamente como lo vería un usuario Acabado real".
+  const modoMaestroValidador = esValidador() && obtenerRolActivo() === 'Validador';
+
   contenedor.innerHTML = orders
     .map((orden) => {
       const progreso = orden.porcentaje_completado || 0;
       const estado = estadoPorPorcentaje(progreso);
       const diasOrden = orden.dias_orden ?? 0;
+
+      // Solo para la card compacta de móvil (ver @media max-width:767px
+      // en index.html): línea única "Suela · Material · Color · Etapa"
+      // y anillo de progreso, en vez de las columnas separadas + badge +
+      // barra que usa desktop/tablet.
+      const atributosMobile = [orden.nombre_referencia, orden.material, orden.color, orden.etapa_actual]
+        .filter(Boolean)
+        .map((v) => escapeHtml(v))
+        .join(' · ');
+      const claseAnillo = orden.estatus_general === 'Completado'
+        ? 'anillo-completado'
+        : (progreso > 0 ? 'anillo-progreso' : '');
 
       return `
         <div class="orden-fila" data-order="${escapeHtml(orden.order_number)}">
@@ -192,31 +385,38 @@ function renderOrdenes(orders) {
           <div class="col-nombre-suela" title="Nombre de la suela">${escapeHtml(orden.nombre_referencia || '—')}</div>
           <div class="col-material" title="Material">${escapeHtml(orden.material || '—')}</div>
           <div class="col-color" title="Color">${escapeHtml(orden.color || '—')}</div>
+          <div class="col-etapa" title="Etapa actual del pedido">${escapeHtml(orden.etapa_actual || '—')}</div>
+          <div class="col-mobile-attrs" title="${atributosMobile}">${atributosMobile || '—'}</div>
 
-          <div class="col-metrica" title="Cantidad total solicitada">
-            <div class="metrica-label">Total Suelas</div>
+          <div class="col-metrica col-metrica-total" title="Cantidad total solicitada">
+            <div class="metrica-label"><span class="lbl-full">Total Suelas</span><span class="lbl-short">Total</span></div>
             <div class="metrica-valor">${orden.total_solicitado ?? 0}</div>
           </div>
-          <div class="col-metrica" title="Suelas ya procesadas">
-            <div class="metrica-label">Procesadas</div>
+          <div class="col-metrica col-metrica-procesado" title="Suelas ya procesadas">
+            <div class="metrica-label"><span class="lbl-full">Procesadas</span><span class="lbl-short">Proc.</span></div>
             <div class="metrica-valor">${orden.total_procesado ?? 0}</div>
           </div>
-          <div class="col-metrica" title="Suelas aún por procesar">
-            <div class="metrica-label">Pendientes</div>
+          <div class="col-metrica col-metrica-pendiente" title="Suelas aún por procesar">
+            <div class="metrica-label"><span class="lbl-full">Pendientes</span><span class="lbl-short">Pend.</span></div>
             <div class="metrica-valor">${orden.total_pendiente ?? 0}</div>
           </div>
 
-          <div class="col-metrica" title="Días desde creación del pedido">
-            <div class="metrica-label">Días O.</div>
+          <div class="col-metrica col-metrica-dias" title="Días desde creación del pedido">
+            <div class="metrica-label"><span class="lbl-full">Días O.</span><span class="lbl-short">Días</span></div>
             <div class="metrica-valor">${diasOrden}d</div>
           </div>
 
-          <div class="col-estado" title="Completado: procesado 100% | En Proceso: aún hay pendientes">
-            <span class="estado-badge estado-${orden.estatus_general === 'Completado' ? 'completado' : 'en-proceso'}">${orden.estatus_general}</span>
-            <div class="progreso-contenedor">
-              <div class="progreso-barra"><div class="progreso-lleno" style="width:${progreso}%"></div></div>
-              <span class="progreso-pct">${progreso}%</span>
-            </div>
+          <div class="progreso-anillo ${claseAnillo}" style="--pct:${progreso}" title="${progreso}% completado"></div>
+          <div class="orden-chevron">›</div>
+
+          <div class="col-estado" title="${modoMaestroValidador ? 'Progreso independiente por proceso' : 'Completado: procesado 100% | En Proceso: aún hay pendientes'}">
+            ${modoMaestroValidador ? renderBadgesPorProceso(orden) : `
+              <span class="estado-badge estado-${orden.estatus_general === 'Completado' ? 'completado' : 'en-proceso'}">${orden.estatus_general}</span>
+              <div class="progreso-contenedor">
+                <div class="progreso-barra"><div class="progreso-lleno" style="width:${progreso}%"></div></div>
+                <span class="progreso-pct">${progreso}%</span>
+              </div>
+            `}
           </div>
         </div>
       `;
@@ -248,6 +448,40 @@ function renderPaginacion() {
     paginaActual += 1;
     cargarOrdenes();
   });
+
+  renderPaginacionMobile();
+}
+
+/**
+ * Paginación real para móvil (Anterior/Siguiente, reemplaza la lista —
+ * no acumula). Usa exactamente el mismo estado (paginaActual,
+ * hayPaginaSiguiente) y la misma cargarOrdenes() que el paginador de
+ * escritorio de arriba: comparten la lógica de filtros+paginación de
+ * ordersService.js, solo cambia la presentación.
+ */
+function renderPaginacionMobile() {
+  const btnPrev = document.getElementById('mobile-pag-prev');
+  const btnNext = document.getElementById('mobile-pag-next');
+  const info = document.getElementById('mobile-pag-info');
+
+  if (info) info.textContent = `Página ${paginaActual + 1}`;
+  if (btnPrev) btnPrev.disabled = paginaActual === 0;
+  if (btnNext) btnNext.disabled = !hayPaginaSiguiente;
+
+  if (btnPrev && !btnPrev.dataset.wired) {
+    btnPrev.dataset.wired = '1';
+    btnPrev.addEventListener('click', () => {
+      paginaActual = Math.max(paginaActual - 1, 0);
+      cargarOrdenes();
+    });
+  }
+  if (btnNext && !btnNext.dataset.wired) {
+    btnNext.dataset.wired = '1';
+    btnNext.addEventListener('click', () => {
+      paginaActual += 1;
+      cargarOrdenes();
+    });
+  }
 }
 
 function formatearFecha(fecha) {

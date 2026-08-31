@@ -1,5 +1,6 @@
 import { supabase } from '../config/supabaseClient.js';
 import { nombreProcesoDeRol, destinosPermitidos } from '../lib/roles.js';
+import { esValidador, registrarAuditValidador } from './validatorService.js';
 
 /**
  * Servicio de movimientos de producción.
@@ -62,6 +63,30 @@ export async function registrarMovimientosLote(seleccion, { destino, observacion
   if (error) {
     console.error('[movementsService] Error registrando movimientos en lote:', error);
     throw new Error('No se pudo registrar el procesamiento. Intenta nuevamente.');
+  }
+
+  // Registrar en audit_validador si el usuario es validador
+  try {
+    const esVal = await esValidador();
+    if (esVal && data && data.length > 0) {
+      const primeraOrden = data[0].order_number;
+      const totalItems = data.length;
+      await registrarAuditValidador(
+        'procesar_orden',
+        origen,
+        primeraOrden,
+        null,
+        {
+          items_procesadas: totalItems,
+          destino: destino,
+          cantidades: seleccion.map((s) => s.cantidad)
+        },
+        observacion || null
+      );
+    }
+  } catch (auditError) {
+    console.error('[movementsService] Error registrando audit:', auditError);
+    // No lanzar error, solo log — el movimiento ya se registró
   }
 
   return data;

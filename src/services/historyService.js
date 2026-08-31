@@ -15,10 +15,10 @@ const PAGE_SIZE = 50;
 
 /**
  * @param {{ id: string, role: string }} user
- * @param {{ page?: number, orden?: string, fecha?: string }} options
+ * @param {{ page?: number, orden?: string, fecha?: string, proceso?: string }} options
  */
 export async function fetchHistory(user, options = {}) {
-  const { page = 0, orden = '', fecha = '' } = options;
+  const { page = 0, orden = '', fecha = '', proceso = '' } = options;
 
   let query = supabase
     .from('vw_historial')
@@ -26,7 +26,7 @@ export async function fetchHistory(user, options = {}) {
     .order('created_at', { ascending: false })
     .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
 
-  if (user.role !== 'comercial') {
+  if (user.role !== 'comercial' && user.role !== 'validador') {
     query = query.eq('user_id', user.id);
   }
 
@@ -38,6 +38,12 @@ export async function fetchHistory(user, options = {}) {
     const inicio = `${fecha}T00:00:00`;
     const fin = `${fecha}T23:59:59.999`;
     query = query.gte('created_at', inicio).lte('created_at', fin);
+  }
+
+  // Filtro por proceso (solo relevante para comercial/validador, que ven
+  // registros de TODOS los procesos a la vez).
+  if (proceso.trim()) {
+    query = query.eq('from_process', proceso.trim());
   }
 
   const { data, error, count } = await query;

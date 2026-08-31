@@ -1,5 +1,5 @@
 import { fetchOrderDetail, fetchMovimientosOrden } from '../services/ordersService.js';
-import { fetchDestinoOrden, confirmarDestinoOrden } from '../services/destinoService.js';
+import { fetchDestinoOrden, confirmarDestinoOrden, cambiarDestinoOrden } from '../services/destinoService.js';
 import { getState, setState } from '../state/appState.js';
 import { estadoPorPorcentaje } from '../lib/calculations.js';
 import { nombreProcesoDeRol, esRolDeProceso, ICONO_PROCESO } from '../lib/roles.js';
@@ -7,6 +7,7 @@ import { calcularPendientePorProceso, calcularProcesadoPorProceso } from '../lib
 import { abrirModalProcesar } from './processModal.js';
 import { abrirModalDevolucion } from './returnModal.js';
 import { mostrarToast } from './toast.js';
+import { usuarioEfectivo } from '../services/validatorService.js';
 
 export function inicializarModalDetalle() {
   document.getElementById('btn-cerrar-detalle').addEventListener('click', cerrarDetalle);
@@ -26,7 +27,6 @@ export async function abrirDetalleOrden(orderNumber) {
   document.getElementById('detalle-fecha').textContent = '';
   document.getElementById('detalle-especificaciones').innerHTML = '';
   document.getElementById('detalle-destino').innerHTML = '';
-  document.getElementById('detalle-comentarios').innerHTML = '';
   contenedor.innerHTML = '<div class="loading"><div class="spinner"></div> Cargando...</div>';
   modal.classList.add('open');
 
@@ -53,10 +53,9 @@ export async function abrirDetalleOrden(orderNumber) {
       document.getElementById('detalle-fecha').textContent = formatearFecha(firstItem.fecha_pedido);
 
       renderEspecificaciones(firstItem);
-      renderComentarios(firstItem);
     }
 
-    renderDestinoHeader(orderNumber, destino);
+    renderDestinoHeader(orderNumber, destino, movimientos);
     renderProcesarLoteHeader();
     renderDetalleItems(items, movimientos);
   } catch (err) {
@@ -64,39 +63,63 @@ export async function abrirDetalleOrden(orderNumber) {
   }
 }
 
-function renderDestinoHeader(orderNumber, destino) {
-  const { user } = getState();
+/**
+ * El destino es inmutable en cuanto la orden tiene al menos un
+ * movimiento registrado, o si fue asignado automáticamente por una
+ * regla de enrutamiento (ese caso NUNCA se vuelve editable a mano,
+ * tenga o no movimientos — es una decisión de negocio, no una
+ * limitación técnica).
+ *
+ * Si el destino es manual y la orden todavía no tiene ningún
+ * movimiento (ej.: Refilado se equivocó de destino y borró todos los
+ * registros), vuelve a mostrarse el mismo selector de "elegir destino"
+ * para REEMPLAZARLO — ver cambiarDestinoOrden en destinoService.js. La
+ * autoridad real de "solo si no hay movimientos" vive en la política
+ * RLS de DELETE (supabase/sql/022_permitir_cambio_destino_sin_movimientos.sql),
+ * este chequeo aquí es solo para decidir qué UI mostrar.
+ */
+function renderDestinoHeader(orderNumber, destino, movimientos) {
+  const effectiveUser = usuarioEfectivo();
   const el = document.getElementById('detalle-destino');
   if (!el) return;
 
-  if (destino) {
+  const sinMovimientos = movimientos.length === 0;
+  const esCambio = !!destino;
+  const esEditable = destino && !destino.es_automatico && sinMovimientos && effectiveUser.role === 'refilado';
+
+  if (destino && !esEditable) {
     el.innerHTML = `
-      <div style="margin-top: 12px; display:flex; align-items:center; gap:8px; font-size: 13px;">
-        <span style="color: var(--text2);">Destino confirmado:</span>
-        <span style="background:var(--blue-bg); color:var(--blue); padding:4px 10px; border-radius:6px; font-weight:600;">
-          ${escapeHtml(destino.destino)} ${ICONO_PROCESO[destino.destino] || ''}
-        </span>
-        ${destino.es_automatico ? '<span style="font-size:11px; color:var(--text3);">(regla automática)</span>' : ''}
-      </div>`;
+      <div class="destino-row">
+        <span class="destino-label">Destino confirmado</span>
+        <span class="destino-valor">${escapeHtml(destino.destino)} ${ICONO_PROCESO[destino.destino] || ''}</span>
+      </div>
+      <div class="orden-divider"></div>`;
     return;
   }
 
-  if (user.role !== 'refilado') {
+  if (!destino && effectiveUser.role !== 'refilado') {
     el.innerHTML = '';
     return;
   }
 
+  const titulo = esCambio ? 'Cambiar destino del pedido' : 'Confirmar destino del pedido';
+  // Al cambiar un destino ya confirmado, se precarga el valor actual en
+  // el select — así el usuario ve de entrada qué queda seleccionado, en
+  // vez de un "Selecciona..." vacío que sugiere que no eligió nada.
+  const valorActual = esCambio ? destino.destino : '';
+
   el.innerHTML = `
-    <div style="margin-top: 12px; padding: 10px 12px; background: var(--amber-bg); border-radius: var(--r); display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-      <span style="font-size:12px; font-weight:600; color:var(--amber-text); text-transform:uppercase;">Confirmar destino del pedido</span>
-      <select id="destino-header-select" style="padding:6px 10px; border:1.5px solid var(--border2); border-radius:6px; font-size:13px;">
-        <option value="">Selecciona...</option>
-        <option value="Acabado">Enviar a Acabado ${ICONO_PROCESO.Acabado}</option>
-        <option value="Mateado">Enviar a Mateado ${ICONO_PROCESO.Mateado}</option>
-        <option value="Empaque">Enviar directo a Empaque ${ICONO_PROCESO.Empaque}</option>
+    <div style="padding-bottom:4px;">
+      <div style="font-size:13px; color:var(--text2); font-weight:600; margin-bottom:12px;">${titulo}</div>
+      <select class="destino-select" id="destino-header-select">
+        <option value="" ${valorActual === '' ? 'selected' : ''}>Selecciona...</option>
+        <option value="Acabado" ${valorActual === 'Acabado' ? 'selected' : ''}>Acabado ${ICONO_PROCESO.Acabado}</option>
+        <option value="Mateado" ${valorActual === 'Mateado' ? 'selected' : ''}>Mateado ${ICONO_PROCESO.Mateado}</option>
+        <option value="Empaque" ${valorActual === 'Empaque' ? 'selected' : ''}>Empaque ${ICONO_PROCESO.Empaque}</option>
       </select>
-      <button class="btn btn-primary btn-sm" id="btn-confirmar-destino">Confirmar</button>
-    </div>`;
+      <button class="btn-confirmar-destino" id="btn-confirmar-destino">Confirmar</button>
+    </div>
+    <div class="orden-divider"></div>`;
 
   document.getElementById('btn-confirmar-destino').addEventListener('click', async () => {
     const select = document.getElementById('destino-header-select');
@@ -111,8 +134,13 @@ function renderDestinoHeader(orderNumber, destino) {
     btn.disabled = true;
 
     try {
-      await confirmarDestinoOrden(orderNumber, valor, user);
-      mostrarToast('Destino confirmado para todo el pedido.', 'ok');
+      if (esCambio) {
+        await cambiarDestinoOrden(orderNumber, valor, effectiveUser);
+        mostrarToast('Destino actualizado.', 'ok');
+      } else {
+        await confirmarDestinoOrden(orderNumber, valor, effectiveUser);
+        mostrarToast('Destino confirmado para todo el pedido.', 'ok');
+      }
       await abrirDetalleOrden(orderNumber);
     } catch (err) {
       mostrarToast(err.message, 'error');
@@ -128,24 +156,27 @@ function renderDestinoHeader(orderNumber, destino) {
  * registro/movimiento independiente, ver processModal.js).
  */
 function renderProcesarLoteHeader() {
-  const { user, destinoConfirmadoOrden } = getState();
+  const { destinoConfirmadoOrden } = getState();
+  const effectiveUser = usuarioEfectivo();
   const el = document.getElementById('detalle-procesar-lote');
   if (!el) return;
 
-  if (!esRolDeProceso(user.role) || (user.role === 'refilado' && !destinoConfirmadoOrden)) {
+  if (!esRolDeProceso(effectiveUser.role) || (effectiveUser.role === 'refilado' && !destinoConfirmadoOrden)) {
     el.innerHTML = '';
     return;
   }
 
-  const texto = user.role === 'empaque' ? 'Marcar Completado' : 'Procesar';
   el.innerHTML = `
-    <div style="margin-top: 12px; padding: 10px 14px; background: var(--bg); border-radius: var(--r); display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">
-      <span style="color:var(--text2); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.05em;">Envío de Proceso</span>
-      <div style="display:flex; gap:0.5rem;">
-        <button class="btn btn-success btn-sm" id="btn-procesar-todo" title="Llena la cantidad máxima pendiente en cada talla">Procesar Toda la Orden</button>
-        <button class="btn btn-primary btn-sm" id="btn-procesar-lote">${texto}</button>
-      </div>
-    </div>`;
+    <div class="procesamiento-titulo">Procesamiento</div>
+    <button class="btn-procesar-todo" id="btn-procesar-todo">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" stroke="white" stroke-width="1.6"/>
+        <path d="M8 12.3l2.6 2.6L16 9.3" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Procesar toda la orden
+    </button>
+    <button class="btn-procesar-parcial" id="btn-procesar-lote">Procesar Parcial</button>
+    <div class="orden-divider"></div>`;
 
   document.getElementById('btn-procesar-lote').addEventListener('click', abrirResumenLote);
   document.getElementById('btn-procesar-todo').addEventListener('click', () => {
@@ -155,6 +186,73 @@ function renderProcesarLoteHeader() {
     });
     abrirResumenLote();
   });
+}
+
+/** Valor de texto plano (Color/Material): '—' si no hay dato, nunca se omite la columna. */
+function valorTexto(valor) {
+  return valor ? escapeHtml(valor) : '<span style="color:var(--text3);">—</span>';
+}
+
+/** Valor Sí/No (Vira/Acabado/Esterilla/Marquilla): badge, o '—' si el campo no aplica a este ítem. */
+function valorBooleano(valor) {
+  if (valor === undefined || valor === null) return '<span style="color:var(--text3);">—</span>';
+  return `<span class="attr-badge ${valor ? 'si' : 'no'}">${valor ? 'Sí' : 'No'}</span>`;
+}
+
+function celdaAtributo(label, valueHtml) {
+  return `<div class="attr-cell"><div class="attr-label">${label}</div><div class="attr-value">${valueHtml}</div></div>`;
+}
+
+/**
+ * SIEMPRE renderiza las 6 celdas (Color/Material/Vira/Acabado/Esterilla/
+ * Marquilla) aunque algún campo no exista en el ítem — así las columnas
+ * de ambas filas quedan garantizadas a coincidir (un único CSS grid
+ * compartido, ver .attrs-grid en index.html). Omitir celdas condicionalmente
+ * fue lo que causaba el desalineamiento entre filas.
+ */
+function renderEspecificaciones(item) {
+  let html = '';
+
+  if (item.referencia) {
+    html += `<div class="detalle-referencia">
+      <div class="attr-label">Referencia</div>
+      <div class="attr-value">${escapeHtml(item.referencia)}</div>
+    </div>`;
+  }
+
+  html += `<div class="attrs-grid">
+    ${celdaAtributo('Color', valorTexto(item.color))}
+    ${celdaAtributo('Material', valorTexto(item.material))}
+    ${celdaAtributo('Vira', valorBooleano(item.vira))}
+    ${celdaAtributo('Acabado', valorBooleano(item.acabado_spec))}
+    ${celdaAtributo('Esterilla', valorBooleano(item.esterilla))}
+    ${celdaAtributo('Marquilla', valorBooleano(item.marquilla))}
+  </div>`;
+
+  if (item.detalle_vira?.trim()) {
+    html += `<div class="detalle-nota">
+      <div class="attr-label">Detalle Vira</div>
+      <div class="attr-value">${escapeHtml(item.detalle_vira)}</div>
+    </div>`;
+  }
+
+  if (item.detalle_acabado?.trim()) {
+    html += `<div class="detalle-nota">
+      <div class="attr-label">Detalle Acabado</div>
+      <div class="attr-value">${escapeHtml(item.detalle_acabado)}</div>
+    </div>`;
+  }
+
+  if (item.detalle_esterilla?.trim()) {
+    html += `<div class="detalle-nota">
+      <div class="attr-label">Detalle Esterilla</div>
+      <div class="attr-value">${escapeHtml(item.detalle_esterilla)}</div>
+    </div>`;
+  }
+
+  html += '<div class="orden-divider"></div>';
+
+  document.getElementById('detalle-especificaciones').innerHTML = html;
 }
 
 function abrirResumenLote() {
@@ -196,56 +294,10 @@ export async function refrescarDetalleActual() {
   }
 }
 
-function filaEspec(label, valueHtml) {
-  return `<div style="display:flex; align-items:center; gap:14px; margin-bottom:14px;">
-    <div style="width:110px; flex-shrink:0; color:var(--text2);">${label}</div>
-    <div>${valueHtml}</div>
-  </div>`;
-}
-
-function badgeSiNo(valor) {
-  const bg = valor ? 'var(--green-bg)' : 'var(--red-bg)';
-  const color = valor ? 'var(--green-text)' : 'var(--red-text)';
-  return `<span style="background:${bg}; color:${color}; padding:4px 12px; border-radius:5px; font-size:13px; font-weight:600; display:inline-block;">${valor ? 'Sí' : 'No'}</span>`;
-}
-
-function renderEspecificaciones(item) {
-  let html = '';
-
-  if (item.referencia) html += filaEspec('Referencia', `<strong>${escapeHtml(item.referencia)}</strong>`);
-  if (item.color) html += filaEspec('Color', `<strong>${escapeHtml(item.color)}</strong>`);
-  if (item.material) html += filaEspec('Material', `<strong>${escapeHtml(item.material)}</strong>`);
-  if (item.vira !== undefined) html += filaEspec('Vira', badgeSiNo(item.vira));
-  if (item.acabado_spec !== undefined) html += filaEspec('Acabado', badgeSiNo(item.acabado_spec));
-  if (item.esterilla !== undefined) html += filaEspec('Esterilla', badgeSiNo(item.esterilla));
-  if (item.marquilla !== undefined) html += filaEspec('Marquilla', badgeSiNo(item.marquilla));
-
-  document.getElementById('detalle-especificaciones').innerHTML = html;
-}
-
-function renderComentarios(item) {
-  const comentarios = [];
-
-  if (item.detalle_vira?.trim()) {
-    comentarios.push(`<div style="margin-bottom: 4px;"><strong>Detalles Vira:</strong> ${escapeHtml(item.detalle_vira)}</div>`);
-  }
-  if (item.detalle_acabado?.trim()) {
-    comentarios.push(`<div style="margin-bottom: 4px;"><strong>Detalles Acabado:</strong> ${escapeHtml(item.detalle_acabado)}</div>`);
-  }
-  if (item.detalle_esterilla?.trim()) {
-    comentarios.push(`<div style="margin-bottom: 4px;"><strong>Detalles Esterilla:</strong> ${escapeHtml(item.detalle_esterilla)}</div>`);
-  }
-
-  if (comentarios.length > 0) {
-    document.getElementById('detalle-comentarios').innerHTML =
-      `<div style="background: var(--bg); padding: 10px 12px; border-radius: 6px; border-left: 3px solid var(--blue); font-size: 13px; color: var(--text);">
-        ${comentarios.join('')}
-      </div>`;
-  }
-}
 
 function renderDetalleItems(items, movimientos) {
   const { user, destinoConfirmadoOrden } = getState();
+  const effectiveUser = usuarioEfectivo();
   const contenedor = document.getElementById('detalle-contenido');
 
   if (items.length === 0) {
@@ -253,8 +305,8 @@ function renderDetalleItems(items, movimientos) {
     return;
   }
 
-  const procesoDelRol = nombreProcesoDeRol(user.role);
-  const esProceso = esRolDeProceso(user.role);
+  const procesoDelRol = nombreProcesoDeRol(effectiveUser.role);
+  const esProceso = esRolDeProceso(effectiveUser.role);
 
   contenedor.innerHTML = items
     .map((item, idx) => {
@@ -284,7 +336,10 @@ function renderDetalleItems(items, movimientos) {
       // Refilado debe confirmar primero el destino de TODO el pedido en
       // el encabezado (ver renderDestinoHeader) antes de poder procesar
       // cualquier item; los demas roles de proceso no lo necesitan.
-      const puedeProcesar = esProceso && pendienteEnMiProceso > 0 && (user.role !== 'refilado' || !!destinoConfirmadoOrden);
+      const puedeProcesar = esProceso && pendienteEnMiProceso > 0 && (effectiveUser.role !== 'refilado' || !!destinoConfirmadoOrden);
+      // Devoluciones quedan atadas al rol REAL (no al rol emulado): es
+      // una función exclusiva de Comercial, fuera del alcance de "actuar
+      // como" que tiene Validador.
       const puedeDevolver = user.role === 'comercial';
 
       const badgeHtml = sinEnviar
@@ -297,7 +352,7 @@ function renderDetalleItems(items, movimientos) {
             <div class="orden-num">Talla ${escapeHtml(item.talla)}</div>
             ${badgeHtml}
           </div>
-          <div style="display:flex; align-items:center; gap:2rem; flex-wrap:wrap;">
+          <div class="item-stats-row">
             <div class="stat-item"><div class="stat-label">Solicitado</div><div class="stat-value">${item.cantidad_solicitada}</div></div>
             <div class="stat-item"><div class="stat-label">Procesado</div><div class="stat-value">${procesadoMostrado}</div></div>
             <div class="stat-item"><div class="stat-label">Pendiente</div><div class="stat-value">${pendienteMostrado}</div></div>

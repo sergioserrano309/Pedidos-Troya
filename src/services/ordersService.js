@@ -83,12 +83,22 @@ export async function fetchOrders(user, tab = 'activas', options = {}) {
     query = query.or('destino_es_automatico.is.null,destino_es_automatico.eq.false');
   }
 
-  const columnaPorcentaje = columnas ? columnas.porcentaje : 'porcentaje_completado';
-
-  if (tab === 'completadas') {
-    query = query.eq(columnaPorcentaje, 100);
+  if (user.role === 'validador') {
+    // Validador ve el estado real de la orden (etapa_actual = 'Fin' solo
+    // cuando ya pasó por Empaque, ver 018_fix_etapa_fin.sql), no el %
+    // global (que puede llegar a 100% sin haber pasado por Empaque).
+    if (tab === 'completadas') {
+      query = query.eq('etapa_actual', 'Fin');
+    } else {
+      query = query.neq('etapa_actual', 'Fin');
+    }
   } else {
-    query = query.lt(columnaPorcentaje, 100);
+    const columnaPorcentaje = columnas ? columnas.porcentaje : 'porcentaje_completado';
+    if (tab === 'completadas') {
+      query = query.eq(columnaPorcentaje, 100);
+    } else {
+      query = query.lt(columnaPorcentaje, 100);
+    }
   }
 
   if (orden.trim()) {

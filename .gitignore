@@ -4,14 +4,25 @@ node_modules/
 # Build output
 dist/
 dist-ssr/
+*.tsbuildinfo
+
+# Cache
+.vite/
+node_modules/.vite/
+.cache/
 
 # Environment variables (never commit real credentials)
 .env
 .env.local
 .env.*.local
+*.pem
+*.key
 
 # Vercel
 .vercel/
+
+# Supabase local dev
+.supabase/
 
 # Logs
 *.log
@@ -26,3 +37,7 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 .idea/
+
+# Claude Code local/dev artifacts
+.claude/settings.local.json
+.claude/worktrees/

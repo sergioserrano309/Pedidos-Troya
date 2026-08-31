@@ -4,6 +4,7 @@ import { destinosPermitidos, ICONO_PROCESO } from '../lib/roles.js';
 import { mostrarToast } from './toast.js';
 import { cerrarDetalle } from './orderDetail.js';
 import { cargarOrdenes } from './dashboard.js';
+import { usuarioEfectivo } from '../services/validatorService.js';
 
 // [{ item, cantidad, pendiente }] — un item por talla incluida en el lote.
 let seleccionActual = [];
@@ -21,7 +22,8 @@ export function inicializarModalProcesar() {
  */
 export function abrirModalProcesar(seleccion) {
   seleccionActual = seleccion;
-  const { user, destinoConfirmadoOrden } = getState();
+  const { destinoConfirmadoOrden } = getState();
+  const user = usuarioEfectivo();
 
   const totalUnidades = seleccion.reduce((sum, s) => sum + s.cantidad, 0);
   const detalleHtml = `<span style="color: var(--blue);">${totalUnidades} und(es).</span> en <span style="color: var(--blue);">${seleccion.length}</span> talla(s)`;
@@ -88,7 +90,10 @@ function cerrarModalProcesar() {
 }
 
 async function guardarProceso() {
-  const { user } = getState();
+  // Rol efectivo: si Validador está actuando como Acabado/Mateado/etc.,
+  // el movimiento se registra como si lo hubiera hecho ese rol
+  // (from_process correcto), conservando el id real para auditoría.
+  const user = usuarioEfectivo();
   if (!seleccionActual.length) return;
 
   const select = document.getElementById('procesar-destino');
