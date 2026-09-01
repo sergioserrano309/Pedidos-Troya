@@ -3,6 +3,7 @@ import { getState, setState } from './state/appState.js';
 import { ROLE_LABELS } from './lib/roles.js';
 
 import { initLoginPage, mostrarLogin, ocultarLogin } from './ui/login.js';
+import { initAccessCodeModal, mostrarAccessCodeModal, ocultarAccessCodeModal } from './ui/accessCodeModal.js';
 import { inicializarNavegacion } from './ui/navigation.js';
 import { inicializarPaginaOrdenes, cargarOrdenes, configurarUIValidador } from './ui/dashboard.js';
 import { inicializarModalDetalle, refrescarDetalleActual } from './ui/orderDetail.js';
@@ -32,12 +33,18 @@ function inicializarUI() {
   inicializarPaginaCompensacion();
   inicializarPaginaDespachos();
 
-  initLoginPage(iniciarApp);
+  initLoginPage(mostrarModalCodigoAcceso);
+}
+
+function mostrarModalCodigoAcceso(user) {
+  ocultarLogin();
+  mostrarAccessCodeModal();
+  initAccessCodeModal(user, () => iniciarApp(user));
 }
 
 async function iniciarApp(user) {
   setState({ user, currentPage: 'ordenes', currentTab: 'activas' });
-  ocultarLogin();
+  ocultarAccessCodeModal();
 
   document.getElementById('topbar-nombre').textContent = user.name;
   document.getElementById('topbar-rol').textContent = ROLE_LABELS[user.role] || user.role;

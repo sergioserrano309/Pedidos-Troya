@@ -56,6 +56,21 @@
       background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
     }
 
+    /* MODAL DE CÓDIGO DE ACCESO */
+    #access-code-modal {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1001;
+    }
+
     .login-card {
       background: var(--surface);
       border-radius: 16px;
@@ -2851,6 +2866,25 @@
       </form>
 
       <div class="login-error" id="login-error"></div>
+    </div>
+  </div>
+
+  <!-- MODAL DE CÓDIGO DE ACCESO -->
+  <div id="access-code-modal">
+    <div class="login-card">
+      <div class="login-logo">Código de<span> Acceso</span></div>
+      <div class="login-sub">Ingresa el código proporcionado para acceder</div>
+
+      <form id="access-code-form">
+        <div class="login-field">
+          <label for="access-code-input">Código de Acceso</label>
+          <input type="text" id="access-code-input" placeholder="Ingresa tu código" required>
+        </div>
+
+        <button class="btn-login-full" id="btn-access-code" type="submit">Verificar Acceso</button>
+      </form>
+
+      <div class="login-error" id="access-code-error"></div>
     </div>
   </div>
 
