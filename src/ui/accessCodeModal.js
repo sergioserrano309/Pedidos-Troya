@@ -7,6 +7,8 @@ import { validarCodigoAcceso } from '../services/accessCodeService.js';
  * @param {(user: object) => void} onAccessGranted - Callback cuando el código es válido
  */
 export function initAccessCodeModal(user, onAccessGranted) {
+  console.log('[accessCodeModal] Usuario:', user);
+
   const modal = document.getElementById('access-code-modal');
   const form = document.getElementById('access-code-form');
   const inputCode = document.getElementById('access-code-input');
@@ -24,6 +26,7 @@ export function initAccessCodeModal(user, onAccessGranted) {
     btn.textContent = 'Verificando...';
 
     try {
+      console.log('[accessCodeModal] Validando código para user.id:', user.id);
       const isValid = await validarCodigoAcceso(user.id, code);
 
       if (!isValid) {
