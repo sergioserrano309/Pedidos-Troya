@@ -2842,6 +2842,505 @@
     .modal-historico-close:hover {
       color: var(--text);
     }
+
+    /* ===================================================================
+       PROPUESTA (Cotizador de Precios) — módulo exclusivo del rol
+       'propuesta'. Reutiliza .card/.form-group/.radio-group/.btn ya
+       existentes; estas reglas solo cubren el layout propio de esta
+       página.
+       =================================================================== */
+    .propuesta-filtros-grid {
+      display: none;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+
+    .propuesta-filtros-grid.abierto {
+      display: grid;
+    }
+
+    .propuesta-filtros-grid .form-group {
+      margin-bottom: 0;
+    }
+
+    /* Distingue visualmente los 5 filtros "de catálogo" (Referencia,
+       Material, Cliente, Color, Talla) de los 5 filtros Sí/No
+       (bicolor/vira/esterilla/acabado/aplique), que quedan con el fondo
+       blanco normal de .form-group select. */
+    .propuesta-filtro-principal {
+      background: var(--blue-bg) !important;
+      border-color: var(--blue) !important;
+      color: var(--blue);
+      font-weight: 500;
+    }
+
+    /* ===== Barra "Filtros (N) / Limpiar" — mismo lenguaje visual que
+       #btn-toggle-filtros/#btn-limpiar-filtros de Órdenes (index.html),
+       pero siempre visible aquí (no solo en móvil) y con IDs propios
+       para no interferir con esa lógica. ===== */
+    .propuesta-filtros-barra {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 0.75rem;
+    }
+
+    .propuesta-btn-toggle-filtros {
+      padding: 7px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      line-height: 1.2;
+      background: var(--surface);
+      color: var(--blue);
+      border: 1.5px solid var(--blue);
+      border-radius: var(--r);
+      cursor: pointer;
+      transition: all .1s;
+    }
+
+    .propuesta-btn-toggle-filtros.activo {
+      background: var(--blue);
+      color: #fff;
+    }
+
+    .propuesta-btn-limpiar {
+      display: inline-block;
+      background: none;
+      border: none;
+      padding: 7px 4px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text3);
+      cursor: default;
+      pointer-events: none;
+    }
+
+    .propuesta-btn-limpiar.activo {
+      color: var(--blue);
+      cursor: pointer;
+      pointer-events: auto;
+    }
+
+    /* ===== Encabezado de "Resultados" con chevron colapsable ===== */
+    .propuesta-resultados-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .propuesta-resultados-titulo {
+      margin-bottom: 0;
+    }
+
+    #propuesta-resultados-count {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--blue);
+    }
+
+    .propuesta-chevron-btn {
+      background: none;
+      border: none;
+      padding: 4px;
+      margin-right: -6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      color: var(--text2);
+    }
+
+    .propuesta-chevron-btn:hover {
+      color: var(--blue);
+    }
+
+    .propuesta-chevron {
+      width: 18px;
+      height: 18px;
+      transition: transform 200ms ease;
+    }
+
+    .propuesta-chevron.abierto {
+      transform: rotate(180deg);
+    }
+
+    .propuesta-resultados-lista.colapsado {
+      display: none;
+    }
+
+    .propuesta-resultados-lista {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      max-height: 360px;
+      overflow-y: auto;
+      margin-top: 1rem;
+    }
+
+    .propuesta-resultado-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      padding: 10px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: var(--r);
+      cursor: pointer;
+      background: var(--surface);
+      transition: all .12s;
+    }
+
+    .propuesta-resultado-item:hover {
+      border-color: var(--blue);
+      background: var(--blue-bg);
+    }
+
+    .propuesta-resultado-item.seleccionado {
+      border-color: var(--blue);
+      background: var(--blue-bg);
+    }
+
+    .propuesta-resultado-titulo {
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--text);
+    }
+
+    .propuesta-resultado-sub {
+      font-size: 12px;
+      color: var(--text2);
+      margin-top: 2px;
+    }
+
+    .propuesta-resultado-precio {
+      font-weight: 700;
+      font-size: 14px;
+      color: var(--blue);
+      white-space: nowrap;
+    }
+
+    .propuesta-vacio {
+      padding: 1.5rem;
+      text-align: center;
+      color: var(--text3);
+      font-size: 13px;
+    }
+
+    .propuesta-sel-info {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1.25rem;
+      padding-bottom: 1.25rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .propuesta-sel-campo label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text2);
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      margin-bottom: 2px;
+    }
+
+    .propuesta-sel-campo span {
+      font-size: 14px;
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    .propuesta-canasto {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .propuesta-canasto-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 10px 12px;
+      border: 1.5px solid var(--border);
+      border-radius: var(--r);
+    }
+
+    .propuesta-canasto-item.incluido {
+      background: var(--green-bg);
+      border-color: var(--green);
+    }
+
+    .propuesta-canasto-item-label {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-size: 13px;
+      color: var(--text);
+    }
+
+    .propuesta-canasto-item-label input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+    }
+
+    .propuesta-canasto-item.incluido .propuesta-canasto-item-label input[type="checkbox"] {
+      cursor: not-allowed;
+    }
+
+    .propuesta-badge-incluido {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--green-text);
+      background: var(--green-bg);
+      border: 1px solid var(--green);
+      border-radius: 999px;
+      padding: 2px 8px;
+    }
+
+    .propuesta-canasto-item-precio {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text2);
+      white-space: nowrap;
+    }
+
+    .propuesta-desglose {
+      background: var(--bg);
+      border-radius: var(--r);
+      padding: 1rem 1.25rem;
+    }
+
+    .propuesta-desglose-linea {
+      display: flex;
+      justify-content: space-between;
+      font-size: 16px;
+      font-weight: 400;
+      color: var(--text2);
+      padding: 4px 0;
+    }
+
+    .propuesta-desglose-total {
+      border-top: 1.5px solid var(--border2);
+      margin-top: 6px;
+      padding-top: 10px;
+      font-weight: 700;
+      color: var(--blue);
+    }
+
+    .propuesta-descuentos {
+      margin-top: 1.25rem;
+      padding-top: 1.25rem;
+      border-top: 1px solid var(--border);
+    }
+
+    .propuesta-descuentos-titulo {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      text-align: center;
+      margin-bottom: 0.75rem;
+    }
+
+    .propuesta-descuentos-tabla-wrap {
+      display: flex;
+      justify-content: center;
+      overflow-x: auto;
+    }
+
+    #propuesta-descuentos-tabla {
+      width: auto;
+      min-width: 320px;
+    }
+
+    #propuesta-descuentos-tabla th,
+    #propuesta-descuentos-tabla td {
+      text-align: center;
+    }
+
+    #propuesta-descuentos-tabla .propuesta-descuentos-label {
+      text-align: left;
+      font-weight: 600;
+      color: var(--text2);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      white-space: nowrap;
+    }
+
+    #propuesta-descuentos-tabla tr:last-child td {
+      border-bottom: none;
+    }
+
+    .propuesta-descuentos-fila-total td {
+      font-weight: 700;
+      color: var(--blue);
+      font-size: 15px;
+    }
+
+    @media (max-width: 640px) {
+      .propuesta-filtros-grid,
+      .propuesta-sel-info {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .propuesta-cotizacion-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+
+    .propuesta-cotizacion-header .card-title {
+      margin-bottom: 0;
+    }
+
+    .propuesta-print-header,
+    .propuesta-print-lead,
+    .propuesta-print-comentarios {
+      display: none;
+    }
+
+    .propuesta-descuentos-nota {
+      text-align: center;
+      font-size: 11px;
+      color: var(--text2);
+      font-style: italic;
+      margin-top: 0.6rem;
+    }
+
+    /* Vista de impresión / "Guardar como PDF": deja visible solo la
+       tarjeta de cotización, tal como se ve en pantalla, con un
+       encabezado de marca que en pantalla permanece oculto. Los
+       checkboxes del canasto (#propuesta-canasto) se ocultan del todo —
+       el cliente no necesita ver la interfaz de selección, solo el
+       resumen ya reflejado en el desglose de precio. */
+    @media print {
+      @page {
+        size: auto;
+        margin: 8mm;
+      }
+
+      body * {
+        visibility: hidden;
+      }
+
+      #propuesta-cotizacion-card,
+      #propuesta-cotizacion-card * {
+        visibility: visible;
+      }
+
+      #propuesta-cotizacion-card {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        box-shadow: none;
+        border: none;
+        margin: 0;
+        padding: 0;
+        page-break-inside: avoid;
+      }
+
+      #propuesta-btn-descargar-pdf,
+      #propuesta-canasto {
+        display: none !important;
+      }
+
+      .propuesta-print-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 0.6rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid var(--text);
+      }
+
+      .propuesta-print-brand {
+        font-size: 17px;
+        font-weight: 700;
+        color: var(--text);
+      }
+
+      .propuesta-print-brand span {
+        color: var(--blue);
+      }
+
+      .propuesta-print-fecha {
+        font-size: 12px;
+        color: var(--text2);
+      }
+
+      /* Solo se muestran en el PDF cuando tienen contenido (clase
+         .con-contenido, agregada por confirmarDescargaPDF en
+         propuestaPage.js) — la regla base display:none fuera de esta
+         media query garantiza que NUNCA se vean en pantalla, sin
+         depender de estilos inline. */
+      .propuesta-print-lead.con-contenido,
+      .propuesta-print-comentarios.con-contenido {
+        display: block;
+        font-size: 13px;
+        color: var(--text);
+        margin-bottom: 0.5rem;
+      }
+
+      .propuesta-print-lead strong,
+      .propuesta-print-comentarios strong {
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--text);
+        margin-right: 6px;
+      }
+
+      /* Layout más compacto que en pantalla — así una cotización cabe
+         en una sola página incluso con varios extras. */
+      .propuesta-sel-info {
+        grid-template-columns: repeat(6, 1fr);
+        gap: 0.5rem;
+        margin-bottom: 0.6rem;
+        padding-bottom: 0.6rem;
+      }
+
+      .propuesta-desglose {
+        padding: 0.6rem 0.9rem;
+      }
+
+      .propuesta-desglose-linea {
+        font-size: 13px;
+        padding: 2px 0;
+      }
+
+      .propuesta-descuentos {
+        margin-top: 0.6rem;
+        padding-top: 0.6rem;
+      }
+
+      .propuesta-descuentos-titulo {
+        font-size: 12px;
+        margin-bottom: 0.4rem;
+      }
+
+      #propuesta-descuentos-tabla th,
+      #propuesta-descuentos-tabla td {
+        padding: 5px 10px;
+        font-size: 12px;
+      }
+
+      .propuesta-descuentos-fila-total td {
+        font-size: 13px;
+      }
+
+      .propuesta-descuentos-nota {
+        font-size: 10px;
+        margin-top: 0.4rem;
+      }
+    }
   </style>
 </head>
 <body>
@@ -2930,6 +3429,12 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 6v.01M18 6v.01M6 18v.01M18 18v.01"/></svg>
             </span>
             <span class="nav-item-label">Compensación</span>
+          </button>
+          <button class="nav-item" data-page="propuesta" id="nav-item-propuesta" style="display:none;" data-tooltip="Cotizador">
+            <span class="nav-item-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14l2 2 4-4"/><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/></svg>
+            </span>
+            <span class="nav-item-label">Cotizador</span>
           </button>
         </nav>
       </div>
@@ -3310,6 +3815,86 @@
           <div id="comp-precios-seccion" style="display:none;"></div>
           <div id="comp-reglas-precios-seccion" style="display:none;"></div>
         </div>
+
+        <!-- PAGE: PROPUESTA (Cotizador de Precios de Suelas) — módulo
+             independiente, exclusivo del rol 'propuesta'. No comparte
+             lógica con las páginas de producción de arriba. -->
+        <div id="page-propuesta" class="page">
+          <div class="card">
+            <div class="card-title">Tipo de Cotización</div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Tipo de precio</label>
+                <div class="radio-group">
+                  <div class="radio-item">
+                    <input type="radio" name="propuesta-tipo-precio" id="propuesta-tipo-distribuidor" value="distribuidor" checked>
+                    <label for="propuesta-tipo-distribuidor">Distribuidor</label>
+                  </div>
+                  <div class="radio-item">
+                    <input type="radio" name="propuesta-tipo-precio" id="propuesta-tipo-fabricante" value="fabricante">
+                    <label for="propuesta-tipo-fabricante">Fabricante</label>
+                  </div>
+                </div>
+              </div>
+              <div class="form-group" id="propuesta-ubicacion-wrap">
+                <label>Ubicación de despacho</label>
+                <div class="radio-group">
+                  <div class="radio-item">
+                    <input type="radio" name="propuesta-ubicacion" id="propuesta-ubicacion-bogota" value="bogota" checked>
+                    <label for="propuesta-ubicacion-bogota">Bogotá</label>
+                  </div>
+                  <div class="radio-item">
+                    <input type="radio" name="propuesta-ubicacion" id="propuesta-ubicacion-fuera" value="fuera">
+                    <label for="propuesta-ubicacion-fuera" id="propuesta-label-fuera-bogota">Fuera de Bogotá</label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">Filtrar Suela</div>
+            <div class="propuesta-filtros-barra">
+              <button type="button" class="propuesta-btn-toggle-filtros" id="propuesta-btn-toggle-filtros">Filtros <span id="propuesta-filtros-contador">(0)</span></button>
+              <button type="button" class="propuesta-btn-limpiar" id="propuesta-btn-limpiar-filtros">Limpiar</button>
+            </div>
+            <div class="propuesta-filtros-grid" id="propuesta-filtros-grid"></div>
+          </div>
+
+          <div class="card">
+            <div class="propuesta-resultados-header">
+              <div class="card-title propuesta-resultados-titulo">Resultados <span id="propuesta-resultados-count"></span></div>
+              <button type="button" class="propuesta-chevron-btn" id="propuesta-btn-toggle-resultados" aria-label="Mostrar u ocultar resultados">
+                <svg class="propuesta-chevron abierto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+            </div>
+            <div class="propuesta-resultados-lista" id="propuesta-resultados-lista"></div>
+          </div>
+
+          <div class="card" id="propuesta-cotizacion-card" style="display:none;">
+            <div class="propuesta-print-header">
+              <div class="propuesta-print-brand">MezPlastic<span>.</span></div>
+              <div class="propuesta-print-fecha" id="propuesta-print-fecha"></div>
+            </div>
+            <div class="propuesta-print-lead" id="propuesta-print-lead"></div>
+            <div class="propuesta-print-comentarios" id="propuesta-print-comentarios"></div>
+            <div class="propuesta-cotizacion-header">
+              <div class="card-title">Cotización</div>
+              <button class="btn btn-secondary btn-sm" id="propuesta-btn-descargar-pdf" type="button">Descargar PDF</button>
+            </div>
+            <div class="propuesta-sel-info" id="propuesta-sel-info"></div>
+            <div class="propuesta-canasto" id="propuesta-canasto"></div>
+            <div class="propuesta-desglose" id="propuesta-desglose"></div>
+
+            <div class="propuesta-descuentos" id="propuesta-descuentos">
+              <div class="propuesta-descuentos-titulo">Descuento por Pronto Pago</div>
+              <div class="propuesta-descuentos-tabla-wrap">
+                <table id="propuesta-descuentos-tabla"></table>
+              </div>
+              <div class="propuesta-descuentos-nota" id="propuesta-descuentos-nota"></div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -3611,6 +4196,31 @@
       <div style="display: flex; gap: 0.75rem;">
         <button class="btn btn-secondary" id="btn-cancelar-eliminar-regla">Cancelar</button>
         <button class="btn btn-danger" id="btn-confirmar-eliminar-regla">Eliminar Regla</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Datos para el PDF de la cotización (módulo Propuesta) -->
+  <div id="modal-propuesta-pdf" class="modal">
+    <div class="modal-content" style="max-width: 480px;">
+      <div class="modal-header">
+        <div class="modal-title">Datos de la Cotización</div>
+        <button class="modal-close" id="btn-cerrar-propuesta-pdf">×</button>
+      </div>
+
+      <div class="form-group">
+        <label for="propuesta-pdf-lead">Nombre del Lead / Cliente</label>
+        <input type="text" id="propuesta-pdf-lead" placeholder="Nombre del cliente">
+      </div>
+
+      <div class="form-group">
+        <label for="propuesta-pdf-comentarios">Comentarios adicionales (opcional)</label>
+        <textarea id="propuesta-pdf-comentarios" placeholder="Comentarios para el cliente"></textarea>
+      </div>
+
+      <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem;">
+        <button class="btn btn-secondary" id="btn-cancelar-propuesta-pdf">Cancelar</button>
+        <button class="btn btn-primary" id="btn-confirmar-propuesta-pdf">Descargar PDF</button>
       </div>
     </div>
   </div>

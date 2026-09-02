@@ -3,13 +3,15 @@ import { resetState, setState } from '../state/appState.js';
 import { mostrarLogin } from './login.js';
 import { cargarOrdenes } from './dashboard.js';
 import { cargarCompensacion } from './compensacionPage.js';
+import { cargarPropuesta } from './propuestaPage.js';
 
 // Un loader por cada página de alto nivel del sidebar (ver
 // index.html: <button class="nav-item" data-page="...">). Agregar una
 // página nueva es agregar una entrada aquí, sin tocar cambiarPagina().
 const LOADERS_POR_PAGINA = {
   ordenes: cargarOrdenes,
-  compensacion: cargarCompensacion
+  compensacion: cargarCompensacion,
+  propuesta: cargarPropuesta
 };
 
 const MOBILE_BREAKPOINT = 768;

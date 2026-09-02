@@ -14,6 +14,7 @@ import { inicializarPaginaReglas } from './ui/reglasPage.js';
 import { refrescarValidadorSiVisible } from './ui/validatorPage.js';
 import { inicializarPaginaCompensacion, configurarUICompensacionValidador, cargarCompensacion } from './ui/compensacionPage.js';
 import { inicializarPaginaDespachos, configurarUIDespachos, cargarDespachosTab } from './ui/despachosPage.js';
+import { inicializarPaginaPropuesta, configurarUIPropuesta, cargarPropuesta } from './ui/propuestaPage.js';
 import { iniciarRealtime } from './realtime.js';
 
 /**
@@ -32,6 +33,7 @@ function inicializarUI() {
   inicializarPaginaReglas();
   inicializarPaginaCompensacion();
   inicializarPaginaDespachos();
+  inicializarPaginaPropuesta();
 
   initLoginPage(mostrarModalCodigoAcceso);
 }
@@ -48,6 +50,15 @@ async function iniciarApp(user) {
 
   document.getElementById('topbar-nombre').textContent = user.name;
   document.getElementById('topbar-rol').textContent = ROLE_LABELS[user.role] || user.role;
+
+  // El rol 'propuesta' (cotizador de precios) es un módulo independiente
+  // de la arquitectura de producción: no toca órdenes, compensación,
+  // despachos ni historial — ver src/ui/propuestaPage.js.
+  configurarUIPropuesta();
+  if (user.role === 'propuesta') {
+    await cargarPropuesta();
+    return;
+  }
 
   // La pestaña "Reglas de Enrutamiento" es exclusiva de Validador —
   // configurarUIValidador() la muestra/oculta según corresponda.

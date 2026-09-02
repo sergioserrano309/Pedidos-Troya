@@ -44,7 +44,8 @@ export const ROLE_LABELS = {
   acabado: 'Acabado',
   mateado: 'Mateado',
   empaque: 'Empaque',
-  comercial: 'Comercial'
+  comercial: 'Comercial',
+  propuesta: 'Propuesta'
 };
 
 export const ICONO_PROCESO = {
