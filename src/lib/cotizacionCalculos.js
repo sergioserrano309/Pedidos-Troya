@@ -64,17 +64,28 @@ export function calcularCotizacion({ precioBase, esFabricante, fueraDeBogota, it
  * cotización es a distribuidor o fabricante.
  */
 export const DESCUENTOS_BOGOTA = [
-  { rango: 'Hasta 15 días', pct: 0.12 },
+  { rango: '≤ 15 días', pct: 0.12 },
   { rango: '16 - 30 días', pct: 0.10 },
   { rango: '31 - 60 días', pct: 0.07 },
-  { rango: '61 - 90 días', pct: 0.04 }
+  { rango: '61 - 90 días', pct: 0.04 },
+  { rango: '> 90 días', pct: 0 }
 ];
 
+/**
+ * aplicaDescuentoVolumen marca qué bandas reciben el +4% adicional del
+ * descuento por volumen (solo fuera de Bogotá, ver calcularTablaDescuentos).
+ * ">90 días" queda explícitamente afuera: pasado el día 90 no hay ningún
+ * beneficio, ni de pronto pago ni de volumen — decisión de negocio, no
+ * un olvido.
+ */
 export const DESCUENTOS_FUERA_BOGOTA = [
-  { rango: 'Hasta 30 días', pct: 0.06 },
-  { rango: '31 - 60 días', pct: 0.04 },
-  { rango: '61 - 90 días', pct: 0.02 }
+  { rango: '≤ 30 días', pct: 0.06, aplicaDescuentoVolumen: true },
+  { rango: '31 - 60 días', pct: 0.04, aplicaDescuentoVolumen: true },
+  { rango: '61 - 90 días', pct: 0.02, aplicaDescuentoVolumen: true },
+  { rango: '> 90 días', pct: 0, aplicaDescuentoVolumen: false }
 ];
+
+export const DESCUENTO_VOLUMEN_PCT = 0.04;
 
 const FACTOR_IVA = 1.19;
 
@@ -87,13 +98,18 @@ const FACTOR_IVA = 1.19;
  *
  * @param {number} totalConIva       Total ya calculado por calcularCotizacion()
  * @param {boolean} fueraDeBogota
+ * @param {boolean} descuentoVolumenActivo  Solo tiene efecto si fueraDeBogota
+ *   es true (pedido de 300+ pares) — suma +4% a las bandas elegibles.
  */
-export function calcularTablaDescuentos(totalConIva, fueraDeBogota) {
+export function calcularTablaDescuentos(totalConIva, fueraDeBogota, descuentoVolumenActivo = false) {
   const bandas = fueraDeBogota ? DESCUENTOS_FUERA_BOGOTA : DESCUENTOS_BOGOTA;
   const subtotal = totalConIva / FACTOR_IVA;
 
   return bandas.map((banda) => {
-    const subtotalDescontado = subtotal * (1 - banda.pct);
-    return { ...banda, totalConDescuento: subtotalDescontado * FACTOR_IVA };
+    const pct = fueraDeBogota && descuentoVolumenActivo && banda.aplicaDescuentoVolumen
+      ? banda.pct + DESCUENTO_VOLUMEN_PCT
+      : banda.pct;
+    const subtotalDescontado = subtotal * (1 - pct);
+    return { ...banda, pct, totalConDescuento: subtotalDescontado * FACTOR_IVA };
   });
 }

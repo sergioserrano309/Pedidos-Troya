@@ -2875,6 +2875,75 @@
       font-weight: 500;
     }
 
+    /* Asterisco de campo obligatorio (Referencia/Material/Cliente/Color). */
+    .propuesta-req {
+      color: var(--red);
+    }
+
+    /* ===== Autocompletar de Referencia: input de texto + lista
+       desplegable de sugerencias, mismo lenguaje visual que
+       .propuesta-filtro-principal. ===== */
+    .propuesta-autocomplete {
+      position: relative;
+    }
+
+    .propuesta-autocomplete-lista {
+      display: none;
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      z-index: 20;
+      margin-top: 2px;
+      background: var(--surface);
+      border: 1.5px solid var(--blue);
+      border-radius: var(--r);
+      max-height: 220px;
+      overflow-y: auto;
+      box-shadow: var(--shadow-md);
+    }
+
+    .propuesta-autocomplete-lista.abierta {
+      display: block;
+    }
+
+    .propuesta-autocomplete-item {
+      padding: 8px 12px;
+      font-size: 13px;
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    .propuesta-autocomplete-item:hover {
+      background: var(--blue-bg);
+      color: var(--blue);
+    }
+
+    .propuesta-autocomplete-vacio {
+      padding: 8px 12px;
+      font-size: 13px;
+      color: var(--text3);
+    }
+
+    /* ===== Botón "Buscar" (lupa) — los resultados solo se calculan al
+       hacer clic aquí, nunca en vivo mientras se llenan los filtros. ===== */
+    .propuesta-filtros-buscar-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+
+    .propuesta-filtros-ayuda {
+      font-size: 12px;
+      color: var(--text2);
+    }
+
+    .propuesta-icono-lupa {
+      vertical-align: -2px;
+      margin-right: 4px;
+    }
+
     /* ===== Barra "Filtros (N) / Limpiar" — mismo lenguaje visual que
        #btn-toggle-filtros/#btn-limpiar-filtros de Órdenes (index.html),
        pero siempre visible aquí (no solo en móvil) y con IDs propios
@@ -3147,6 +3216,62 @@
       margin-bottom: 0.75rem;
     }
 
+    /* Toggle "descuento por volumen" — solo visible para Fuera de
+       Bogotá (propuestaPage.js lo muestra/oculta). */
+    .propuesta-descuentos-volumen {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      gap: 0.6rem;
+      margin-bottom: 0.9rem;
+      font-size: 12px;
+      color: var(--text2);
+      text-align: center;
+    }
+
+    .propuesta-switch {
+      position: relative;
+      display: inline-block;
+      width: 38px;
+      height: 22px;
+      flex-shrink: 0;
+    }
+
+    .propuesta-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .propuesta-switch-slider {
+      position: absolute;
+      inset: 0;
+      cursor: pointer;
+      background: var(--border2);
+      border-radius: 999px;
+      transition: background .15s;
+    }
+
+    .propuesta-switch-slider::before {
+      content: "";
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      left: 3px;
+      top: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform .15s;
+    }
+
+    .propuesta-switch input:checked + .propuesta-switch-slider {
+      background: var(--blue);
+    }
+
+    .propuesta-switch input:checked + .propuesta-switch-slider::before {
+      transform: translateX(16px);
+    }
+
     .propuesta-descuentos-tabla-wrap {
       display: flex;
       justify-content: center;
@@ -3249,7 +3374,8 @@
       }
 
       #propuesta-btn-descargar-pdf,
-      #propuesta-canasto {
+      #propuesta-canasto,
+      .propuesta-descuentos-volumen {
         display: none !important;
       }
 
@@ -3301,7 +3427,7 @@
       /* Layout más compacto que en pantalla — así una cotización cabe
          en una sola página incluso con varios extras. */
       .propuesta-sel-info {
-        grid-template-columns: repeat(6, 1fr);
+        grid-template-columns: repeat(5, 1fr);
         gap: 0.5rem;
         margin-bottom: 0.6rem;
         padding-bottom: 0.6rem;
@@ -3824,7 +3950,7 @@
             <div class="card-title">Tipo de Cotización</div>
             <div class="form-row">
               <div class="form-group">
-                <label>Tipo de precio</label>
+                <label>Tipo Cliente</label>
                 <div class="radio-group">
                   <div class="radio-item">
                     <input type="radio" name="propuesta-tipo-precio" id="propuesta-tipo-distribuidor" value="distribuidor" checked>
@@ -3859,6 +3985,13 @@
               <button type="button" class="propuesta-btn-limpiar" id="propuesta-btn-limpiar-filtros">Limpiar</button>
             </div>
             <div class="propuesta-filtros-grid" id="propuesta-filtros-grid"></div>
+            <div class="propuesta-filtros-buscar-row">
+              <button type="button" class="btn btn-primary" id="propuesta-btn-buscar" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" class="propuesta-icono-lupa" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                Buscar
+              </button>
+              <span class="propuesta-filtros-ayuda" id="propuesta-filtros-ayuda">Completa Referencia y Cliente para buscar.</span>
+            </div>
           </div>
 
           <div class="card">
@@ -3880,7 +4013,7 @@
             <div class="propuesta-print-comentarios" id="propuesta-print-comentarios"></div>
             <div class="propuesta-cotizacion-header">
               <div class="card-title">Cotización</div>
-              <button class="btn btn-secondary btn-sm" id="propuesta-btn-descargar-pdf" type="button">Descargar PDF</button>
+              <button class="btn btn-secondary btn-sm" id="propuesta-btn-descargar-pdf" type="button" style="display:none;">Descargar PDF</button>
             </div>
             <div class="propuesta-sel-info" id="propuesta-sel-info"></div>
             <div class="propuesta-canasto" id="propuesta-canasto"></div>
@@ -3888,10 +4021,19 @@
 
             <div class="propuesta-descuentos" id="propuesta-descuentos">
               <div class="propuesta-descuentos-titulo">Descuento por Pronto Pago</div>
+              <div class="propuesta-descuentos-volumen" id="propuesta-descuentos-volumen">
+                <label class="propuesta-switch">
+                  <input type="checkbox" id="propuesta-toggle-volumen">
+                  <span class="propuesta-switch-slider"></span>
+                </label>
+                <span>Aplicar descuento adicional por volumen (+4%, pedidos de 300 pares o más)</span>
+              </div>
               <div class="propuesta-descuentos-tabla-wrap">
                 <table id="propuesta-descuentos-tabla"></table>
               </div>
               <div class="propuesta-descuentos-nota" id="propuesta-descuentos-nota"></div>
+              <div class="propuesta-descuentos-nota">No aplicable a suelas reventadas.</div>
+              <div class="propuesta-descuentos-nota">Esta no es una oferta vinculante, los precios están sujetos a cambios.</div>
             </div>
           </div>
         </div>

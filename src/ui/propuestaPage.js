@@ -10,8 +10,10 @@ import { mostrarToast } from './toast.js';
  * importada por dashboard.js, orderDetail.js, historyPage.js, etc.
  *
  * Con solo 438 filas, se cargan todas una vez (fetchPreciosSuelas) y el
- * filtrado en cascada se hace 100% en memoria — sin ida y vuelta a
- * Supabase por cada cambio de filtro.
+ * filtrado se hace 100% en memoria. Las OPCIONES de cada filtro se
+ * recalculan en vivo en cascada (filasCoincidenExcepto/opcionesDisponibles)
+ * conforme se van llenando los demás filtros, pero los RESULTADOS solo se
+ * recalculan al hacer clic en "Buscar" (ver resultadosBuscados).
  */
 
 const FILTROS_SELECT = [
@@ -21,6 +23,10 @@ const FILTROS_SELECT = [
   { key: 'colorCategoria', label: 'Color', campo: 'colorCategoria' },
   { key: 'tallaRango', label: 'Talla', campo: 'tallaRango' }
 ];
+
+const FILTROS_SELECT_DROPDOWN = FILTROS_SELECT.filter((f) => f.key !== 'referencia');
+
+const FILTROS_OBLIGATORIOS = ['referencia', 'cliente'];
 
 const FILTROS_BOOLEANOS = [
   { key: 'bicolor', label: 'Bicolor' },
@@ -35,6 +41,7 @@ let filtros = {};
 let filaSeleccionadaId = null;
 let itemsSeleccionados = new Set();
 let cargando = false;
+let resultadosBuscados = false;
 
 function filtrosVacios() {
   const base = {};
@@ -54,15 +61,7 @@ export function inicializarPaginaPropuesta() {
   document.getElementById('propuesta-btn-limpiar-filtros')?.addEventListener('click', () => {
     filtros = filtrosVacios();
     renderizarFiltros();
-    renderizarResultados();
-  });
-
-  document.getElementById('propuesta-filtros-grid')?.addEventListener('change', (e) => {
-    const el = e.target.closest('[data-filtro]');
-    if (!el) return;
-    filtros[el.dataset.filtro] = el.value;
-    actualizarContadorFiltros();
-    renderizarResultados();
+    onFiltroCambiado();
   });
 
   document.getElementById('propuesta-btn-toggle-filtros')?.addEventListener('click', () => {
@@ -79,6 +78,56 @@ export function inicializarPaginaPropuesta() {
     chevron?.classList.toggle('abierto', !colapsado);
   });
 
+  document.getElementById('propuesta-btn-buscar')?.addEventListener('click', () => {
+    if (!todosObligatoriosLlenos()) {
+      mostrarToast('Completa Referencia y Cliente antes de buscar.', 'error');
+      return;
+    }
+    resultadosBuscados = true;
+    renderizarResultados();
+  });
+
+  // Todo lo del filtro de Referencia (autocompletar) se delega sobre el
+  // contenedor #propuesta-filtros-grid, que nunca se destruye (solo su
+  // innerHTML se reconstruye en cada renderizarFiltros) — así los
+  // listeners siguen funcionando sin tener que re-engancharlos.
+  const grid = document.getElementById('propuesta-filtros-grid');
+
+  grid?.addEventListener('input', (e) => {
+    if (e.target.id === 'propuesta-filtro-referencia-input') renderizarSugerenciasReferencia();
+  });
+
+  grid?.addEventListener('focusin', (e) => {
+    if (e.target.id === 'propuesta-filtro-referencia-input') renderizarSugerenciasReferencia();
+  });
+
+  grid?.addEventListener('focusout', (e) => {
+    if (e.target.id !== 'propuesta-filtro-referencia-input') return;
+    // Pequeño delay para que un clic sobre una sugerencia alcance a
+    // registrarse antes de cerrar la lista y revertir el texto escrito.
+    setTimeout(() => {
+      cerrarSugerenciasReferencia();
+      const input = document.getElementById('propuesta-filtro-referencia-input');
+      if (input) input.value = filtros.referencia;
+    }, 150);
+  });
+
+  grid?.addEventListener('click', (e) => {
+    const item = e.target.closest('.propuesta-autocomplete-item');
+    if (!item) return;
+    filtros.referencia = item.dataset.valor;
+    renderizarFiltros();
+    onFiltroCambiado();
+  });
+
+  grid?.addEventListener('change', (e) => {
+    const el = e.target.closest('[data-filtro]');
+    if (!el) return;
+    filtros[el.dataset.filtro] = el.value;
+    renderizarFiltros();
+    onFiltroCambiado();
+  });
+
   document.getElementById('propuesta-resultados-lista')?.addEventListener('click', (e) => {
     const el = e.target.closest('[data-fila-id]');
     if (!el) return;
@@ -93,6 +142,8 @@ export function inicializarPaginaPropuesta() {
     renderizarDesglose();
   });
 
+  document.getElementById('propuesta-toggle-volumen')?.addEventListener('change', renderizarDesglose);
+
   document.getElementById('propuesta-btn-descargar-pdf')?.addEventListener('click', abrirModalPdf);
   document.getElementById('btn-cerrar-propuesta-pdf')?.addEventListener('click', cerrarModalPdf);
   document.getElementById('btn-cancelar-propuesta-pdf')?.addEventListener('click', cerrarModalPdf);
@@ -106,6 +157,25 @@ function actualizarContadorFiltros() {
 
   const btnLimpiar = document.getElementById('propuesta-btn-limpiar-filtros');
   btnLimpiar?.classList.toggle('activo', activos > 0);
+}
+
+function todosObligatoriosLlenos() {
+  return FILTROS_OBLIGATORIOS.every((key) => !!filtros[key]);
+}
+
+function actualizarEstadoBotonBuscar() {
+  const btn = document.getElementById('propuesta-btn-buscar');
+  const ayuda = document.getElementById('propuesta-filtros-ayuda');
+  const listo = todosObligatoriosLlenos();
+  if (btn) btn.disabled = !listo;
+  if (ayuda) ayuda.style.display = listo ? 'none' : 'inline';
+}
+
+/** Cualquier cambio de filtro invalida los resultados ya buscados — hay
+ * que volver a darle a "Buscar" para verlos (ver renderizarResultados). */
+function onFiltroCambiado() {
+  resultadosBuscados = false;
+  renderizarResultados();
 }
 
 /**
@@ -208,10 +278,6 @@ export function configurarUIPropuesta() {
 export async function cargarPropuesta() {
   if (cargando) return;
   cargando = true;
-  const lista = document.getElementById('propuesta-resultados-lista');
-  if (lista && filas.length === 0) {
-    lista.innerHTML = '<div class="propuesta-vacio">Cargando precios...</div>';
-  }
 
   try {
     filas = await fetchPreciosSuelas();
@@ -219,6 +285,7 @@ export async function cargarPropuesta() {
     renderizarResultados();
   } catch (err) {
     console.error('[propuestaPage] Error cargando precios:', err);
+    const lista = document.getElementById('propuesta-resultados-lista');
     if (lista) lista.innerHTML = `<div class="propuesta-vacio">${escapeHtml(err.message)}</div>`;
   } finally {
     cargando = false;
@@ -253,21 +320,60 @@ function renderizarTodo() {
   renderizarCotizacionSeleccionada();
 }
 
-function valoresUnicos(campo) {
-  return [...new Set(filas.map((f) => f[campo]).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+/** Filas que cumplen todos los filtros activos EXCEPTO el indicado por
+ * claveExcluida — es la base para calcular qué opciones sigue teniendo
+ * sentido ofrecer en cada filtro dado lo que ya se llenó en los demás
+ * (filtrado en cascada, bidireccional: no importa por cuál se empiece). */
+function filasCoincidenExcepto(claveExcluida) {
+  return filas.filter((fila) => {
+    for (const f of FILTROS_SELECT) {
+      if (f.key === claveExcluida) continue;
+      if (filtros[f.key] && fila[f.campo] !== filtros[f.key]) return false;
+    }
+    for (const f of FILTROS_BOOLEANOS) {
+      if (filtros[f.key] === 'si' && !fila[f.key]) return false;
+      if (filtros[f.key] === 'no' && fila[f.key]) return false;
+    }
+    return true;
+  });
+}
+
+function opcionesDisponibles(campo, claveExcluida) {
+  return [...new Set(filasCoincidenExcepto(claveExcluida).map((f) => f[campo]).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
 }
 
 function renderizarFiltros() {
   const cont = document.getElementById('propuesta-filtros-grid');
   if (!cont) return;
 
-  const selects = FILTROS_SELECT.map((f) => {
-    const opciones = valoresUnicos(f.campo)
+  const referenciasDisponibles = opcionesDisponibles('referencia', 'referencia');
+  if (filtros.referencia && !referenciasDisponibles.includes(filtros.referencia)) {
+    filtros.referencia = '';
+  }
+
+  const refHtml = `
+    <div class="form-group">
+      <label>Referencia <span class="propuesta-req">*</span></label>
+      <div class="propuesta-autocomplete">
+        <input type="text" id="propuesta-filtro-referencia-input" class="propuesta-filtro-principal"
+          placeholder="Escribe para buscar..." autocomplete="off" value="${escapeHtml(filtros.referencia)}">
+        <div class="propuesta-autocomplete-lista" id="propuesta-autocomplete-referencia"></div>
+      </div>
+    </div>`;
+
+  const otrosSelects = FILTROS_SELECT_DROPDOWN.map((f) => {
+    const disponibles = opcionesDisponibles(f.campo, f.key);
+    if (filtros[f.key] && !disponibles.includes(filtros[f.key])) {
+      filtros[f.key] = '';
+    }
+    const obligatorio = FILTROS_OBLIGATORIOS.includes(f.key) ? ' <span class="propuesta-req">*</span>' : '';
+    const opciones = disponibles
       .map((v) => `<option value="${escapeHtml(v)}" ${filtros[f.key] === v ? 'selected' : ''}>${escapeHtml(v)}</option>`)
       .join('');
     return `
       <div class="form-group">
-        <label>${escapeHtml(f.label)}</label>
+        <label>${escapeHtml(f.label)}${obligatorio}</label>
         <select class="propuesta-filtro-principal" data-filtro="${f.key}">
           <option value="">Todos</option>
           ${opciones}
@@ -285,8 +391,28 @@ function renderizarFiltros() {
         </select>
       </div>`).join('');
 
-  cont.innerHTML = selects + booleanos;
+  cont.innerHTML = refHtml + otrosSelects + booleanos;
   actualizarContadorFiltros();
+  actualizarEstadoBotonBuscar();
+}
+
+function renderizarSugerenciasReferencia() {
+  const input = document.getElementById('propuesta-filtro-referencia-input');
+  const lista = document.getElementById('propuesta-autocomplete-referencia');
+  if (!input || !lista) return;
+
+  const texto = input.value.trim().toLowerCase();
+  const disponibles = opcionesDisponibles('referencia', 'referencia');
+  const filtradas = texto ? disponibles.filter((v) => v.toLowerCase().includes(texto)) : disponibles;
+
+  lista.innerHTML = filtradas.length
+    ? filtradas.map((v) => `<div class="propuesta-autocomplete-item" data-valor="${escapeHtml(v)}">${escapeHtml(v)}</div>`).join('')
+    : '<div class="propuesta-autocomplete-vacio">Sin coincidencias</div>';
+  lista.classList.add('abierta');
+}
+
+function cerrarSugerenciasReferencia() {
+  document.getElementById('propuesta-autocomplete-referencia')?.classList.remove('abierta');
 }
 
 function filaCumpleFiltros(fila) {
@@ -304,6 +430,12 @@ function renderizarResultados() {
   const lista = document.getElementById('propuesta-resultados-lista');
   const contador = document.getElementById('propuesta-resultados-count');
   if (!lista) return;
+
+  if (!resultadosBuscados) {
+    if (contador) contador.textContent = '';
+    lista.innerHTML = '<div class="propuesta-vacio">Completa Referencia y Cliente, luego haz clic en Buscar.</div>';
+    return;
+  }
 
   const resultado = filas.filter(filaCumpleFiltros);
   if (contador) contador.textContent = `- ${resultado.length}`;
@@ -359,10 +491,11 @@ function renderizarCotizacionSeleccionada() {
 
   const info = document.getElementById('propuesta-sel-info');
   if (info) {
+    // Cliente no se muestra: podría generar confusión en la cotización
+    // que ve el cliente final (el precio ya es el que le corresponde).
     const campos = [
       ['Referencia', fila.referencia],
       ['Material', fila.material],
-      ['Cliente', fila.cliente],
       ['Talla', fila.tallaRango],
       ['Color detallado', fila.colorNombre || '—'],
       ['Detalle', fila.comentario || '—']
@@ -437,7 +570,15 @@ function renderizarDescuentos(total) {
   const tabla = document.getElementById('propuesta-descuentos-tabla');
   if (!tabla) return;
 
-  const bandas = calcularTablaDescuentos(total, esFueraDeBogota());
+  const fueraDeBogota = esFueraDeBogota();
+  const volumenWrap = document.getElementById('propuesta-descuentos-volumen');
+  const toggleVolumen = document.getElementById('propuesta-toggle-volumen');
+
+  if (volumenWrap) volumenWrap.style.display = fueraDeBogota ? 'flex' : 'none';
+  if (!fueraDeBogota && toggleVolumen) toggleVolumen.checked = false;
+
+  const descuentoVolumenActivo = fueraDeBogota && !!toggleVolumen?.checked;
+  const bandas = calcularTablaDescuentos(total, fueraDeBogota, descuentoVolumenActivo);
 
   const encabezado = bandas.map((b) => `<th>${escapeHtml(b.rango)}</th>`).join('');
   const filaDescuento = bandas.map((b) => `<td>${Math.round(b.pct * 100)}%</td>`).join('');
@@ -454,8 +595,9 @@ function renderizarDescuentos(total) {
 
   const nota = document.getElementById('propuesta-descuentos-nota');
   if (nota) {
-    const volumenMinimo = esFueraDeBogota() ? 300 : 240;
-    nota.textContent = `Para acceder al descuento de pronto pago, el volumen mínimo aplicable es de ${volumenMinimo} pares.`;
+    nota.textContent = fueraDeBogota
+      ? 'Para que aplique el descuento por volumen se debe solicitar un volumen mínimo de 300 pares.'
+      : 'Para que aplique el descuento se debe pedir 240 pares o más.';
   }
 }
 
