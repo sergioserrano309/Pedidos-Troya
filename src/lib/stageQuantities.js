@@ -38,3 +38,21 @@ export function calcularProcesadoPorProceso(item, movimientos, proceso) {
     .filter((m) => m.from_process === proceso)
     .reduce((sum, m) => sum + Number(m.quantity || 0), 0);
 }
+
+/**
+ * Unidades que han LLEGADO al proceso del rol actual: lo que ya procesó
+ * más lo que tiene pendiente. Es la misma cifra que la cartilla ya usa
+ * para decidir el badge "completado" — exponerla permite ver que una
+ * talla "completada" puede estarlo solo sobre lo recibido hasta ahora.
+ */
+export function calcularRecibidoPorProceso(item, movimientos, proceso) {
+  return calcularPendientePorProceso(item, movimientos, proceso)
+    + calcularProcesadoPorProceso(item, movimientos, proceso);
+}
+
+/** % recibido sobre lo solicitado, entero y con tope en 100. */
+export function porcentajeRecibido(recibido, solicitado) {
+  const s = Number(solicitado || 0);
+  if (s <= 0) return 0;
+  return Math.min(100, Math.round((Number(recibido || 0) / s) * 100));
+}

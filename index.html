@@ -694,7 +694,10 @@
            crecer con la pantalla). minmax evita que una métrica o la
            info se compriman a ilegible antes de que el cliente/atributos
            empiecen a recortarse con ellipsis. */
-        grid-template-columns: 40px minmax(58px, 4.2fr) repeat(4, minmax(30px, 1fr)) 26px 13px;
+        /* Primera columna a 64px (antes 40px): ahora lleva el número de
+           orden y debajo la etapa, y "Empaque" no cabía en 40px. El ancho
+           extra sale de la columna 2, que es flexible. */
+        grid-template-columns: 64px minmax(58px, 4.2fr) repeat(4, minmax(30px, 1fr)) 26px 13px;
         grid-template-rows: auto auto auto;
         column-gap: 5px;
         row-gap: 1px;
@@ -702,10 +705,13 @@
         padding: 7px 8px;
       }
 
+      /* Filas 1-2 (no 1-4): la fila 3 de esta columna la ocupa la etapa. */
       .col-numero {
         grid-column: 1;
-        grid-row: 1 / 4;
+        grid-row: 1 / 3;
         align-self: center;
+        justify-self: center;
+        text-align: center;
         font-size: 14px;
         font-weight: 700;
         color: var(--blue);
@@ -723,13 +729,11 @@
         white-space: nowrap;
       }
 
-      /* Nombre suela/material/color/etapa individuales quedan ocultos:
-         su información se reagrupa en .col-mobile-attrs (una sola línea
-         compacta), ver más abajo. El dato en sí no se pierde del DOM
-         para desktop/tablet, solo no se repite visualmente en móvil.
-         !important en .col-etapa: tiene una regla base compartida con
-         otros usos (cartilla, etc.) que vive DESPUÉS de esta media
-         query en el archivo y le ganaría por orden de aparición si no. */
+      /* Nombre suela/material/color se reagrupan en .col-mobile-attrs
+         (una sola línea compacta). La ETAPA ya no va ahí: comprimida
+         junto a los otros tres quedaba ilegible en un celular, y es —
+         junto al número de orden — lo primero que el operario necesita
+         ver. Por eso sube a la columna 1, debajo del número. */
       .col-nombre-suela,
       .col-material,
       .col-color {
@@ -737,7 +741,17 @@
       }
 
       .col-etapa {
-        display: none !important;
+        grid-column: 1;
+        grid-row: 3;
+        align-self: center;
+        justify-self: center;
+        max-width: 100%;
+        font-size: 10px;
+        color: var(--text2);
+        text-align: center;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .col-mobile-attrs {
@@ -842,6 +856,14 @@
       line-height: 1.3;
     }
 
+
+    .detalle-total-pares {
+      margin: 12px 0;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--blue);
+      letter-spacing: .02em;
+    }
 
     .orden-divider {
       border-top: 1px solid var(--border);
@@ -1055,10 +1077,14 @@
     }
 
     .btn-procesar-parcial {
-      background: #fff;
-      color: var(--blue);
-      border: 1.5px solid var(--blue);
+      background: var(--blue);
+      color: #fff;
+      border: none;
       margin-top: 11px;
+    }
+
+    .btn-procesar-parcial:hover {
+      background: #1d4ed8;
     }
 
     .stat-item {
@@ -1066,22 +1092,116 @@
     }
 
     /* Fila de estadísticas de cada talla en la cartilla (Solicitado/
-       Procesado/Pendiente/Etapa/Cantidad a Procesar). */
+       Procesado/Pendiente/Recibido/Etapa/Procesar).
+       En PC va en UNA sola línea (nowrap): si el campo "Procesar" hacía
+       saltar la fila, las tallas por procesar quedaban más altas que las
+       completadas. Todas deben medir lo mismo. */
     .item-stats-row {
       display: flex;
-      align-items: center;
-      gap: 2rem;
-      flex-wrap: wrap;
+      align-items: flex-start;
+      gap: 1.25rem;
+      flex-wrap: nowrap;
     }
 
     .stat-label {
       color: var(--text3);
     }
 
+    /* line-height fijo = misma altura que el campo "Procesar": así una
+       talla con campo y una sin él miden exactamente lo mismo. */
     .stat-value {
       color: var(--text);
       font-weight: 600;
       margin-top: 2px;
+      line-height: 20px;
+      white-space: nowrap;
+    }
+
+    /* Colores por categoría: aplican a la etiqueta y al número. */
+    .stat-procesado .stat-label,
+    .stat-procesado .stat-value {
+      color: var(--green);
+    }
+
+    .stat-pendiente .stat-label,
+    .stat-pendiente .stat-value {
+      color: #ca8a04;
+    }
+
+    .stat-recibido .stat-label,
+    .stat-recibido .stat-value {
+      color: #ea580c;
+    }
+
+    /* Etiquetas completas en PC, abreviadas en móvil (ver media 768px).
+       Clases propias: .lbl-full/.lbl-short ya cambian a los 1599px y aquí
+       el cambio debe ser solo en celular. */
+    .cart-lbl-short {
+      display: none;
+    }
+
+    /* Campo "Procesar": texto con teclado numérico (inputmode) para
+       poder mostrar el punto de miles; ancho para 5 dígitos ("99.999"). */
+    .input-cantidad-procesar {
+      display: block;
+      width: 64px;
+      height: 20px;
+      margin-top: 2px;
+      padding: 0 6px;
+      border: 1.5px solid var(--border2);
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      line-height: 1;
+      text-align: center;
+      box-sizing: border-box;
+      outline: none;
+    }
+
+    .input-cantidad-procesar:focus {
+      border-color: var(--blue);
+    }
+
+    /* "Talla 39 – [Recibido: 50%]" */
+    .talla-titulo {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .talla-sep,
+    .detalle-total-sep {
+      color: var(--text3);
+      font-weight: 400;
+    }
+
+    /* % recibido: rojo 0%, amarillo parcial, verde 100%. */
+    .badge-recibido {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 4px;
+      white-space: nowrap;
+      vertical-align: middle;
+      letter-spacing: 0;
+    }
+
+    .recibido-cero {
+      background: var(--red-bg);
+      color: var(--red-text);
+    }
+
+    .recibido-parcial {
+      background: #fef9c3;
+      color: #a16207;
+    }
+
+    .recibido-total {
+      background: var(--green-bg);
+      color: var(--green-text);
     }
 
     .progress-bar {
@@ -1365,6 +1485,89 @@
       font-weight: 600;
     }
 
+    /* Variante con texto (data-buscable): el botón se reemplaza por un
+       campo donde se escribe para acortar la lista. El filtro solo se
+       aplica al elegir una opción. */
+    .filtro-custom-input {
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+      padding: 8px 30px 8px 12px;
+      background: var(--blue-bg);
+      color: var(--blue);
+      border: 1.5px solid #bfdbfe;
+      border-radius: var(--r);
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      text-overflow: ellipsis;
+    }
+
+    .filtro-custom-input::placeholder {
+      color: var(--blue);
+      opacity: 1;
+    }
+
+    .filtro-custom-input:focus {
+      background: #fff;
+      border-color: var(--blue);
+    }
+
+    .filtro-custom-input:focus::placeholder {
+      color: var(--text3);
+    }
+
+    .filtro-custom-input-chevron {
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--blue);
+      pointer-events: none;
+    }
+
+    .filtro-custom-vacio {
+      padding: 9px 14px;
+      font-size: 12px;
+      color: var(--text3);
+      font-style: italic;
+    }
+
+    /* Filtros con etiqueta pequeña encima (Despachado, RegistrosO). */
+    .filtros-etiquetados {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 0.75rem;
+      align-items: end;
+    }
+
+    .filtro-campo {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .filtro-campo-lbl {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text2);
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+
+    @media (max-width: 768px) {
+      .col-oculta-movil {
+        display: none;
+      }
+
+      /* En celular los tres filtros van en una fila de tres. */
+      .filtros-etiquetados {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.5rem;
+      }
+    }
+
     /* ====================================================================
        DESPACHOS — acordeón "A Despachar"/"Despachado" (mismo lenguaje
        visual que .comp-seccion/.comp-chevron de Compensación, pero con
@@ -1422,15 +1625,95 @@
       margin-bottom: 0;
     }
 
+    /* En "A Despachar" no va el anillo de progreso: al lado del checkbox
+       la tarjeta se salía del contenedor en celular. Su columna queda en
+       cero y se aflojan un poco los mínimos para ganar espacio. */
+    .despacho-pedido-row .progreso-anillo {
+      display: none !important;
+    }
+
+    /* Medido a 285px útiles (celular de 375px): la tarjeta y su flecha
+       caben dentro del contenedor con los cuatro números completos. */
+    @media (max-width: 1599px) {
+      .despacho-pedido-row .orden-fila {
+        grid-template-columns: 48px minmax(40px, 3fr) repeat(4, minmax(28px, 1fr)) 0 13px;
+        column-gap: 3px;
+        padding-left: 6px;
+        padding-right: 6px;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .despacho-pedido-row {
+        gap: 6px;
+      }
+    }
+
+    /* La tarjeta entera marca/desmarca; solo la flecha › abre el
+       detalle del pedido. El ::after agranda la zona tocable, que en
+       móvil es una columna de apenas 13px. */
+    .despacho-pedido-row .orden-chevron {
+      position: relative;
+      cursor: pointer;
+    }
+
+    .despacho-pedido-row .orden-chevron::after {
+      content: '';
+      position: absolute;
+      inset: -14px -10px;
+    }
+
+    .despacho-pedido-row .orden-chevron:hover {
+      color: var(--blue);
+    }
+
+    /* En PC la flecha no tiene celda en el grid de 12 columnas: se ancla
+       a la derecha de la tarjeta. */
+    @media (min-width: 1600px) {
+      .despacho-pedido-row .orden-fila {
+        position: relative;
+        padding-right: 44px;
+      }
+
+      .despacho-pedido-row .orden-chevron {
+        display: block;
+        position: absolute;
+        right: 16px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 22px;
+        color: var(--text3);
+      }
+    }
+
     .despacho-pedido-row > .checkbox-registro {
       flex-shrink: 0;
     }
 
-    .despacho-fila {
+    /* ===== Filas de despacho (acordeón "Despachado") =====
+       Antes vivían en una pestaña aparte, "RegistrosD"; se fusionaron
+       dentro de Despachos para no mostrar lo mismo dos veces. Las clases
+       conservan el prefijo regd-. */
+    .regd-encabezado,
+    .regd-fila {
       display: grid;
-      grid-template-columns: 90px 100px minmax(0, 2fr) 90px 120px;
+      grid-template-columns: 90px 100px minmax(0, 2fr) 70px 70px 80px 100px 70px 32px 36px;
       column-gap: 14px;
       align-items: center;
+    }
+
+    .regd-encabezado {
+      padding: 0 24px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text2);
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 8px;
+    }
+
+    .regd-fila {
       padding: 14px 24px;
       background: var(--surface);
       border: 1px solid var(--border);
@@ -1440,23 +1723,23 @@
       transition: all .15s;
     }
 
-    .despacho-fila:hover {
+    .regd-fila:hover {
       box-shadow: var(--shadow-md);
       border-color: var(--blue);
     }
 
-    .despacho-col-consecutivo {
+    .regd-col-consecutivo {
       font-size: 16px;
       font-weight: 700;
       color: var(--blue);
     }
 
-    .despacho-col-fecha {
+    .regd-col-fecha {
       font-size: 13px;
       color: var(--text3);
     }
 
-    .despacho-col-lista-ordenes {
+    .regd-col-ordenes {
       font-size: 13px;
       color: var(--text2);
       overflow: hidden;
@@ -1465,89 +1748,549 @@
       min-width: 0;
     }
 
-    .despacho-col-num-bultos {
+    .regd-col-num {
       font-size: 13px;
       color: var(--text);
       text-align: center;
     }
 
-    .despacho-col-badge {
-      justify-self: end;
+    /* El botón de eliminar vive dentro de una fila clickeable: frena la
+       propagación en JS, y aquí solo se asegura de no encogerse. */
+    .regd-col-accion {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    /* Visto bueno del Validador (053). Misma casilla circular que la de
+       "A Despachar" pero en verde, que es el color con el que el resto
+       de la aplicación dice "esto ya está bien": así el validador
+       reconoce de un vistazo qué despachos ya revisó.
+       Deshabilitada para los demás roles — la ven, no la mueven. */
+    .regd-col-revisado {
+      display: flex;
+      justify-content: center;
+    }
+
+    .checkbox-revisado {
+      appearance: none;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+      border: 2px solid var(--border2);
+      border-radius: 50%;
+      cursor: pointer;
+      background: transparent;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .checkbox-revisado:hover:not(:disabled) {
+      border-color: var(--green);
+      background: var(--green-bg);
+    }
+
+    .checkbox-revisado:checked {
+      background: var(--green);
+      border-color: var(--green);
+    }
+
+    .checkbox-revisado:checked::after {
+      content: '✓';
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    /* Sin visto bueno y sin permiso para darlo: se ve apagada, no rota. */
+    .checkbox-revisado:disabled {
+      cursor: default;
+      opacity: .8;
+    }
+
+    /* Descargar el despacho en PDF. Va a la izquierda del ×: las dos
+       acciones de la tarjeta quedan juntas, y la destructiva de última.
+       Discreto (gris, contorno) para que el rojo siga siendo el único
+       botón que pesa visualmente. */
+    .regd-col-descarga {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .btn-descargar-registro {
+      background: var(--bg);
+      border: 1px solid var(--border2);
+      color: var(--text2);
+      cursor: pointer;
+      padding: 0;
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      transition: all 0.15s;
+      flex-shrink: 0;
+    }
+
+    .btn-descargar-registro svg {
+      width: 15px;
+      height: 15px;
+    }
+
+    .btn-descargar-registro:hover {
+      border-color: var(--blue);
+      color: var(--blue);
+      background: var(--blue-bg);
+    }
+
+    .regd-col-accion .btn-eliminar-registro {
+      flex-shrink: 0;
+    }
+
+    .regd-detalle-tabla {
+      width: 100%;
+      font-size: 13px;
+      border-collapse: collapse;
+    }
+
+    .regd-detalle-tabla th,
+    .regd-detalle-tabla td {
+      padding: 6px 8px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* Cliente del despacho, justo bajo el título: es el primer dato que
+       se busca al recibir la hoja impresa. En teoría un despacho lleva
+       un solo cliente; si llevara varios se listan todos separados por
+       punto, sin bloquear nada. */
+    .detalle-despacho-cliente {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: .5rem;
+    }
+
+    /* Totales de la remesa: kilos, bultos y unidades. */
+    .detalle-despacho-totales {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 1.25rem;
+    }
+
+    .detalle-despacho-badge {
+      background: var(--bg);
+      color: var(--text);
+      border-radius: 5px;
+      padding: 3px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    /* Ficha de cada pedido: [número]  suela · material · color. */
+    .detalle-despacho-ficha {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      font-size: 13px;
+      padding: 3px 0;
+    }
+
+    .detalle-despacho-ficha + .detalle-despacho-ficha {
+      border-top: 1px solid var(--border);
+    }
+
+    .detalle-despacho-ficha-orden {
+      font-weight: 700;
+      color: var(--blue);
+      flex-shrink: 0;
+    }
+
+    .detalle-despacho-ficha-attrs {
+      color: var(--text2);
+      min-width: 0;
+    }
+
+    /* Las matrices pueden tener muchas tallas: se desplazan en su propio
+       riel horizontal en vez de desbordar el modal. En papel no hace
+       falta (ver @media print). */
+    .detalle-despacho-matriz {
+      overflow-x: auto;
+    }
+
+    .detalle-despacho-matriz table {
+      min-width: 100%;
+    }
+
+    .detalle-despacho-matriz th,
+    .detalle-despacho-matriz td {
+      white-space: nowrap;
+    }
+
+    .detalle-despacho-matriz .col-num {
+      text-align: center;
+    }
+
+    /* El número de pedido con el mismo tratamiento que en el resto del
+       módulo: azul y en negrita, para anclar la lectura de la fila. */
+    .detalle-despacho-matriz .celda-pedido {
+      font-weight: 700;
+      color: var(--blue);
+    }
+
+    /* Casilla sin esa talla en ese pedido. No es un cero: no se pidió. */
+    .detalle-despacho-matriz .celda-vacia {
+      color: var(--text3);
     }
 
     @media (max-width: 767px) {
-      .despacho-fila {
-        grid-template-columns: 1fr 1fr;
-        row-gap: 6px;
-        padding: 12px 16px;
-      }
-
-      .despacho-col-lista-ordenes,
-      .despacho-col-badge {
-        grid-column: 1 / -1;
-      }
-
-      .despacho-col-badge {
-        justify-self: start;
+      /* En celular la matriz se aprieta todo lo que se puede antes de
+         recurrir al riel: con pocas tallas alcanza a caber entera. No se
+         esconde ninguna columna — el dato que se oculta es el que nadie
+         vuelve a mirar. */
+      .detalle-despacho-matriz th,
+      .detalle-despacho-matriz td {
+        padding: 5px 6px;
+        font-size: 12px;
       }
     }
 
-    /* Número grande/bold reutilizado en "Crear Salida" para Total de
-       Unidades (color de texto normal, sin cambios) y Pedidos
-       Seleccionados (mismo tamaño/peso, pero en azul). */
+    @media (max-width: 767px) {
+      /* El encabezado de columnas no cabe en móvil: cada fila se lee
+         como tarjeta con etiquetas propias (ver data-lbl en el JS). */
+      .regd-encabezado {
+        display: none;
+      }
+
+      /* Dos filas:
+           [ID Despacho] .................. [Fecha] [✓] [↓]
+           [Pedidos][Bultos][Kilos][Unidades][Completos] ..... [x]
+         Cada dato lleva su etiqueta pequeña ENCIMA del valor, igual que
+         Total/Proc./Pend./Días en la tarjeta de órdenes.
+         La descarga va arriba y no en la fila de datos: ahí sobra
+         espacio, y abajo cada columna ya está al límite en un 375px. */
+      .regd-fila {
+        grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)) minmax(0, 1.25fr) 28px;
+        column-gap: 5px;
+        row-gap: 8px;
+        padding: 10px 12px;
+      }
+
+      .regd-col-consecutivo {
+        grid-column: 1 / 3;
+        grid-row: 1;
+      }
+
+      .regd-col-fecha {
+        grid-column: 3 / 5;
+        grid-row: 1;
+        justify-self: end;
+        align-self: center;
+      }
+
+      /* El visto bueno también arriba, junto a la descarga: la fila de
+         datos no tiene un píxel de sobra en un celular de 375px. */
+      .regd-col-revisado {
+        grid-column: 5;
+        grid-row: 1;
+        justify-self: end;
+      }
+
+      .regd-col-descarga {
+        grid-column: 6;
+        grid-row: 1;
+      }
+
+      .regd-col-ordenes,
+      .regd-col-num,
+      .regd-col-accion {
+        grid-row: 2;
+      }
+
+      .btn-descargar-registro {
+        width: 26px;
+        height: 26px;
+      }
+
+      .regd-col-ordenes { grid-column: 1; }
+      .regd-col-num[data-lbl="Bultos"] { grid-column: 2; }
+      .regd-col-num[data-lbl="Kilos"] { grid-column: 3; }
+      .regd-col-num[data-lbl="Unidades"] { grid-column: 4; }
+      .regd-col-num[data-lbl="Completos"] { grid-column: 5; }
+      .regd-col-accion { grid-column: 6; align-self: center; }
+
+      .regd-col-ordenes,
+      .regd-col-num {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text);
+        text-align: left;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .regd-col-ordenes::before,
+      .regd-col-num::before {
+        content: attr(data-lbl);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: block;
+        font-size: 9px;
+        font-weight: 400;
+        color: var(--text3);
+        margin-bottom: 1px;
+      }
+
+      /* "Unidades" no cabe en su columna en un celular de 375px. */
+      .regd-col-num[data-lbl="Unidades"]::before {
+        content: "Und.";
+      }
+
+      /* El contador "1 de 1" debe caber en su columna. */
+      .regd-col-num[data-lbl="Completos"] > span {
+        padding: 1px 6px !important;
+        font-size: 11px !important;
+      }
+    }
+
+    /* Número grande/bold de "Crear Salida": Total de Unidades y Total de
+       Kilos. El mismo tamaño y peso lo reutiliza
+       .crear-despacho-pedido-numero, en azul. */
     .crear-despacho-numero-grande {
       font-size: 16px;
       font-weight: 700;
       color: var(--text);
     }
 
-    .crear-despacho-numero-azul {
-      color: var(--blue);
-    }
-
     /* Fila de un pedido dentro de "Pedidos Seleccionados" (Crear Salida):
        el pedido a la izquierda, el/los dropdown(s) de bulto + "+" a la
        derecha. La asignación se decide aquí mismo, antes de crear el
        despacho — nada se guarda hasta darle a "Crear Despacho". */
+    /* Un bloque por pedido: cabecera (número + bultos) y debajo una
+       línea por talla con sus saldos y la cantidad a despachar. */
     .crear-despacho-pedido-fila {
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* align-items:flex-start (no center): cuando un pedido tiene varios
+       bultos, el número debe quedar junto a la PRIMERA asignación, no
+       flotando a la mitad de la pila.
+
+       flex-wrap:nowrap a propósito. Con wrap, en el modal angosto un
+       carácter de más en el resumen ("11 de 11 und" frente a "5 de 11
+       und") bastaba para empujar los bultos a una segunda línea: al
+       abrir se veían desalineados y "se acomodaban" solos al digitar.
+       Ahora el resumen vive bajo el número y se recorta si hace falta;
+       los controles nunca se mueven. */
+    .crear-despacho-pedido-cabecera {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: space-between;
       gap: 12px;
-      padding: 8px 0;
-      border-bottom: 1px solid var(--border);
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
+    }
+
+    .crear-despacho-pedido-tallas {
+      margin-top: 8px;
+    }
+
+    /* [Talla] [Soli.] [Proc.] [Pend.] [Reci.] .......... [cantidad]
+       Los cuatro saldos reutilizan .stat-item/.stat-procesado/
+       .stat-pendiente/.stat-recibido de la cartilla de órdenes, así que
+       los colores y las abreviaturas de celular son los mismos sin
+       duplicar reglas. */
+    .crear-despacho-talla-fila {
+      display: grid;
+      grid-template-columns: 52px repeat(5, minmax(0, 1fr)) 72px;
+      align-items: center;
+      column-gap: 6px;
+      padding: 4px 0;
+    }
+
+    .crear-despacho-talla-nombre {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+    }
+
+    .crear-despacho-talla-fila .stat-value {
+      font-size: 12px;
+    }
+
+    .crear-despacho-talla-fila .talla-cantidad-input {
+      width: 100%;
+      height: 26px;
+      padding: 0 6px;
+      border: 1.5px solid var(--border2);
+      border-radius: var(--r);
+      font-size: 13px;
+      font-family: inherit;
+      text-align: center;
+      box-sizing: border-box;
+      outline: none;
+    }
+
+    .crear-despacho-talla-fila .talla-cantidad-input:focus {
+      border-color: var(--blue);
+    }
+
+    @media (max-width: 768px) {
+      /* "Contador" es solo de PC: en celular no cabría una sexta
+         columna sin apretar los saldos. */
+      .crear-despacho-talla-fila {
+        grid-template-columns: 40px repeat(4, minmax(0, 1fr)) 58px;
+        column-gap: 4px;
+      }
+
+      .crear-despacho-talla-fila .stat-contador {
+        display: none;
+      }
+
+      .crear-despacho-talla-nombre {
+        font-size: 11px;
+      }
+
+      /* Los saldos son solo lectura: a 11px caben las cuatro columnas
+         sin que el celular tenga que hacer scroll lateral. */
+      .crear-despacho-talla-fila .stat-item,
+      .crear-despacho-talla-fila .stat-value {
+        font-size: 11px;
+      }
+    }
+
+    /* Columna izquierda de la cabecera: número arriba y, debajo, el
+       resumen del pedido (en cuántos despachos va y cuántas unidades
+       salen de las disponibles, recalculado al digitar por talla).
+       min-width:0 la deja encogerse antes que los bultos: si falta
+       espacio se recorta el texto, nunca los controles. */
+    .crear-despacho-pedido-id {
+      min-width: 0;
+    }
+
+    .crear-despacho-pedido-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text2);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .crear-despacho-pedido-fila:last-child {
       border-bottom: none;
     }
 
+    /* Mismo peso visual que "Total de unidades": el número de pedido es
+       el dato que el usuario busca al asignar bultos. Antes había además
+       una lista de pedidos arriba, que era redundante y se eliminó. */
     .crear-despacho-pedido-numero {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text);
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--blue);
       flex-shrink: 0;
+      /* Misma altura que un .crear-despacho-bulto-row, para que el número
+         quede centrado con los controles de su primera fila. */
+      line-height: 26px;
     }
 
+    /* Las asignaciones se apilan hacia abajo, alineadas a la derecha:
+       cada una es una .crear-despacho-bulto-row con [select][+][x]. */
     .crear-despacho-pedido-bultos {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+    }
+
+    .crear-despacho-bulto-row {
       display: flex;
       align-items: center;
       gap: 6px;
-      flex-wrap: wrap;
     }
 
-    /* Ancho compacto a propósito (~1.35x el botón "+" de 26px): un
-       número de bulto nunca pasa de 2 dígitos, no necesita el ancho de
-       un input normal. */
-    .bulto-select {
-      width: 36px;
-      padding: 4px 2px;
+    /* "Número de bultos" gobierna a los pesos y a los dropdowns: se
+       resalta en azul para que esa jerarquía se vea. Los pesos quedan en
+       gris a propósito. */
+    .crear-despacho-campo-clave label {
+      color: var(--blue);
+    }
+
+    .crear-despacho-campo-clave input {
+      border-color: var(--blue);
+    }
+
+    /* Peso de cada bulto en fila: etiqueta a la izquierda, campo a la
+       derecha con el mismo ancho que el dropdown de bulto, para que toda
+       la columna de controles quede alineada. Deliberadamente NO usa
+       .form-group, que forzaría width:100% y rompería esa alineación. */
+    .crear-despacho-peso-fila {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .crear-despacho-peso-fila:last-child {
+      border-bottom: none;
+    }
+
+    .crear-despacho-peso-fila label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text2);
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      margin: 0;
+    }
+
+    .crear-despacho-peso-fila .peso-bulto-input {
+      width: 80px;
+      padding: 6px 8px;
       border: 1.5px solid var(--border2);
       border-radius: var(--r);
-      font-size: 12px;
+      font-size: 13px;
+      text-align: center;
+      font-family: inherit;
+      outline: none;
+      flex-shrink: 0;
+    }
+
+    .crear-despacho-peso-fila .peso-bulto-input:focus {
+      border-color: var(--blue);
+    }
+
+    /* El selector va anidado (.crear-despacho-pedido-bultos .bulto-select)
+       a propósito, NO como .bulto-select suelto: estos dropdowns viven
+       dentro del .form-group de "Pedidos seleccionados", y
+       ".form-group select { width:100% }" tiene especificidad (0,1,1),
+       que le gana a una clase sola (0,1,0). Por eso antes se estiraban al
+       100% y, al envolver, cada uno se llevaba una línea entera. Con dos
+       clases (0,2,0) el ancho se respeta sin necesidad de !important.
+       80px = mismo ancho que el input de peso, para que la columna de
+       controles quede alineada. */
+    .crear-despacho-pedido-bultos .bulto-select {
+      width: 80px;
+      padding: 6px 4px;
+      border: 1.5px solid var(--border2);
+      border-radius: var(--r);
+      font-size: 13px;
       text-align: center;
       text-align-last: center;
+      flex-shrink: 0;
     }
 
     .btn-agregar-bulto-input {
@@ -1576,23 +2319,46 @@
       cursor: not-allowed;
     }
 
+    /* Mismo rojo y mismo texto blanco que el botón de eliminar registro,
+       con el tamaño del "+" para que la fila quede pareja. En el PRIMER
+       bulto de cada pedido va deshabilitado en gris en vez de ocultarse:
+       así todas las filas tienen la misma forma y el usuario entiende
+       que ese bulto no se puede quitar (cada pedido necesita al menos uno). */
     .btn-quitar-bulto-input {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 20px;
-      height: 20px;
-      background: none;
+      width: 26px;
+      height: 26px;
+      background: #dc2626;
+      color: #fff;
       border: none;
-      color: var(--text3);
-      font-size: 14px;
+      border-radius: 6px;
+      font-size: 15px;
+      font-weight: 300;
       cursor: pointer;
       line-height: 1;
       flex-shrink: 0;
+      transition: all .15s;
     }
 
     .btn-quitar-bulto-input:hover {
-      color: var(--red);
+      background: #b91c1c;
+    }
+
+    .btn-quitar-bulto-input:disabled,
+    .btn-quitar-bulto-input:disabled:hover {
+      background: var(--border);
+      color: var(--text3);
+      cursor: not-allowed;
+    }
+
+    .btn-agregar-bulto-input:disabled,
+    .btn-agregar-bulto-input:disabled:hover {
+      background: var(--border);
+      color: var(--text3);
+      cursor: not-allowed;
+      opacity: 1;
     }
 
     /* MODALES */
@@ -1611,6 +2377,13 @@
 
     .modal.open {
       display: flex;
+    }
+
+    /* Encabezado de marca del PDF del despacho: oculto siempre, salvo
+       en @media print. La regla base vive fuera de la media query para
+       que NUNCA se vea en pantalla. */
+    .despacho-print-header {
+      display: none;
     }
 
     .modal-content {
@@ -1953,12 +2726,55 @@
         font-size: 11px;
       }
 
+      /* En celular, cuadrícula fija de dos filas:
+           fila 1: Soli. · Proc. · Pend. · Reci.
+           fila 2: Etapa actual · Procesar
+         Con campo o sin él, toda talla mide lo mismo, y "Procesar" queda
+         siempre alineado con "Etapa actual". */
       .item-stats-row {
-        gap: 0.85rem;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        column-gap: 0.6rem;
+        row-gap: 0.5rem;
       }
 
       .stat-item {
-        min-width: 68px;
+        min-width: 0;
+      }
+
+      .stat-etapa {
+        grid-column: 1 / 3;
+        grid-row: 2;
+      }
+
+      .stat-procesar {
+        grid-column: 3 / 5;
+        grid-row: 2;
+      }
+
+      .stat-acciones {
+        grid-column: 1 / -1;
+        margin-left: 0 !important;
+      }
+
+      .cart-lbl-full {
+        display: none;
+      }
+
+      .cart-lbl-short {
+        display: inline;
+      }
+
+      /* 16px (regla de más abajo, evita el zoom de iOS) necesita 22px de
+         alto; el valor de texto sube al mismo alto para seguir alineado
+         con "Etapa actual". */
+      .stat-value {
+        line-height: 22px;
+      }
+
+      .input-cantidad-procesar {
+        width: 72px;
+        height: 22px;
       }
 
       /* Mismo grid/estructura que desktop (ver .attrs-grid): solo se
@@ -2032,7 +2848,11 @@
       .destino-select,
       .form-group input,
       .form-group select,
-      .form-group textarea {
+      .form-group textarea,
+      /* Los pesos ya no viven dentro de un .form-group (ver
+         .crear-despacho-peso-fila), así que hay que nombrarlos aquí
+         explícitamente o iOS haría zoom al enfocarlos. */
+      .crear-despacho-peso-fila .peso-bulto-input {
         font-size: 16px !important;
       }
 
@@ -2745,6 +3565,19 @@
       opacity: 0.8;
     }
 
+    /* Bloqueado porque la orden ya está despachada (ver 041): se deja
+       visible para que el usuario entienda que la acción existe pero no
+       está disponible, en vez de que el botón desaparezca sin explicación. */
+    .btn-eliminar-registro:disabled {
+      background: var(--border);
+      color: var(--text3);
+      cursor: not-allowed;
+    }
+
+    .btn-eliminar-registro:disabled:hover {
+      background: var(--border);
+    }
+
     /* Checkboxes circulares */
     .checkbox-registro {
       appearance: none;
@@ -3379,6 +4212,96 @@
         display: none !important;
       }
 
+      /* --- Detalle del Despacho (Despachos > Despachado, botón ↓) ---
+         Se imprime el modal tal como se ve en pantalla; solo se le
+         quitan el fondo oscuro, el alto fijo y los botones. */
+      #modal-detalle-despacho.open,
+      #modal-detalle-despacho.open * {
+        visibility: visible;
+      }
+
+      /* La regla general de arriba (body * { visibility: hidden }) hace
+         invisible el resto de la aplicación, pero NO le quita el espacio
+         que ocupa: el documento seguía midiendo lo que mide el listado
+         completo y salían dos o tres hojas en blanco detrás. Con la
+         clase que pone descargarDetalleDespachoPDF, esos elementos dejan
+         de ocupar lugar y la hoja termina donde termina la tarjeta. */
+      body.imprimiendo-despacho > *:not(#modal-detalle-despacho) {
+        display: none !important;
+      }
+
+      /* Ya sin hermanos que lo desplacen, el modal entra en el flujo
+         normal (static, no absolute): así el alto del documento es
+         exactamente el alto de la tarjeta y el navegador cuenta bien
+         las páginas. */
+      body.imprimiendo-despacho #modal-detalle-despacho.open {
+        position: static;
+      }
+
+      #modal-detalle-despacho.open {
+        position: absolute;
+        top: 0;
+        left: 0;
+        display: block;
+        width: 100%;
+        height: auto;
+        background: none;
+      }
+
+      #modal-detalle-despacho.open .modal-content {
+        width: 100%;
+        max-width: none;
+        max-height: none;
+        overflow: visible;
+        box-shadow: none;
+        border: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      /* El pie completo, no solo el botón: si se ocultara únicamente el
+         botón, su contenedor dejaría 1.5rem en blanco al final de la
+         hoja. */
+      #modal-detalle-despacho.open .modal-close,
+      #modal-detalle-despacho.open .detalle-despacho-pie {
+        display: none !important;
+      }
+
+      #modal-detalle-despacho.open .regd-detalle-tabla,
+      #modal-detalle-despacho.open .form-group {
+        page-break-inside: avoid;
+      }
+
+      /* El riel horizontal es un recurso de pantalla: en la hoja la
+         matriz se imprime completa. */
+      #modal-detalle-despacho.open .detalle-despacho-matriz {
+        overflow-x: visible;
+      }
+
+      #modal-detalle-despacho.open .despacho-print-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 0.6rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid var(--text);
+      }
+
+      .despacho-print-brand {
+        font-size: 17px;
+        font-weight: 700;
+        color: var(--text);
+      }
+
+      .despacho-print-brand span {
+        color: var(--blue);
+      }
+
+      .despacho-print-fecha {
+        font-size: 12px;
+        color: var(--text2);
+      }
+
       .propuesta-print-header {
         display: flex;
         justify-content: space-between;
@@ -3575,11 +4498,12 @@
             <div id="tabs-primarios">
               <button class="tab-btn active" data-tab="activas">Activas</button>
               <button class="tab-btn" data-tab="completadas">Completadas</button>
-              <button class="tab-btn" data-tab="registros">Registros</button>
               <button class="tab-btn" data-tab="despachos" id="tab-btn-despachos" style="display:none;">Despachos</button>
+              <button class="tab-btn" data-tab="registros"><span class="cart-lbl-full">Registros</span><span class="cart-lbl-short">Reg.</span></button>
               <button class="tab-btn" data-tab="validador" id="tab-btn-validador" style="display:none;">Control Central</button>
               <button class="tab-btn" data-tab="reglas" id="tab-btn-reglas" style="display:none;">Reglas de Enrutamiento</button>
               <button class="tab-btn" data-tab="audit" id="tab-btn-audit" style="display:none;">Auditoría</button>
+              <button class="tab-btn" data-tab="eliminaciones" id="tab-btn-eliminaciones" style="display:none;">Eliminaciones</button>
             </div>
 
             <div id="ordenes-controles-superiores">
@@ -3613,9 +4537,9 @@
             </div>
 
             <div id="ordenes-filtros" style="display:grid;grid-template-columns:80px minmax(0,1.2fr) minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) 150px;gap:0.75rem;margin-top:1rem;">
-              <input type="text" id="filtro-orden" placeholder="No. Orden" maxlength="4" style="min-width:0;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+              <input type="text" id="filtro-orden" placeholder="No. Orden" maxlength="6" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-solo-digitos style="min-width:0;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
 
-              <div class="filtro-custom-select" data-filtro-select="filtro-cliente">
+              <div class="filtro-custom-select" data-filtro-select="filtro-cliente" data-buscable="1">
                 <select id="filtro-cliente" style="display:none;">
                   <option value="">Cliente...</option>
                 </select>
@@ -3626,7 +4550,7 @@
                 <div class="filtro-custom-dropdown"></div>
               </div>
 
-              <div class="filtro-custom-select" data-filtro-select="filtro-nombre-suela">
+              <div class="filtro-custom-select" data-filtro-select="filtro-nombre-suela" data-buscable="1">
                 <select id="filtro-nombre-suela" style="display:none;">
                   <option value="">Nombre Suela...</option>
                 </select>
@@ -3676,10 +4600,21 @@
           <div id="registros-seccion" style="display:none;">
             <div class="card">
               <div class="card-title">Historial de Actividades</div>
-              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0.75rem;">
-                <input type="text" id="registros-filtro-orden" placeholder="Orden..." style="padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
-                <input type="date" id="registros-filtro-fecha" style="padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
-                <select id="registros-filtro-proceso" style="display:none;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+              <div class="filtros-etiquetados">
+                <label class="filtro-campo">
+                  <span class="filtro-campo-lbl">Fecha de registro</span>
+                  <input type="date" id="registros-filtro-fecha" style="min-width:0;width:100%;box-sizing:border-box;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+                </label>
+                <label class="filtro-campo">
+                  <span class="filtro-campo-lbl">No. Orden</span>
+                  <input type="text" id="registros-filtro-orden" placeholder="Ej. 3449" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-solo-digitos style="min-width:0;width:100%;box-sizing:border-box;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+                </label>
+                <!-- Solo Empaque (ver configurarFiltroProcesoHistorial) -->
+                <label class="filtro-campo" id="registros-campo-despacho" style="display:none;">
+                  <span class="filtro-campo-lbl">ID Despacho</span>
+                  <input type="text" id="registros-filtro-despacho" placeholder="Ej. 1021" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-solo-digitos style="min-width:0;width:100%;box-sizing:border-box;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+                </label>
+                <select id="registros-filtro-proceso" style="display:none;align-self:end;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
                   <option value="">Proceso: Todos</option>
                   <option value="Refilado">Refilado</option>
                   <option value="Acabado">Acabado</option>
@@ -3692,6 +4627,10 @@
             <div class="card">
               <div style="margin-bottom:0.75rem;">
                 <button id="btn-eliminar-multiples-registros" class="btn btn-danger btn-sm" style="display:none;">Eliminar seleccionados</button>
+                <!-- Aviso cuando la selección abarca más de un pedido: el
+                     borrado múltiple queda bloqueado para evitar arrasar
+                     con una selección hecha tras un filtro mal puesto. -->
+                <div id="eliminar-multiples-aviso" style="display:none; margin-top:8px; font-size:12px; color:var(--red-text);"></div>
               </div>
               <div id="registros-wrapper" style="display:flex; width:100%; max-width:100%; overflow:hidden;">
                 <!-- Columnas fijas -->
@@ -3717,6 +4656,7 @@
                   <table style="border-collapse:collapse;">
                     <thead>
                       <tr>
+                        <th style="padding:0.5rem; background:var(--header-bg); min-width:60px; font-size:13px; font-weight:600; text-align:center;">Talla</th>
                         <th style="padding:0.5rem; background:var(--header-bg); min-width:100px; font-size:13px; font-weight:600;">Precio</th>
                         <th style="padding:0.5rem; background:var(--header-bg); min-width:100px; font-size:13px; font-weight:600;">Comisión</th>
                         <th style="padding:0.5rem; background:var(--header-bg); min-width:70px; font-size:13px; font-weight:600;">Fecha</th>
@@ -3726,6 +4666,8 @@
                         <th class="col-validador-only" style="padding:0.5rem; background:var(--header-bg); min-width:70px; font-size:13px; font-weight:600;">Mateado</th>
                         <th class="col-validador-only" style="padding:0.5rem; background:var(--header-bg); min-width:70px; font-size:13px; font-weight:600;">Acabado</th>
                         <th class="col-validador-only" style="padding:0.5rem; background:var(--header-bg); min-width:70px; font-size:13px; font-weight:600;">Empaque</th>
+                        <th class="col-despacho-only" style="padding:0.5rem; background:var(--header-bg); min-width:80px; font-size:13px; font-weight:600;">Despacho</th>
+                        <th class="col-despacho-only" style="padding:0.5rem; background:var(--header-bg); min-width:90px; font-size:13px; font-weight:600;">Confirmado</th>
                         <th style="padding:0.5rem; background:var(--header-bg); min-width:40px; font-size:13px; font-weight:600;"></th>
                       </tr>
                     </thead>
@@ -3734,6 +4676,17 @@
                     </tbody>
                   </table>
                 </div>
+              </div>
+
+              <!-- Tabla simple: todos los roles EXCEPTO Validador. Sin
+                   paneles congelados y con pocas columnas. El encabezado
+                   y las filas los genera el mismo bloque de JS (ver
+                   historyPage.js), asi que no pueden desalinearse. -->
+              <div id="registros-simple" style="display:none; overflow-x:auto;">
+                <table style="width:100%; border-collapse:collapse;">
+                  <thead id="registros-simple-head"></thead>
+                  <tbody id="registros-simple-body"></tbody>
+                </table>
               </div>
             </div>
             <div id="registros-paginacion" class="pagination"></div>
@@ -3812,9 +4765,9 @@
                 <button id="btn-crear-salida" class="btn btn-primary" style="display:none;">Crear Salida</button>
               </div>
               <div id="despacho-filtros" style="display:grid;grid-template-columns:80px minmax(0,1.2fr) minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr);gap:0.75rem;">
-                <input type="text" id="despacho-filtro-orden" placeholder="No. Pedido" maxlength="4" style="min-width:0;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+                <input type="text" id="despacho-filtro-orden" placeholder="No. Orden" maxlength="6" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-solo-digitos style="min-width:0;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
 
-                <div class="filtro-custom-select" data-filtro-select="despacho-filtro-cliente">
+                <div class="filtro-custom-select" data-filtro-select="despacho-filtro-cliente" data-buscable="1">
                   <select id="despacho-filtro-cliente" style="display:none;"><option value="">Cliente...</option></select>
                   <button type="button" class="filtro-custom-btn">
                     <span class="filtro-custom-label">Cliente...</span>
@@ -3823,7 +4776,7 @@
                   <div class="filtro-custom-dropdown"></div>
                 </div>
 
-                <div class="filtro-custom-select" data-filtro-select="despacho-filtro-nombre-suela">
+                <div class="filtro-custom-select" data-filtro-select="despacho-filtro-nombre-suela" data-buscable="1">
                   <select id="despacho-filtro-nombre-suela" style="display:none;"><option value="">Nombre Suela...</option></select>
                   <button type="button" class="filtro-custom-btn">
                     <span class="filtro-custom-label">Nombre Suela...</span>
@@ -3861,15 +4814,81 @@
                 <svg class="desp-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
               </summary>
 
-              <div id="despachado-filtros" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.75rem;">
-                <input type="date" id="despachado-filtro-fecha" style="min-width:0;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
-                <input type="text" id="despachado-filtro-consecutivo" placeholder="No. Despacho (ej. D1000)" style="min-width:0;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
-                <input type="text" id="despachado-filtro-orden" placeholder="No. de Orden" style="min-width:0;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+              <p style="font-size:12px; color:var(--text2); margin:0 0 0.75rem;">
+                Cada fila es un despacho completo. Al eliminarlo se borran todas sus órdenes, bultos y asignaciones, y sus pedidos vuelven a "A Despachar".
+              </p>
+              <div id="regd-filtros" class="filtros-etiquetados">
+                <label class="filtro-campo">
+                  <span class="filtro-campo-lbl">Fecha de despacho</span>
+                  <input type="date" id="regd-filtro-fecha" style="min-width:0;width:100%;box-sizing:border-box;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+                </label>
+                <label class="filtro-campo">
+                  <span class="filtro-campo-lbl">No. Orden</span>
+                  <input type="text" id="regd-filtro-orden" placeholder="Ej. 3449" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-solo-digitos style="min-width:0;width:100%;box-sizing:border-box;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+                </label>
+                <label class="filtro-campo">
+                  <span class="filtro-campo-lbl">No. Despacho</span>
+                  <input type="text" id="regd-filtro-consecutivo" placeholder="Ej. 1021" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-solo-digitos style="min-width:0;width:100%;box-sizing:border-box;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+                </label>
               </div>
 
-              <div id="despachos-lista" style="margin-top:1rem;"></div>
-              <div id="despacho-despachado-paginacion" class="pagination"></div>
+              <div class="regd-encabezado" style="margin-top:1rem;">
+                <div>Despacho</div>
+                <div>Fecha</div>
+                <div>Órdenes</div>
+                <div class="regd-col-num">Bultos</div>
+                <div class="regd-col-num">Kilos</div>
+                <div class="regd-col-num">Unidades</div>
+                <div class="regd-col-num">Completos</div>
+                <div class="regd-col-num">Revisado</div>
+                <div></div>
+                <div></div>
+              </div>
+              <div id="regd-lista"></div>
+              <div id="regd-paginacion" class="pagination"></div>
             </details>
+          </div>
+
+          <div id="eliminaciones-seccion" style="display:none;">
+            <div class="card">
+              <div class="card-title">Historial de Eliminaciones</div>
+              <p style="font-size:12px; color:var(--text2); margin-bottom:1rem;">
+                Todo lo que se ha eliminado en la plataforma, por cualquier usuario: registros de producción y despachos completos. Cada entrada guarda una copia de lo borrado y el motivo que dio quien lo eliminó.
+              </p>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:0.75rem;">
+                <input type="date" id="elim-filtro-desde" title="Desde" style="min-width:0;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+                <input type="date" id="elim-filtro-hasta" title="Hasta" style="min-width:0;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+                <select id="elim-filtro-tipo" style="min-width:0;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+                  <option value="">Tipo: Todos</option>
+                  <option value="production_movements">Registros de producción</option>
+                  <option value="despachos">Despachos</option>
+                </select>
+                <input type="text" id="elim-filtro-referencia" placeholder="No. Orden o Despacho" style="min-width:0;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+              </div>
+            </div>
+
+            <div class="card">
+              <div style="overflow-x:auto;">
+                <table style="width:100%; border-collapse:collapse;">
+                  <thead>
+                    <tr>
+                      <th style="padding:0.5rem; text-align:left; font-size:13px; font-weight:600; min-width:110px;">Fecha</th>
+                      <th style="padding:0.5rem; text-align:left; font-size:13px; font-weight:600; min-width:110px;">Usuario</th>
+                      <th style="padding:0.5rem; text-align:left; font-size:13px; font-weight:600; min-width:80px;">Rol</th>
+                      <th style="padding:0.5rem; text-align:left; font-size:13px; font-weight:600; min-width:100px;">Tipo</th>
+                      <th style="padding:0.5rem; text-align:left; font-size:13px; font-weight:600; min-width:90px;">Referencia</th>
+                      <th style="padding:0.5rem; text-align:left; font-size:13px; font-weight:600; min-width:170px;">Qué se eliminó</th>
+                      <th style="padding:0.5rem; text-align:left; font-size:13px; font-weight:600; min-width:180px;">Motivo</th>
+                      <th style="padding:0.5rem; text-align:left; font-size:13px; font-weight:600; min-width:60px;"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="elim-tabla">
+                    <tr><td colspan="8" class="empty">Cargando...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div id="elim-paginacion" class="pagination"></div>
+            </div>
           </div>
 
           <div id="page-validador" style="display:none;"></div>
@@ -4071,6 +5090,10 @@
 
       <div class="orden-divider" style="margin-top:12px;"></div>
 
+      <!-- Total de pares del pedido: el tamaño de la orden de un vistazo,
+           antes de entrar al detalle de referencia y tallas. -->
+      <div id="detalle-total-pares" class="detalle-total-pares"></div>
+
       <div id="detalle-especificaciones"></div>
       <div id="detalle-destino"></div>
       <div id="detalle-procesar-lote"></div>
@@ -4228,6 +5251,66 @@
     </div>
   </div>
 
+  <!-- Modal: Copia de lo eliminado (pestaña Eliminaciones) -->
+  <div id="modal-detalle-eliminacion" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-title" id="detalle-eliminacion-titulo">Copia de lo eliminado</div>
+        <button class="modal-close" id="btn-cerrar-detalle-eliminacion">×</button>
+      </div>
+      <div id="detalle-eliminacion-contenido"></div>
+      <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem;">
+        <button class="btn btn-secondary" id="btn-cerrar-detalle-eliminacion-2">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Detalle de un despacho (Despachos > Despachado) — solo lectura -->
+  <div id="modal-detalle-despacho" class="modal">
+    <div class="modal-content">
+      <!-- Solo aparece en el PDF (ver @media print): en pantalla el
+           encabezado del modal ya dice de qué despacho se trata. -->
+      <div class="despacho-print-header">
+        <div class="despacho-print-brand">Suelas<span>.</span></div>
+        <div class="despacho-print-fecha" id="detalle-despacho-print-fecha"></div>
+      </div>
+      <div class="modal-header">
+        <div class="modal-title" id="detalle-despacho-titulo">Detalle del Despacho</div>
+        <button class="modal-close" id="btn-cerrar-detalle-despacho">×</button>
+      </div>
+      <div id="detalle-despacho-contenido"></div>
+      <div class="detalle-despacho-pie" style="margin-top: 1.5rem; display: flex; gap: 0.75rem;">
+        <button class="btn btn-secondary" id="btn-cerrar-detalle-despacho-2">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Eliminar Despacho completo (Despachos > Despachado) -->
+  <div id="modal-eliminar-despacho" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-title">Eliminar Despacho</div>
+        <button class="modal-close" id="btn-cerrar-eliminar-despacho">×</button>
+      </div>
+
+      <div id="eliminar-despacho-resumen" style="font-size:13px; color:var(--text2); margin-bottom:1rem;"></div>
+
+      <div class="form-group">
+        <label for="eliminar-despacho-motivo">Motivo de la eliminación</label>
+        <textarea id="eliminar-despacho-motivo" placeholder="Explica por qué eliminas este despacho (obligatorio)"></textarea>
+      </div>
+
+      <div style="font-size: 12px; color: var(--red-text); margin-top: -0.5rem; margin-bottom: 1rem;">
+        Se eliminará el despacho completo con todas sus órdenes, bultos y asignaciones. Las órdenes volverán a "A Despachar". Esta acción no se puede deshacer y quedará guardada en el historial de eliminaciones.
+      </div>
+
+      <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem;">
+        <button class="btn btn-secondary" id="btn-cancelar-eliminar-despacho">Cancelar</button>
+        <button class="btn btn-danger" id="btn-confirmar-eliminar-despacho">Eliminar Despacho</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal: Eliminar Múltiples Registros -->
   <div id="modal-eliminar-multiples-registros" class="modal">
     <div class="modal-content">
@@ -4237,6 +5320,8 @@
       </div>
 
       <div style="margin-bottom:1rem; max-height:200px; overflow-y:auto;">
+        <div id="eliminar-multiples-resumen" style="background:var(--blue-bg); border-radius:var(--r); padding:12px 14px; margin-bottom:1rem; font-size:13px; line-height:1.5;"></div>
+
         <div style="font-size:12px; color:var(--text2); margin-bottom:0.5rem; font-weight:600;">Registros a eliminar:</div>
         <div id="eliminar-multiples-lista"></div>
       </div>
@@ -4276,7 +5361,7 @@
         <button class="modal-close" id="btn-cerrar-crear-despacho">×</button>
       </div>
 
-      <div class="form-group">
+      <div class="form-group crear-despacho-campo-clave">
         <label for="crear-despacho-num-bultos">Número de bultos</label>
         <input type="number" id="crear-despacho-num-bultos" min="1" step="1">
       </div>
@@ -4288,17 +5373,13 @@
       </div>
 
       <div class="form-group">
-        <label id="crear-despacho-pedidos-label">Pedidos seleccionados</label>
-        <div id="crear-despacho-pedidos-numeros" class="crear-despacho-numero-grande crear-despacho-numero-azul"></div>
-        <div id="crear-despacho-pedidos-filas" style="margin-top:0.75rem;"></div>
+        <label>Total de kilos</label>
+        <div id="crear-despacho-total-kilos" class="crear-despacho-numero-grande">0</div>
       </div>
 
       <div class="form-group">
-        <label>Unidades por talla</label>
-        <table style="width:100%; font-size:13px;">
-          <thead><tr><th>Talla</th><th>Unidades</th></tr></thead>
-          <tbody id="crear-despacho-tallas"></tbody>
-        </table>
+        <label id="crear-despacho-pedidos-label">Pedidos seleccionados</label>
+        <div id="crear-despacho-pedidos-filas" style="margin-top:0.75rem;"></div>
       </div>
 
       <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem;">
@@ -4308,20 +5389,10 @@
     </div>
   </div>
 
-  <!-- Modal: Resumen del Despacho (Despachos) — solo lectura, la
-       asignación de bultos ya quedó definida al crear la salida. -->
-  <div id="modal-resumen-despacho" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <div class="modal-title" id="resumen-despacho-titulo">Resumen del Despacho</div>
-        <button class="modal-close" id="btn-cerrar-resumen-despacho">×</button>
-      </div>
-      <div id="resumen-despacho-contenido"></div>
-      <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem;">
-        <button class="btn btn-secondary" id="btn-cerrar-resumen-despacho-2">Cerrar</button>
-      </div>
-    </div>
-  </div>
+  <!-- "Resumen del Despacho" se eliminó: Despachos y RegistrosD ahora
+       comparten #modal-detalle-despacho (ver despachoDetalleModal.js),
+       para que la misma información no se vea distinta según por dónde
+       se entre. -->
 
   <!-- Modal: Confirmar Eliminar Regla -->
   <div id="modal-eliminar-regla" class="modal">

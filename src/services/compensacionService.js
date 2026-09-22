@@ -41,3 +41,39 @@ export async function fetchCompensacionLineas(user) {
 
   return data || [];
 }
+
+/**
+ * Unidades procesadas por día (ver supabase/sql/047_produccion_diaria.sql).
+ *
+ * Consulta aparte y no un cálculo sobre fetchCompensacionLineas(): esa
+ * solo trae trabajo ya liquidable, y para Empaque una línea aparece solo
+ * cuando el pedido se despacha completo — el promedio diario saldría
+ * subestimado y a saltos. Aquí se cuenta todo lo registrado.
+ *
+ * Mismo patrón de visibilidad que fetchCompensacionLineas().
+ *
+ * @param {{ id: string }} user
+ * @returns {Promise<Array<{ dia: string, unidades: number }>>}
+ */
+export async function fetchProduccionDiaria(user) {
+  const rol = rolEfectivo();
+  if (!esRolDeProceso(rol)) return [];
+
+  let query = supabase
+    .from('vw_produccion_diaria')
+    .select('dia, unidades')
+    .eq('rol', rol);
+
+  if (!esValidador()) {
+    query = query.eq('user_id', user.id);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error('[compensacionService] Error obteniendo producción diaria:', error);
+    return [];
+  }
+
+  return data || [];
+}

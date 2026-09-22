@@ -15,10 +15,10 @@ const PAGE_SIZE = 50;
 
 /**
  * @param {{ id: string, role: string }} user
- * @param {{ page?: number, orden?: string, fecha?: string, proceso?: string }} options
+ * @param {{ page?: number, orden?: string, fecha?: string, proceso?: string, despacho?: string }} options
  */
 export async function fetchHistory(user, options = {}) {
-  const { page = 0, orden = '', fecha = '', proceso = '' } = options;
+  const { page = 0, orden = '', fecha = '', proceso = '', despacho = '' } = options;
 
   let query = supabase
     .from('vw_historial')
@@ -32,6 +32,13 @@ export async function fetchHistory(user, options = {}) {
 
   if (orden.trim()) {
     query = query.ilike('order_number', `%${orden.trim()}%`);
+  }
+
+  // ID de despacho (049): cada registro de Empaque lleva el/los
+  // consecutivos de la remesa en que salieron sus unidades. ilike para
+  // que "d1021" o "1021" encuentren "D1021" (y "D1021, D1023").
+  if (despacho.trim()) {
+    query = query.ilike('despacho_consecutivo', `%${despacho.trim()}%`);
   }
 
   if (fecha) {

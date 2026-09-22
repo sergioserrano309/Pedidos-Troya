@@ -1,32 +1,34 @@
 import { getState } from '../state/appState.js';
 import {
   fetchPedidosPorDespachar,
-  fetchPreviewCreacionDespacho,
-  crearDespacho,
-  fetchDespachos,
-  fetchDetalleDespacho,
-  fetchAsignacionesDespacho,
-  fetchBultosDespacho
+  fetchFacetasADespachar,
+  fetchSaldoPorDespachar,
+  fetchEstadoPedidos,
+  crearDespacho
 } from '../services/despachosService.js';
-import { fetchOpcionesCliente, fetchOpcionesNombreSuela, fetchOpcionesMaterial, fetchOpcionesColor } from '../services/ordersService.js';
-import { rolEfectivo } from '../services/validatorService.js';
+import { rolEfectivo, esValidador } from '../services/validatorService.js';
+import { calcularOpciones, reconstruirSelect } from '../lib/facetas.js';
 import { abrirDetalleOrden } from './orderDetail.js';
+import { cargarRegistrosDespachos, EVENTO_DESPACHO_ELIMINADO } from './registrosDespachosPage.js';
+import { sincronizarEtiquetaFiltro } from './customSelect.js';
 import { mostrarToast } from './toast.js';
 
 /**
- * Módulo Despachos (Fase 1 — ver plan: operado únicamente por el rol
- * Empaque, incluyendo Validador emulando Empaque vía rolEfectivo()).
+ * Módulo Despachos (operado por Empaque; el Validador también lo ve).
  * Una sola pestaña "Despachos" dentro de Órdenes, con "A Despachar" y
- * "Despachado" como acordeones independientes (mismo lenguaje visual
- * que Compensación > Evolución 12 Meses/Histórico de Producción) — sin
- * sub-pestañas, ambos se cargan siempre que se entra a la pestaña.
+ * "Despachado" como acordeones independientes — sin sub-pestañas, ambos
+ * se cargan siempre que se entra a la pestaña.
+ *
+ * "Despachado" lo pinta registrosDespachosPage.js (antes era la pestaña
+ * RegistrosD, que se fusionó aquí para no mostrar lo mismo dos veces).
  *
  * La asignación pedido->bulto se decide DENTRO de "Crear Salida" (no en
  * un paso posterior): todo se envía junto y atómico al RPC crear_despacho
  * (ver 031_despachos_crear_atomico.sql) — si algo no cuadra (falta un
  * pedido sin bulto, sobra un bulto sin usar), no se crea nada y el
  * usuario corrige en el mismo modal. Por eso la tarjeta de "Despachado"
- * solo abre un resumen de solo lectura, nunca un formulario de asignación.
+ * solo abre el detalle de solo lectura (ver despachoDetalleModal.js),
+ * nunca un formulario de asignación.
  *
  * Patrones copiados/adaptados de otras páginas (no hay helpers
  * compartidos en esta app):
@@ -40,16 +42,31 @@ const MAX_BULTOS_POR_ORDEN = 5;
 
 // ---- "A Despachar" ----
 let seleccionDespacho = new Set(); // order_numbers seleccionados
+// Saldo por talla de los pedidos abiertos en "Crear Salida" (Map order -> tallas[])
+let saldoPorPedido = new Map();
 let paginaADespachar = 0;
 let hayPaginaSiguienteADespachar = false;
 let filtrosADespachar = { orden: '', cliente: '', nombreSuela: '', material: '', color: '' };
 let debounceADespachar = null;
 
-// ---- "Despachado" ----
-let paginaDespachado = 0;
-let hayPaginaSiguienteDespachado = false;
-let filtrosDespachado = { fecha: '', consecutivo: '', orden: '' };
-let debounceDespachado = null;
+// Filtros en cascada de "A Despachar": una fila por pedido con saldo,
+// descargada al entrar a la pestaña (ver src/lib/facetas.js).
+let filasFacetas = [];
+
+const CAMPOS_FACETAS = {
+  orden: { columna: 'order_number', modo: 'contiene' },
+  cliente: { columna: 'cliente', modo: 'exacto', lista: true },
+  nombreSuela: { columna: 'nombre_referencia', modo: 'exacto', lista: true },
+  material: { columna: 'material', modo: 'exacto', lista: true },
+  color: { columna: 'color', modo: 'exacto', lista: true }
+};
+
+const SELECT_POR_FACETA = {
+  cliente: 'despacho-filtro-cliente',
+  nombreSuela: 'despacho-filtro-nombre-suela',
+  material: 'despacho-filtro-material',
+  color: 'despacho-filtro-color'
+};
 
 // ---------------------------------------------------------------------
 // Inicialización / permisos
@@ -62,6 +79,7 @@ export function inicializarPaginaDespachos() {
     debounceADespachar = setTimeout(() => {
       filtrosADespachar.orden = inputOrden.value.trim();
       paginaADespachar = 0;
+      actualizarOpcionesADespachar();
       cargarPedidosPorDespachar();
     }, 350);
   });
@@ -77,35 +95,9 @@ export function inicializarPaginaDespachos() {
     el?.addEventListener('change', () => {
       filtrosADespachar[FILTRO_ID_A_CLAVE[id]] = el.value;
       paginaADespachar = 0;
+      actualizarOpcionesADespachar();
       cargarPedidosPorDespachar();
     });
-  });
-
-  const inputFecha = document.getElementById('despachado-filtro-fecha');
-  inputFecha?.addEventListener('input', () => {
-    filtrosDespachado.fecha = inputFecha.value;
-    paginaDespachado = 0;
-    cargarDespachados();
-  });
-
-  const inputConsecutivo = document.getElementById('despachado-filtro-consecutivo');
-  inputConsecutivo?.addEventListener('input', () => {
-    clearTimeout(debounceDespachado);
-    debounceDespachado = setTimeout(() => {
-      filtrosDespachado.consecutivo = inputConsecutivo.value.trim();
-      paginaDespachado = 0;
-      cargarDespachados();
-    }, 350);
-  });
-
-  const inputOrdenDespachado = document.getElementById('despachado-filtro-orden');
-  inputOrdenDespachado?.addEventListener('input', () => {
-    clearTimeout(debounceDespachado);
-    debounceDespachado = setTimeout(() => {
-      filtrosDespachado.orden = inputOrdenDespachado.value.trim();
-      paginaDespachado = 0;
-      cargarDespachados();
-    }, 350);
   });
 
   // "Seleccionar todos visibles": nodo persistente (no se recrea en cada
@@ -131,10 +123,52 @@ export function inicializarPaginaDespachos() {
     regenerarOpcionesBultoEnTodasLasFilas(n);
   });
 
-  document.getElementById('btn-cerrar-resumen-despacho')?.addEventListener('click', cerrarResumenDespacho);
-  document.getElementById('btn-cerrar-resumen-despacho-2')?.addEventListener('click', cerrarResumenDespacho);
+  // Los pesos y las filas de bulto se regeneran constantemente. En vez de
+  // re-enganchar listeners en cada render (lo que los iría acumulando),
+  // se delega una sola vez en los contenedores, que sí son permanentes.
+  document.getElementById('crear-despacho-pesos')?.addEventListener('input', (e) => {
+    if (!e.target.classList.contains('peso-bulto-input')) return;
+    // Los kilos se manejan en enteros: se descarta cualquier carácter que
+    // no sea dígito (coma, punto, signos) en el momento de teclearlo, para
+    // que lo digitado y lo mostrado en "Total de kilos" siempre coincidan.
+    const limpio = e.target.value.replace(/\D/g, '');
+    if (e.target.value !== limpio) e.target.value = limpio;
+    actualizarTotalKilos();
+  });
 
-  poblarFiltrosDropdownDespachos();
+  const contenedorFilas = document.getElementById('crear-despacho-pedidos-filas');
+
+  contenedorFilas?.addEventListener('click', (e) => {
+    const btnAgregar = e.target.closest('.btn-agregar-bulto-input');
+    if (btnAgregar && !btnAgregar.disabled) {
+      agregarSelectBulto(btnAgregar.dataset.order);
+      return;
+    }
+
+    const btnQuitar = e.target.closest('.btn-quitar-bulto-input');
+    if (btnQuitar && !btnQuitar.disabled) {
+      btnQuitar.closest('.crear-despacho-bulto-row')?.remove();
+      actualizarVisibilidadBotonesAgregar();
+      regenerarOpcionesBultoEnTodasLasFilas(numeroBultosActual());
+    }
+  });
+
+  contenedorFilas?.addEventListener('change', (e) => {
+    if (e.target.classList.contains('bulto-select')) {
+      regenerarOpcionesBultoEnTodasLasFilas(numeroBultosActual());
+    }
+  });
+
+  contenedorFilas?.addEventListener('input', (e) => {
+    if (e.target.classList.contains('talla-cantidad-input')) actualizarTotalUnidades();
+  });
+
+  // Eliminar un despacho (en "Despachado") devuelve sus pedidos a
+  // "A Despachar": se refresca aquí mismo, sin cambiar de pestaña.
+  document.addEventListener(EVENTO_DESPACHO_ELIMINADO, () => {
+    cargarPedidosPorDespachar();
+    cargarFacetasADespachar();
+  });
 }
 
 /**
@@ -146,44 +180,33 @@ export function inicializarPaginaDespachos() {
  */
 export function configurarUIDespachos() {
   const tabBtn = document.getElementById('tab-btn-despachos');
-  if (tabBtn) tabBtn.style.display = rolEfectivo() === 'empaque' ? 'inline-block' : 'none';
+  // El Validador la ve siempre (también en vista maestra); los demás solo
+  // si su rol efectivo es Empaque.
+  const mostrar = esValidador() || rolEfectivo() === 'empaque';
+  if (tabBtn) tabBtn.style.display = mostrar ? 'inline-block' : 'none';
 }
 
 /** "A Despachar" y "Despachado" son acordeones independientes (<details> nativos) — ambos se cargan siempre, sin importar cuál esté abierto. */
 export function cargarDespachosTab() {
   if (!getState().user) return;
   cargarPedidosPorDespachar();
-  cargarDespachados();
+  cargarFacetasADespachar();
+  cargarRegistrosDespachos();
 }
 
-async function poblarFiltrosDropdownDespachos() {
-  const rellenar = (id, valores) => {
-    const select = document.getElementById(id);
-    if (!select) return;
-    const actual = select.value;
-    valores.forEach((valor) => {
-      const option = document.createElement('option');
-      option.value = valor;
-      option.textContent = valor;
-      select.appendChild(option);
-    });
-    select.value = actual;
-  };
+/** Descarga los pedidos con saldo para las listas en cascada. */
+async function cargarFacetasADespachar() {
+  filasFacetas = await fetchFacetasADespachar();
+  actualizarOpcionesADespachar();
+}
 
-  try {
-    const [clientes, nombresSuela, materiales, colores] = await Promise.all([
-      fetchOpcionesCliente(),
-      fetchOpcionesNombreSuela(),
-      fetchOpcionesMaterial(),
-      fetchOpcionesColor()
-    ]);
-    rellenar('despacho-filtro-cliente', clientes);
-    rellenar('despacho-filtro-nombre-suela', nombresSuela);
-    rellenar('despacho-filtro-material', materiales);
-    rellenar('despacho-filtro-color', colores);
-  } catch (err) {
-    console.error('[despachosPage] Error cargando opciones de filtros:', err);
-  }
+/** Recalcula las cuatro listas con los filtros actuales (sin consultar). */
+function actualizarOpcionesADespachar() {
+  const opciones = calcularOpciones(filasFacetas, filtrosADespachar, CAMPOS_FACETAS);
+  Object.entries(SELECT_POR_FACETA).forEach(([clave, selectId]) => {
+    reconstruirSelect(selectId, opciones[clave] || []);
+    sincronizarEtiquetaFiltro(selectId);
+  });
 }
 
 // ---------------------------------------------------------------------
@@ -214,11 +237,11 @@ async function cargarPedidosPorDespachar() {
 function renderTarjetaOrden(orden) {
   const progreso = orden.porcentaje_completado || 0;
   const diasOrden = orden.dias_orden ?? 0;
-  const atributosMobile = [orden.nombre_referencia, orden.material, orden.color, orden.etapa_actual]
+  // La etapa ya no va aqui: en movil tiene su propia celda bajo el numero de orden.
+  const atributosMobile = [orden.nombre_referencia, orden.material, orden.color]
     .filter(Boolean)
     .map((v) => escapeHtml(v))
     .join(' · ');
-  const claseAnillo = orden.estatus_general === 'Completado' ? 'anillo-completado' : (progreso > 0 ? 'anillo-progreso' : '');
 
   return `
     <div class="orden-fila" data-order="${escapeHtml(orden.order_number)}">
@@ -239,17 +262,16 @@ function renderTarjetaOrden(orden) {
         <div class="metrica-label"><span class="lbl-full">Procesadas</span><span class="lbl-short">Proc.</span></div>
         <div class="metrica-valor">${orden.total_procesado ?? 0}</div>
       </div>
-      <div class="col-metrica col-metrica-pendiente" title="Suelas aún por procesar">
-        <div class="metrica-label"><span class="lbl-full">Pendientes</span><span class="lbl-short">Pend.</span></div>
-        <div class="metrica-valor">${orden.total_pendiente ?? 0}</div>
+      <div class="col-metrica col-metrica-pendiente" title="Suelas empacadas y aún sin despachar — el máximo que puede salir en esta remesa">
+        <div class="metrica-label"><span class="lbl-full">Disponibles</span><span class="lbl-short">Disp.</span></div>
+        <div class="metrica-valor">${orden.unidades_disponibles ?? 0}</div>
       </div>
       <div class="col-metrica col-metrica-dias" title="Días desde creación del pedido">
         <div class="metrica-label"><span class="lbl-full">Días O.</span><span class="lbl-short">Días</span></div>
         <div class="metrica-valor">${diasOrden}d</div>
       </div>
 
-      <div class="progreso-anillo ${claseAnillo}" style="--pct:${progreso}" title="${progreso}% completado"></div>
-      <div class="orden-chevron">›</div>
+      <div class="orden-chevron" title="Ver detalle del pedido">›</div>
 
       <div class="col-estado" title="Completado: procesado 100% | En Proceso: aún hay pendientes">
         <span class="estado-badge estado-${orden.estatus_general === 'Completado' ? 'completado' : 'en-proceso'}">${orden.estatus_general}</span>
@@ -293,8 +315,23 @@ function renderPedidosPorDespachar(pedidos) {
     });
   });
 
-  contenedor.querySelectorAll('.orden-fila').forEach((fila) => {
-    fila.addEventListener('click', () => abrirDetalleOrden(fila.dataset.order));
+  // Tocar cualquier parte de la tarjeta marca o desmarca el pedido. La
+  // única excepción es la flecha ›, que abre el detalle. El checkbox se
+  // excluye porque ya se alterna solo con su propio clic.
+  contenedor.querySelectorAll('.despacho-pedido-row').forEach((row) => {
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('.checkbox-registro')) return;
+
+      const fila = row.querySelector('.orden-fila');
+      if (e.target.closest('.orden-chevron')) {
+        abrirDetalleOrden(fila.dataset.order);
+        return;
+      }
+
+      const checkbox = row.querySelector('.checkbox-registro');
+      checkbox.checked = !checkbox.checked;
+      checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+    });
   });
 
   sincronizarCheckboxSeleccionarTodos();
@@ -364,21 +401,42 @@ async function abrirModalCrearSalida() {
   document.getElementById('crear-despacho-num-bultos').value = '';
   document.getElementById('crear-despacho-pesos').innerHTML = '';
   document.getElementById('crear-despacho-total-unidades').textContent = '…';
+  document.getElementById('crear-despacho-total-kilos').textContent = '0';
   document.getElementById('crear-despacho-pedidos-label').textContent = `Pedidos seleccionados — ${ordenes.length}`;
-  document.getElementById('crear-despacho-pedidos-numeros').textContent = ordenes.join(', ');
-  document.getElementById('crear-despacho-pedidos-filas').innerHTML = ordenes.map((o) => renderFilaPedidoBulto(o)).join('');
-  document.getElementById('crear-despacho-tallas').innerHTML = '';
+  document.getElementById('crear-despacho-pedidos-filas').innerHTML =
+    '<div class="loading"><div class="spinner"></div> Cargando saldos...</div>';
 
-  wirearFilasPedidoBulto();
   document.getElementById('modal-crear-despacho').classList.add('open');
 
   try {
-    const { totalUnidades, porTalla } = await fetchPreviewCreacionDespacho(ordenes);
-    document.getElementById('crear-despacho-total-unidades').textContent = totalUnidades;
-    document.getElementById('crear-despacho-tallas').innerHTML = porTalla
-      .map((t) => `<tr><td>${escapeHtml(t.talla)}</td><td>${t.unidades}</td></tr>`)
+    // El saldo por talla y el estado del pedido se piden a la vez: uno
+    // alimenta las filas, el otro el contador de despachos del pedido.
+    const [saldo, estadoPorPedido] = await Promise.all([
+      fetchSaldoPorDespachar(ordenes),
+      fetchEstadoPedidos(ordenes)
+    ]);
+    saldoPorPedido = saldo;
+
+    const totalDisponible = ordenes.reduce(
+      (sum, o) => sum + (saldoPorPedido.get(o) || []).reduce((s, t) => s + t.disponible, 0),
+      0
+    );
+
+    if (totalDisponible === 0) {
+      document.getElementById('crear-despacho-pedidos-filas').innerHTML =
+        '<div class="empty">Estos pedidos ya no tienen unidades disponibles para despachar.</div>';
+      document.getElementById('crear-despacho-total-unidades').textContent = '0';
+      return;
+    }
+
+    document.getElementById('crear-despacho-pedidos-filas').innerHTML = ordenes
+      .map((o) => renderFilaPedidoBulto(o, saldoPorPedido.get(o) || [], estadoPorPedido.get(o)?.despachos ?? 0))
       .join('');
+
+    actualizarTotalUnidades();
   } catch (err) {
+    document.getElementById('crear-despacho-pedidos-filas').innerHTML =
+      `<div class="empty">${escapeHtml(err.message)}</div>`;
     mostrarToast(err.message, 'error');
   }
 }
@@ -387,43 +445,157 @@ function cerrarModalCrearSalida() {
   document.getElementById('modal-crear-despacho').classList.remove('open');
 }
 
-/** Genera N inputs de peso, conservando los valores ya escritos si el usuario ajusta el número de bultos hacia arriba/abajo. */
+/**
+ * Genera N filas de peso, conservando los valores ya escritos si el
+ * usuario ajusta el número de bultos hacia arriba/abajo.
+ * Etiqueta a la izquierda y campo a la derecha (.crear-despacho-peso-fila),
+ * para que la jerarquía "Número de bultos -> pesos" se lea de un vistazo.
+ */
 function regenerarInputsPesoBultos(n) {
   const cont = document.getElementById('crear-despacho-pesos');
   if (!n || n <= 0) {
     cont.innerHTML = '';
+    actualizarTotalKilos();
     return;
   }
 
   const valoresActuales = [...cont.querySelectorAll('.peso-bulto-input')].map((i) => i.value);
   cont.innerHTML = Array.from({ length: n }, (_, i) => `
-    <div class="form-group">
-      <label>Peso bulto ${i + 1} (kg)</label>
-      <input type="number" class="peso-bulto-input" data-bulto="${i + 1}" min="0.01" step="0.01" value="${valoresActuales[i] ?? ''}">
+    <div class="crear-despacho-peso-fila">
+      <label for="peso-bulto-${i + 1}">Peso bulto ${i + 1} (kg)</label>
+      <input type="text" inputmode="numeric" id="peso-bulto-${i + 1}" class="peso-bulto-input" data-bulto="${i + 1}" value="${valoresActuales[i] ?? ''}">
     </div>
   `).join('');
+
+  actualizarTotalKilos();
 }
 
-/** Una fila por pedido seleccionado: número de pedido + dropdown(s) de bulto + "+". Nada se persiste hasta "Crear Despacho". */
-function renderFilaPedidoBulto(orderNumber) {
+/**
+ * Total de unidades de la salida y de cada pedido, según lo digitado por
+ * talla. Se recalcula en cada tecla (listener delegado).
+ */
+function actualizarTotalUnidades() {
+  let total = 0;
+
+  document.querySelectorAll('#crear-despacho-pedidos-filas .crear-despacho-pedido-fila').forEach((fila) => {
+    let delPedido = 0;
+    let disponibleDelPedido = 0;
+
+    fila.querySelectorAll('.talla-cantidad-input').forEach((input) => {
+      delPedido += Number(input.value) || 0;
+      disponibleDelPedido += Number(input.max) || 0;
+    });
+
+    const etiqueta = fila.querySelector('[data-total-pedido]');
+    if (etiqueta) etiqueta.textContent = `${delPedido} de ${disponibleDelPedido} und`;
+    total += delPedido;
+  });
+
+  const el = document.getElementById('crear-despacho-total-unidades');
+  if (el) el.textContent = total;
+}
+
+/** Suma de los pesos digitados. Se recalcula en cada tecla (listener delegado). */
+function actualizarTotalKilos() {
+  const total = [...document.querySelectorAll('.peso-bulto-input')]
+    .reduce((sum, input) => sum + (Number(input.value) || 0), 0);
+
+  // Sin decimales: en la práctica los pesos se manejan en kilos enteros.
+  const el = document.getElementById('crear-despacho-total-kilos');
+  if (el) el.textContent = Math.round(total).toLocaleString('es-CO');
+}
+
+/**
+ * Una fila por pedido seleccionado: el número a la izquierda y sus
+ * asignaciones de bulto a la derecha.
+ *
+ * No se capturan cantidades por talla: la salida lleva TODO lo
+ * disponible de cada pedido (ver 048). Lo parcial nace de lo que haya
+ * empacado, no de digitar números. Nada se persiste hasta "Crear Despacho".
+ */
+/**
+ * @param {number} despachosDelPedido En cuántos despachos está ya el
+ *   pedido completo. Es otra pregunta que el contador por talla: el
+ *   pedido puede llevar tres remesas y una talla concreta solo una.
+ */
+function renderFilaPedidoBulto(orderNumber, tallas, despachosDelPedido) {
+  const orden = escapeHtml(orderNumber);
+  const disponibles = tallas.reduce((sum, t) => sum + t.disponible, 0);
+
   return `
-    <div class="crear-despacho-pedido-fila" data-order="${escapeHtml(orderNumber)}">
-      <div class="crear-despacho-pedido-numero">${escapeHtml(orderNumber)}</div>
-      <div class="crear-despacho-pedido-bultos">
-        <select class="bulto-select" data-order="${escapeHtml(orderNumber)}"><option value="">Bulto...</option></select>
-        <button type="button" class="btn-agregar-bulto-input" data-order="${escapeHtml(orderNumber)}">+</button>
+    <div class="crear-despacho-pedido-fila" data-order="${orden}">
+      <div class="crear-despacho-pedido-cabecera">
+        <div class="crear-despacho-pedido-id">
+          <div class="crear-despacho-pedido-numero">${orden}</div>
+          <div class="crear-despacho-pedido-meta">
+            <span title="En cuántos despachos está ya este pedido"><span class="cart-lbl-full">Despachos:</span><span class="cart-lbl-short">Desp.:</span> ${despachosDelPedido}</span>
+            <span aria-hidden="true">·</span>
+            <span data-total-pedido="${orden}">${disponibles} und</span>
+          </div>
+        </div>
+        <div class="crear-despacho-pedido-bultos">
+          ${renderBultoRow(orderNumber, true)}
+        </div>
+      </div>
+      <div class="crear-despacho-pedido-tallas">
+        ${tallas.map((t) => renderFilaTalla(orden, t)).join('')}
       </div>
     </div>
   `;
 }
 
-function wirearFilasPedidoBulto() {
-  document.querySelectorAll('#crear-despacho-pedidos-filas .btn-agregar-bulto-input').forEach((btn) => {
-    btn.addEventListener('click', () => agregarSelectBulto(btn.dataset.order));
-  });
-  document.querySelectorAll('#crear-despacho-pedidos-filas .bulto-select').forEach((select) => {
-    select.addEventListener('change', () => regenerarOpcionesBultoEnTodasLasFilas(numeroBultosActual()));
-  });
+/**
+ * Una línea por talla con la misma lectura que la cartilla de órdenes,
+ * pero con Despachos como receptor:
+ *   Soli. = lo pedido · Proc. = lo ya despachado ·
+ *   Pend. = lo que falta por despachar · Reci. = lo que Empaque mandó
+ * Siempre se cumple Reci. = Proc. + Pend., así el saldo se lee de un
+ * vistazo. El campo nace en el disponible y nunca puede superarlo.
+ *
+ * "Contador" (solo PC) dice en cuántos despachos distintos ha salido ya
+ * esa talla: avisa que el pedido viene repartido en varias remesas.
+ */
+function renderFilaTalla(orden, t) {
+  const stat = (clase, completa, corta, valor, titulo = '') => `
+    <div class="stat-item ${clase}"${titulo ? ` title="${titulo}"` : ''}>
+      <div class="stat-label"><span class="cart-lbl-full">${completa}</span><span class="cart-lbl-short">${corta}</span></div>
+      <div class="stat-value">${valor}</div>
+    </div>`;
+
+  return `
+    <div class="crear-despacho-talla-fila">
+      <div class="crear-despacho-talla-nombre">Talla ${escapeHtml(t.talla)}</div>
+      ${stat('', 'Solicitado', 'Soli.', t.solicitada)}
+      ${stat('stat-procesado', 'Procesado', 'Proc.', t.despachada)}
+      ${stat('stat-pendiente', 'Pendiente', 'Pend.', t.disponible)}
+      ${stat('stat-recibido', 'Recibido', 'Reci.', t.recibida)}
+      ${stat('stat-contador', 'Contador', 'Cont.', t.numeroDespachos, 'En cuántos despachos ha salido esta talla')}
+      <input type="number" class="talla-cantidad-input"
+             data-item-id="${escapeHtml(t.itemId)}" data-order="${orden}"
+             min="0" max="${t.disponible}" step="1" value="${t.disponible}">
+    </div>
+  `;
+}
+
+/**
+ * Una asignación: [dropdown de bulto][+][×].
+ * La × de la PRIMERA fila de cada pedido va deshabilitada en gris en vez
+ * de omitirse, para que todas las filas tengan la misma forma y quede
+ * claro que cada pedido necesita al menos un bulto.
+ */
+function renderBultoRow(orderNumber, esPrimera) {
+  const orden = escapeHtml(orderNumber);
+  const atributosQuitar = esPrimera
+    ? 'disabled title="Cada pedido necesita al menos un bulto"'
+    : 'title="Quitar este bulto"';
+
+  return `
+    <div class="crear-despacho-bulto-row">
+      <select class="bulto-select" data-order="${orden}"><option value="">Bulto...</option></select>
+      <button type="button" class="btn-agregar-bulto-input" data-order="${orden}" title="Agregar otro bulto a este pedido">+</button>
+      <button type="button" class="btn-quitar-bulto-input" ${atributosQuitar}>×</button>
+    </div>
+  `;
 }
 
 function numeroBultosActual() {
@@ -437,36 +609,27 @@ function agregarSelectBulto(orderNumber) {
   const cont = fila.querySelector('.crear-despacho-pedido-bultos');
   if (cont.querySelectorAll('.bulto-select').length >= MAX_BULTOS_POR_ORDEN) return;
 
-  const select = document.createElement('select');
-  select.className = 'bulto-select';
-  select.dataset.order = orderNumber;
-  select.addEventListener('change', () => regenerarOpcionesBultoEnTodasLasFilas(numeroBultosActual()));
-
-  const btnQuitar = document.createElement('button');
-  btnQuitar.type = 'button';
-  btnQuitar.className = 'btn-quitar-bulto-input';
-  btnQuitar.title = 'Quitar';
-  btnQuitar.textContent = '×';
-  btnQuitar.addEventListener('click', () => {
-    select.remove();
-    btnQuitar.remove();
-    actualizarVisibilidadBotonesAgregar();
-    regenerarOpcionesBultoEnTodasLasFilas(numeroBultosActual());
-  });
-
-  const btnAgregar = cont.querySelector('.btn-agregar-bulto-input');
-  cont.insertBefore(select, btnAgregar);
-  cont.insertBefore(btnQuitar, btnAgregar);
+  cont.insertAdjacentHTML('beforeend', renderBultoRow(orderNumber, false));
 
   regenerarOpcionesBultoEnTodasLasFilas(numeroBultosActual());
   actualizarVisibilidadBotonesAgregar();
 }
 
+/**
+ * Al llegar al tope de bultos por pedido, los "+" se DESHABILITAN en vez
+ * de ocultarse: así la fila no cambia de forma y el usuario entiende que
+ * el botón existe pero ya no aplica (mismo criterio que la × de la
+ * primera fila).
+ */
 function actualizarVisibilidadBotonesAgregar() {
   document.querySelectorAll('#crear-despacho-pedidos-filas .crear-despacho-pedido-bultos').forEach((cont) => {
-    const btnAgregar = cont.querySelector('.btn-agregar-bulto-input');
-    if (!btnAgregar) return;
-    btnAgregar.style.display = cont.querySelectorAll('.bulto-select').length >= MAX_BULTOS_POR_ORDEN ? 'none' : '';
+    const enTope = cont.querySelectorAll('.bulto-select').length >= MAX_BULTOS_POR_ORDEN;
+    cont.querySelectorAll('.btn-agregar-bulto-input').forEach((btn) => {
+      btn.disabled = enTope;
+      btn.title = enTope
+        ? `Máximo ${MAX_BULTOS_POR_ORDEN} bultos por pedido`
+        : 'Agregar otro bulto a este pedido';
+    });
   });
 }
 
@@ -511,8 +674,47 @@ async function confirmarCrearSalida() {
   }
 
   const pesos = inputsPeso.map((i) => Number(i.value));
-  if (pesos.some((p) => !Number.isFinite(p) || p <= 0)) {
-    mostrarToast('Todos los pesos deben ser mayores a 0.', 'error');
+  if (pesos.some((p) => !Number.isInteger(p) || p <= 0)) {
+    mostrarToast('Todos los pesos deben ser números enteros mayores a 0.', 'error');
+    return;
+  }
+
+  // Cuántas unidades salen de cada talla. El RPC vuelve a validar el
+  // saldo contra la base (y hay un trigger detrás), pero se revisa aquí
+  // para dar un mensaje claro sin ir al servidor.
+  const items = [];
+  const pedidosSinUnidades = [];
+  const pedidosSobreSaldo = [];
+
+  document.querySelectorAll('#crear-despacho-pedidos-filas .crear-despacho-pedido-fila').forEach((fila) => {
+    const orderNumber = fila.dataset.order;
+    let unidadesDelPedido = 0;
+
+    fila.querySelectorAll('.talla-cantidad-input').forEach((input) => {
+      const cantidad = Number(input.value) || 0;
+      const maximo = Number(input.max) || 0;
+      if (cantidad > maximo) pedidosSobreSaldo.push(orderNumber);
+      if (cantidad > 0) {
+        items.push({ item_id: input.dataset.itemId, cantidad });
+        unidadesDelPedido += cantidad;
+      }
+    });
+
+    if (unidadesDelPedido === 0) pedidosSinUnidades.push(orderNumber);
+  });
+
+  if (pedidosSobreSaldo.length > 0) {
+    mostrarToast(`Hay tallas por encima del saldo disponible en: ${[...new Set(pedidosSobreSaldo)].join(', ')}`, 'error');
+    return;
+  }
+
+  if (items.length === 0) {
+    mostrarToast('Indica cuántas unidades salen de al menos una talla.', 'error');
+    return;
+  }
+
+  if (pedidosSinUnidades.length > 0) {
+    mostrarToast(`Estos pedidos quedaron en 0 unidades: ${pedidosSinUnidades.join(', ')}. Quítalos de la selección o asígnales cantidad.`, 'error');
     return;
   }
 
@@ -553,149 +755,20 @@ async function confirmarCrearSalida() {
       orderNumbers: [...seleccionDespacho],
       totalBultos: numBultos,
       pesos,
-      asignaciones
+      asignaciones,
+      items
     });
     mostrarToast(`Despacho ${despacho.consecutivo} creado correctamente.`, 'ok');
     cerrarModalCrearSalida();
     seleccionDespacho.clear();
     await cargarPedidosPorDespachar();
-    await cargarDespachados();
+    await cargarRegistrosDespachos();
+    cargarFacetasADespachar();
   } catch (err) {
     mostrarToast(err.message, 'error');
   } finally {
     btn.disabled = false;
   }
-}
-
-// ---------------------------------------------------------------------
-// "Despachado"
-// ---------------------------------------------------------------------
-
-async function cargarDespachados() {
-  const contenedor = document.getElementById('despachos-lista');
-  contenedor.innerHTML = '<div class="loading"><div class="spinner"></div> Cargando despachos...</div>';
-
-  try {
-    const { despachos, hayMas } = await fetchDespachos({ page: paginaDespachado, filters: filtrosDespachado });
-    hayPaginaSiguienteDespachado = hayMas;
-    renderDespachos(despachos);
-    renderPaginacionDespachado();
-  } catch (err) {
-    contenedor.innerHTML = `<div class="card"><div class="empty">${err.message}</div></div>`;
-    mostrarToast(err.message, 'error');
-  }
-}
-
-function badgeAsignacion(valor) {
-  const bg = valor ? 'var(--green-bg)' : 'var(--red-bg)';
-  const color = valor ? 'var(--green-text)' : 'var(--red-text)';
-  return `<span class="despacho-col-badge" style="background:${bg}; color:${color}; padding:3px 10px; border-radius:5px; font-size:12px; font-weight:600; display:inline-block;">${valor ? 'Sí' : 'No'}</span>`;
-}
-
-function renderDespachos(despachos) {
-  const contenedor = document.getElementById('despachos-lista');
-
-  if (despachos.length === 0) {
-    contenedor.innerHTML = '<div class="card"><div class="empty">No hay despachos para mostrar.</div></div>';
-    return;
-  }
-
-  contenedor.innerHTML = despachos
-    .map((d) => {
-      const listaOrdenes = (d.order_numbers || []).join(', ');
-      return `
-        <div class="despacho-fila" data-despacho="${d.id}">
-          <div class="despacho-col-consecutivo">${escapeHtml(d.consecutivo)}</div>
-          <div class="despacho-col-fecha">${formatearFecha(d.created_at)}</div>
-          <div class="despacho-col-lista-ordenes" title="${escapeHtml(listaOrdenes)}">${escapeHtml(listaOrdenes)}</div>
-          <div class="despacho-col-num-bultos">${d.total_bultos} bulto${d.total_bultos === 1 ? '' : 's'}</div>
-          ${badgeAsignacion(d.asignacion_confirmada)}
-        </div>
-      `;
-    })
-    .join('');
-
-  contenedor.querySelectorAll('.despacho-fila').forEach((fila) => {
-    fila.addEventListener('click', () => abrirResumenDespacho(fila.dataset.despacho));
-  });
-}
-
-function renderPaginacionDespachado() {
-  const el = document.getElementById('despacho-despachado-paginacion');
-  el.innerHTML = `
-    <button class="btn btn-secondary btn-sm" id="despachado-pag-prev" ${paginaDespachado === 0 ? 'disabled' : ''}>← Anterior</button>
-    <span>Página ${paginaDespachado + 1}</span>
-    <button class="btn btn-secondary btn-sm" id="despachado-pag-next" ${hayPaginaSiguienteDespachado ? '' : 'disabled'}>Siguiente →</button>
-  `;
-
-  document.getElementById('despachado-pag-prev')?.addEventListener('click', () => {
-    paginaDespachado = Math.max(paginaDespachado - 1, 0);
-    cargarDespachados();
-  });
-  document.getElementById('despachado-pag-next')?.addEventListener('click', () => {
-    paginaDespachado += 1;
-    cargarDespachados();
-  });
-}
-
-// ---------------------------------------------------------------------
-// Modal "Resumen del Despacho" — solo lectura. La asignación de bultos
-// ya quedó definida al crear la salida (crear_despacho es atómico), así
-// que aquí no hay nada que editar.
-// ---------------------------------------------------------------------
-
-async function abrirResumenDespacho(despachoId) {
-  document.getElementById('resumen-despacho-contenido').innerHTML = '<div class="loading"><div class="spinner"></div> Cargando...</div>';
-  document.getElementById('modal-resumen-despacho').classList.add('open');
-
-  try {
-    const [detalle, asignaciones, bultos] = await Promise.all([
-      fetchDetalleDespacho(despachoId),
-      fetchAsignacionesDespacho(despachoId),
-      fetchBultosDespacho(despachoId)
-    ]);
-
-    document.getElementById('resumen-despacho-titulo').textContent = `Resumen del Despacho — ${detalle.consecutivo}`;
-
-    const bultosPorOrden = new Map();
-    asignaciones.forEach((a) => {
-      if (!bultosPorOrden.has(a.order_number)) bultosPorOrden.set(a.order_number, []);
-      bultosPorOrden.get(a.order_number).push(a.bulto_numero);
-    });
-
-    document.getElementById('resumen-despacho-contenido').innerHTML = `
-      <div class="form-group">
-        <label>Fecha de creación</label>
-        <div>${formatearFecha(detalle.created_at)}</div>
-      </div>
-      <div class="form-group">
-        <label>Pedidos y bultos asignados</label>
-        <table style="width:100%; font-size:13px;">
-          <thead><tr><th>Pedido</th><th>Bultos</th></tr></thead>
-          <tbody>
-            ${(detalle.order_numbers || []).map((o) => `
-              <tr><td>${escapeHtml(o)}</td><td>${(bultosPorOrden.get(o) || []).sort((a, b) => a - b).join(', ') || '—'}</td></tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-      <div class="form-group">
-        <label>Bultos y peso</label>
-        <table style="width:100%; font-size:13px;">
-          <thead><tr><th>Bulto</th><th>Peso (kg)</th></tr></thead>
-          <tbody>
-            ${bultos.map((b) => `<tr><td>${b.bulto_numero}</td><td>${b.peso}</td></tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-    `;
-  } catch (err) {
-    document.getElementById('resumen-despacho-contenido').innerHTML = `<div class="empty">${err.message}</div>`;
-  }
-}
-
-function cerrarResumenDespacho() {
-  document.getElementById('modal-resumen-despacho').classList.remove('open');
 }
 
 // ---------------------------------------------------------------------

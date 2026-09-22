@@ -3,13 +3,20 @@ import { fetchDestinoOrden, confirmarDestinoOrden, cambiarDestinoOrden } from '.
 import { getState, setState } from '../state/appState.js';
 import { estadoPorPorcentaje } from '../lib/calculations.js';
 import { nombreProcesoDeRol, esRolDeProceso, ICONO_PROCESO } from '../lib/roles.js';
-import { calcularPendientePorProceso, calcularProcesadoPorProceso } from '../lib/stageQuantities.js';
+import { calcularPendientePorProceso, calcularProcesadoPorProceso, calcularRecibidoPorProceso, porcentajeRecibido } from '../lib/stageQuantities.js';
 import { abrirModalProcesar } from './processModal.js';
 import { abrirModalDevolucion } from './returnModal.js';
 import { mostrarToast } from './toast.js';
 import { usuarioEfectivo } from '../services/validatorService.js';
 
 export function inicializarModalDetalle() {
+  // Formateo en vivo del campo "Procesar": solo dígitos, máximo 5, con
+  // punto de miles (1.000). Delegado en el contenedor, que es permanente.
+  document.getElementById('detalle-contenido').addEventListener('input', (e) => {
+    if (!e.target.classList.contains('input-cantidad-procesar')) return;
+    e.target.value = formatearCantidadEscrita(e.target.value);
+  });
+
   document.getElementById('btn-cerrar-detalle').addEventListener('click', cerrarDetalle);
   document.getElementById('btn-cerrar-detalle-2').addEventListener('click', cerrarDetalle);
   document.getElementById('btn-devolucion').addEventListener('click', () => {
@@ -26,6 +33,7 @@ export async function abrirDetalleOrden(orderNumber) {
   document.getElementById('detalle-cliente').textContent = '';
   document.getElementById('detalle-fecha').textContent = '';
   document.getElementById('detalle-especificaciones').innerHTML = '';
+  document.getElementById('detalle-total-pares').innerHTML = '';
   document.getElementById('detalle-destino').innerHTML = '';
   contenedor.innerHTML = '<div class="loading"><div class="spinner"></div> Cargando...</div>';
   modal.classList.add('open');
@@ -51,6 +59,21 @@ export async function abrirDetalleOrden(orderNumber) {
       const firstItem = items[0];
       document.getElementById('detalle-cliente').textContent = firstItem.cliente || '—';
       document.getElementById('detalle-fecha').textContent = formatearFecha(firstItem.fecha_pedido);
+
+      // Total del pedido: se suma de los items que ya están cargados, sin
+      // consulta extra (vw_item_progreso trae una fila por talla).
+      const totalPares = items.reduce((sum, i) => sum + (i.cantidad_solicitada || 0), 0);
+      let encabezado = `${formatearMiles(totalPares)} PARES`;
+
+      // % recibido del pedido completo, en el proceso del rol actual.
+      const rol = usuarioEfectivo().role;
+      if (muestraRecibido(rol)) {
+        const proceso = nombreProcesoDeRol(rol);
+        const totalRecibido = items.reduce((sum, i) => sum + calcularRecibidoPorProceso(i, movimientos, proceso), 0);
+        const pct = porcentajeRecibido(totalRecibido, totalPares);
+        encabezado += ` <span class="detalle-total-sep">–</span> <span class="badge-recibido ${claseRecibido(pct)}">${pct}% Recibido</span>`;
+      }
+      document.getElementById('detalle-total-pares').innerHTML = encabezado;
 
       renderEspecificaciones(firstItem);
     }
@@ -178,13 +201,13 @@ function renderProcesarLoteHeader() {
     <button class="btn-procesar-parcial" id="btn-procesar-lote">Procesar Parcial</button>
     <div class="orden-divider"></div>`;
 
-  document.getElementById('btn-procesar-lote').addEventListener('click', abrirResumenLote);
+  document.getElementById('btn-procesar-lote').addEventListener('click', () => abrirResumenLote(false));
   document.getElementById('btn-procesar-todo').addEventListener('click', () => {
     const contenedor = document.getElementById('detalle-contenido');
     contenedor.querySelectorAll('.input-cantidad-procesar').forEach((input) => {
-      input.value = input.dataset.pendiente;
+      input.value = formatearMiles(input.dataset.pendiente);
     });
-    abrirResumenLote();
+    abrirResumenLote(true);
   });
 }
 
@@ -255,14 +278,15 @@ function renderEspecificaciones(item) {
   document.getElementById('detalle-especificaciones').innerHTML = html;
 }
 
-function abrirResumenLote() {
+/** @param {boolean} esOrdenCompleta true si viene de "Procesar toda la orden" (modal en verde). */
+function abrirResumenLote(esOrdenCompleta = false) {
   const { selectedOrderItems } = getState();
   const contenedor = document.getElementById('detalle-contenido');
   const inputs = contenedor.querySelectorAll('.input-cantidad-procesar');
 
   const seleccion = [];
   for (const input of inputs) {
-    const cantidad = Number(input.value || 0);
+    const cantidad = leerCantidad(input.value);
     if (cantidad <= 0) continue;
 
     const idx = Number(input.dataset.idx);
@@ -282,7 +306,7 @@ function abrirResumenLote() {
     return;
   }
 
-  abrirModalProcesar(seleccion);
+  abrirModalProcesar(seleccion, esOrdenCompleta);
 }
 
 /** Vuelve a cargar el detalle de la orden actualmente abierta (si hay alguna). Usado tras registrar un movimiento/devolución o por realtime. */
@@ -307,11 +331,13 @@ function renderDetalleItems(items, movimientos) {
 
   const procesoDelRol = nombreProcesoDeRol(effectiveUser.role);
   const esProceso = esRolDeProceso(effectiveUser.role);
+  const verRecibido = muestraRecibido(effectiveUser.role);
 
   contenedor.innerHTML = items
     .map((item, idx) => {
       let procesadoMostrado = item.cantidad_procesada;
       let pendienteMostrado = item.cantidad_pendiente;
+      let recibidoMostrado = 0;
       let pendienteEnMiProceso = 0;
       let sinEnviar = false;
       let estado;
@@ -323,6 +349,7 @@ function renderDetalleItems(items, movimientos) {
 
         procesadoMostrado = procesadoEnMiProceso;
         pendienteMostrado = pendienteEnMiProceso;
+        recibidoMostrado = entradaEnMiProceso;
         sinEnviar = entradaEnMiProceso === 0;
 
         estado = sinEnviar
@@ -349,22 +376,28 @@ function renderDetalleItems(items, movimientos) {
       return `
         <div class="card-orden" data-idx="${idx}" style="padding:0.85rem 1rem; margin-bottom:0.75rem; cursor:default; background:${completado ? 'var(--bg)' : 'var(--surface)'}; border:1px solid ${completado ? 'var(--border2)' : 'var(--border)'};">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.65rem;">
-            <div class="orden-num">Talla ${escapeHtml(item.talla)}</div>
+            <div class="talla-titulo">
+              <span class="orden-num">Talla ${escapeHtml(item.talla)}</span>
+              ${verRecibido ? `<span class="talla-sep">–</span>${badgeRecibidoTalla(porcentajeRecibido(recibidoMostrado, item.cantidad_solicitada))}` : ''}
+            </div>
             ${badgeHtml}
           </div>
           <div class="item-stats-row">
-            <div class="stat-item"><div class="stat-label">Solicitado</div><div class="stat-value">${item.cantidad_solicitada}</div></div>
-            <div class="stat-item"><div class="stat-label">Procesado</div><div class="stat-value">${procesadoMostrado}</div></div>
-            <div class="stat-item"><div class="stat-label">Pendiente</div><div class="stat-value">${pendienteMostrado}</div></div>
-            <div class="stat-item"><div class="stat-label">Etapa actual</div><div class="stat-value">${escapeHtml(item.etapa_actual)} ${ICONO_PROCESO[item.etapa_actual] || ''}</div></div>
+            <div class="stat-item">${etiqueta('Solicitado', 'Soli.')}<div class="stat-value">${formatearMiles(item.cantidad_solicitada)}</div></div>
+            <div class="stat-item stat-procesado">${etiqueta('Procesado', 'Proc.')}<div class="stat-value">${formatearMiles(procesadoMostrado)}</div></div>
+            <div class="stat-item stat-pendiente">${etiqueta('Pendiente', 'Pend.')}<div class="stat-value">${formatearMiles(pendienteMostrado)}</div></div>
+            ${verRecibido ? `<div class="stat-item stat-recibido">${etiqueta('Recibido', 'Reci.')}<div class="stat-value">${formatearMiles(recibidoMostrado)}</div></div>` : ''}
+            <div class="stat-item stat-etapa"><div class="stat-label">Etapa actual</div><div class="stat-value">${escapeHtml(item.etapa_actual)} ${ICONO_PROCESO[item.etapa_actual] || ''}</div></div>
             ${puedeProcesar ? `
-            <div class="stat-item">
-              <div class="stat-label">Cantidad a Procesar</div>
-              <input type="number" class="input-cantidad-procesar" data-idx="${idx}" data-pendiente="${pendienteEnMiProceso}" min="1" max="${pendienteEnMiProceso}" placeholder="0" style="width:80px; padding:5px 8px; border:1.5px solid var(--border2); border-radius:6px; font-size:13px;">
+            <div class="stat-item stat-procesar">
+              <div class="stat-label">Procesar</div>
+              <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="6"
+                     class="input-cantidad-procesar" data-idx="${idx}" data-pendiente="${pendienteEnMiProceso}" placeholder="0">
             </div>` : ''}
-            <div style="margin-left:auto; display:flex; gap:0.5rem;">
-              ${puedeDevolver ? `<button class="btn btn-danger btn-sm btn-item-devolver" data-idx="${idx}">🔄 Devolver</button>` : ''}
-            </div>
+            ${puedeDevolver ? `
+            <div class="stat-acciones" style="margin-left:auto; display:flex; gap:0.5rem;">
+              <button class="btn btn-danger btn-sm btn-item-devolver" data-idx="${idx}">🔄 Devolver</button>
+            </div>` : ''}
           </div>
         </div>
       `;
@@ -424,4 +457,52 @@ function escapeHtml(value) {
     '"': '&quot;',
     "'": '&#39;'
   }[c]));
+}
+
+// ---------------------------------------------------------------------
+// "Recibido" y formato de cantidades
+// ---------------------------------------------------------------------
+
+/**
+ * Recibido solo tiene sentido para los procesos que dependen de otro:
+ * a Refilado le llega todo de entrada (siempre sería 100%), y el
+ * Validador en vista maestra no procesa.
+ */
+function muestraRecibido(rol) {
+  return esRolDeProceso(rol) && rol !== 'refilado';
+}
+
+function claseRecibido(pct) {
+  if (pct <= 0) return 'recibido-cero';
+  if (pct >= 100) return 'recibido-total';
+  return 'recibido-parcial';
+}
+
+/** "Recibido: 50%" en PC, "Reci: 50%" en móvil. */
+function badgeRecibidoTalla(pct) {
+  return `<span class="badge-recibido ${claseRecibido(pct)}"><span class="cart-lbl-full">Recibido:</span><span class="cart-lbl-short">Reci:</span> ${pct}%</span>`;
+}
+
+/** Etiqueta completa en PC y abreviada en móvil. */
+function etiqueta(completa, corta) {
+  return `<div class="stat-label"><span class="cart-lbl-full">${completa}</span><span class="cart-lbl-short">${corta}</span></div>`;
+}
+
+function formatearMiles(valor) {
+  return Number(valor || 0).toLocaleString('es-CO');
+}
+
+/**
+ * Lo que el usuario teclea en "Procesar": solo dígitos, máximo 5 (la
+ * producción no llega a más), sin ceros a la izquierda, con punto de
+ * miles. Vacío se queda vacío para que se vea el placeholder.
+ */
+function formatearCantidadEscrita(texto) {
+  const digitos = String(texto || '').replace(/\D/g, '').replace(/^0+/, '').slice(0, 5);
+  return digitos ? Number(digitos).toLocaleString('es-CO') : '';
+}
+
+/** Inverso del formato: "1.000" -> 1000. */
+function leerCantidad(texto) {
+  return Number(String(texto || '').replace(/\D/g, '')) || 0;
 }

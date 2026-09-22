@@ -1,5 +1,5 @@
 import { getState } from '../state/appState.js';
-import { fetchCompensacionLineas } from '../services/compensacionService.js';
+import { fetchCompensacionLineas, fetchProduccionDiaria } from '../services/compensacionService.js';
 import { fetchPreciosPorPar, actualizarPrecioPorPar } from '../services/preciosService.js';
 import { fetchReglasPrecios, crearReglaPrecio, eliminarReglaPrecio } from '../services/reglasPreciosService.js';
 import { fetchOpcionesNombreSuela, fetchOpcionesMaterial, fetchOpcionesColor } from '../services/ordersService.js';
@@ -29,6 +29,8 @@ const MESES = [
 
 let periodoSeleccionado = claveMes(new Date());
 let lineasActuales = [];
+// Unidades por dia (todo lo procesado, liquidado o no) para "Promedio Dia".
+let produccionDiaria = [];
 let historicoExpandido = false;
 let opcionesReglasCargadas = false;
 let idReglaPrecioAEliminar = null;
@@ -134,10 +136,14 @@ export async function cargarCompensacion() {
   }
 
   try {
-    lineasActuales = await fetchCompensacionLineas(user);
+    [lineasActuales, produccionDiaria] = await Promise.all([
+      fetchCompensacionLineas(user),
+      fetchProduccionDiaria(user)
+    ]);
   } catch (err) {
     mostrarToast(err.message, 'error');
     lineasActuales = [];
+    produccionDiaria = [];
   }
 
   poblarSelectorPeriodo();
@@ -283,6 +289,25 @@ async function renderIndicadores(lineasDelPeriodo, esHistorico) {
 
   const labelPeriodo = esHistorico ? 'Producción Histórica' : 'Mes Seleccionado';
 
+  // Promedio de suelas por día: se divide entre los días que TIENEN
+  // registro, no entre los días del calendario — un día sin trabajo no
+  // debe castigar el promedio. Sigue el selector de periodo, igual que
+  // las tarjetas vecinas.
+  const diasDelPeriodo = esHistorico
+    ? produccionDiaria
+    : produccionDiaria.filter((d) => claveMes(new Date(`${d.dia}T00:00:00`)) === periodoSeleccionado);
+
+  // El mismo día puede venir en varias filas si el Validador está
+  // emulando un rol con varios operarios: hay que agrupar antes de contar.
+  const unidadesPorDia = new Map();
+  diasDelPeriodo.forEach((d) => {
+    unidadesPorDia.set(d.dia, (unidadesPorDia.get(d.dia) || 0) + Number(d.unidades || 0));
+  });
+
+  const totalDias = unidadesPorDia.size;
+  const unidadesTotales = [...unidadesPorDia.values()].reduce((s, u) => s + u, 0);
+  const promedioDia = totalDias > 0 ? Math.round(unidadesTotales / totalDias) : null;
+
   const items = [
     {
       icono: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
@@ -315,6 +340,14 @@ async function renderIndicadores(lineasDelPeriodo, esHistorico) {
       label: 'Tarifa por Suela',
       valor: tarifa != null ? formatearCOP(tarifa) : '—',
       unidad: tarifa != null ? 'COP' : ''
+    },
+    {
+      icono: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>',
+      color: '#7c3aed',
+      bgColor: '#ede9fe',
+      label: 'Promedio Día',
+      valor: promedioDia != null ? promedioDia.toLocaleString('es-CO') : '—',
+      unidad: promedioDia != null ? `suelas/día · ${totalDias} día${totalDias === 1 ? '' : 's'}` : ''
     }
   ];
 

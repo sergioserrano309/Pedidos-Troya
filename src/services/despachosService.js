@@ -59,57 +59,203 @@ export async function fetchPedidosPorDespachar(options = {}) {
 }
 
 /**
- * Resumen (total de unidades + desglose por talla) para el modal "Crear
- * Salida", calculado directamente sobre p_pedidosh (única fuente de la
- * verdad para tallas/cantidades — solo lectura, RLS abierta a
- * authenticated, ver 006_rls_policies.sql).
- * @param {string[]} orderNumbers
+ * Filas para los filtros en cascada de "A Despachar" (ver
+ * src/lib/facetas.js): una por pedido con saldo, solo las columnas que
+ * filtran. Paginado de a 1000 (tope por consulta de Supabase).
  */
-export async function fetchPreviewCreacionDespacho(orderNumbers) {
-  const { data, error } = await supabase
-    .from('p_pedidosh')
-    .select('"PedidoNo", "Talla", "CantidadP"')
-    .in('PedidoNo', orderNumbers)
-    .or('Cancelado.is.null,Cancelado.eq.false');
+export async function fetchFacetasADespachar() {
+  const LOTE = 1000;
+  const filas = [];
 
-  if (error) {
-    console.error('[despachosService] Error obteniendo resumen de pedidos:', error);
-    throw new Error('No se pudo calcular el resumen de los pedidos seleccionados.');
+  for (let desde = 0; ; desde += LOTE) {
+    const { data, error } = await supabase
+      .from('vw_pedidos_por_despachar')
+      .select('order_number, cliente, nombre_referencia, material, color')
+      .order('order_number', { ascending: false })
+      .range(desde, desde + LOTE - 1);
+
+    if (error) {
+      console.error('[despachosService] Error obteniendo opciones de filtros:', error);
+      return filas;
+    }
+
+    filas.push(...(data || []));
+    if (!data || data.length < LOTE) break;
   }
 
-  const filas = data || [];
-  const totalUnidades = filas.reduce((sum, f) => sum + (f.CantidadP || 0), 0);
-
-  const porTallaMapa = new Map();
-  filas.forEach((f) => {
-    const talla = String(f.Talla ?? '—');
-    porTallaMapa.set(talla, (porTallaMapa.get(talla) || 0) + (f.CantidadP || 0));
-  });
-  const porTalla = [...porTallaMapa.entries()]
-    .map(([talla, unidades]) => ({ talla, unidades }))
-    .sort((a, b) => a.talla.localeCompare(b.talla, undefined, { numeric: true }));
-
-  return { totalUnidades, porTalla };
+  return filas;
 }
 
 /**
- * Crea el despacho COMPLETO (RPC atómico crear_despacho, ver
- * supabase/sql/031_despachos_crear_atomico.sql): valida que cada pedido
- * esté 100% completo en Empaque y sin despacho previo, que cada pedido
- * tenga ≥1 bulto asignado y que la unión de bultos usados sea EXACTAMENTE
- * {1..totalBultos} — todo en una sola transacción. Si algo falla, no se
- * crea absolutamente nada (el usuario corrige en el mismo modal y
- * reintenta). Cualquier error de validación llega en error.message tal
- * cual lo lanzó el RPC (ej. "Los siguientes pedidos no tienen ningún
- * bulto asignado: 3201").
- * @param {{ orderNumbers: string[], totalBultos: number, pesos: number[], asignaciones: Array<{ order_number: string, bulto_numero: number }> }} datos
+ * Saldo despachable por talla, para el modal "Crear Salida".
+ *
+ * Desde 044 la fuente es vw_item_despacho_saldo, no p_pedidosh: lo que
+ * importa no es cuánto se pidió sino cuánto queda por despachar
+ * (empacada − despachada). Un pedido que ya salió a medias vuelve a
+ * aparecer con su saldo.
+ *
+ * @param {string[]} orderNumbers
+ * @returns {Promise<Map<string, Array<{ itemId: string, talla: string, disponible: number, solicitada: number, despachada: number }>>>}
  */
-export async function crearDespacho({ orderNumbers, totalBultos, pesos, asignaciones }) {
+export async function fetchSaldoPorDespachar(orderNumbers) {
+  const { data, error } = await supabase
+    .from('vw_item_despacho_saldo')
+    .select('item_id, order_number, talla, cantidad_solicitada, cantidad_empacada, cantidad_despachada, cantidad_disponible, numero_despachos')
+    .in('order_number', orderNumbers)
+    .gt('cantidad_disponible', 0);
+
+  if (error) {
+    console.error('[despachosService] Error obteniendo saldo por despachar:', error);
+    throw new Error('No se pudo calcular el saldo de los pedidos seleccionados.');
+  }
+
+  const porPedido = new Map();
+  (data || []).forEach((f) => {
+    const pedido = String(f.order_number);
+    if (!porPedido.has(pedido)) porPedido.set(pedido, []);
+    porPedido.get(pedido).push({
+      itemId: f.item_id,
+      talla: String(f.talla ?? '—'),
+      // Las cuatro cifras que ve el usuario, con Despachos como receptor:
+      //   recibida = lo que Empaque mandó   (empacada)
+      //   despachada = lo ya despachado     ("Procesado" en esta pantalla)
+      //   disponible = recibida − despachada ("Pendiente por despachar")
+      // Siempre se cumple recibida = despachada + disponible.
+      solicitada: f.cantidad_solicitada ?? 0,
+      recibida: f.cantidad_empacada ?? 0,
+      despachada: f.cantidad_despachada ?? 0,
+      disponible: f.cantidad_disponible ?? 0,
+      // En cuántos despachos distintos ha salido ya esta talla (052).
+      numeroDespachos: f.numero_despachos ?? 0
+    });
+  });
+
+  porPedido.forEach((tallas) =>
+    tallas.sort((a, b) => a.talla.localeCompare(b.talla, undefined, { numeric: true }))
+  );
+
+  return porPedido;
+}
+
+/**
+ * Estado de despacho de varios pedidos: completitud, porcentaje y en
+ * cuántos despachos está cada uno. Alimenta los badges Sí/No del detalle
+ * y el contador por pedido de "Crear Salida".
+ * @param {string[]} orderNumbers
+ * @returns {Promise<Map<string, { completo: boolean, porcentaje: number, despachadas: number, solicitadas: number }>>}
+ */
+export async function fetchEstadoPedidos(orderNumbers) {
+  const { data, error } = await supabase
+    .from('vw_pedido_despacho_estado')
+    .select('order_number, pedido_completo, porcentaje_despachado, unidades_despachadas, unidades_solicitadas, numero_despachos')
+    .in('order_number', orderNumbers);
+
+  if (error) {
+    console.error('[despachosService] Error obteniendo estado de pedidos:', error);
+    throw new Error('No se pudo cargar el estado de despacho de los pedidos.');
+  }
+
+  const mapa = new Map();
+  (data || []).forEach((f) => {
+    mapa.set(String(f.order_number), {
+      completo: !!f.pedido_completo,
+      porcentaje: f.porcentaje_despachado ?? 0,
+      despachadas: f.unidades_despachadas ?? 0,
+      solicitadas: f.unidades_solicitadas ?? 0,
+      // En cuántos despachos distintos está el pedido (044). Distinto del
+      // contador por talla: dos tallas del mismo pedido pueden llevar
+      // historias diferentes.
+      despachos: f.numero_despachos ?? 0
+    });
+  });
+  return mapa;
+}
+
+/**
+ * Prende o apaga el visto bueno del Validador sobre un despacho (053).
+ *
+ * El RPC valida el rol en la base; aquí no se comprueba nada, porque una
+ * comprobación en el navegador no es un permiso, es una cortesía. La
+ * pantalla esconde el control a quien no es validador solo para no
+ * ofrecer algo que va a fallar.
+ *
+ * @param {string} despachoId
+ * @param {boolean} revisado
+ */
+export async function marcarDespachoRevisado(despachoId, revisado) {
+  const { error } = await supabase.rpc('marcar_despacho_revisado', {
+    p_despacho_id: despachoId,
+    p_revisado: revisado
+  });
+
+  if (error) {
+    console.error('[despachosService] Error marcando el despacho como revisado:', error);
+    throw new Error(error.message || 'No se pudo cambiar el visto bueno del despacho.');
+  }
+}
+
+/**
+ * Ficha de los pedidos de un despacho: cliente, suela, material y color.
+ *
+ * Sale de vw_pedido_progreso — la misma vista que alimenta las tarjetas
+ * del dashboard — y NO de vw_pedidos_por_despachar, que solo lista
+ * pedidos con saldo: un pedido ya despachado del todo desaparece de
+ * ahí, y el detalle de un despacho viejo se quedaría sin cliente.
+ *
+ * Si la consulta falla NO tumba el detalle: el modal sigue mostrando
+ * bultos, tallas y saldos, que es su información esencial, y la ficha
+ * queda en blanco.
+ *
+ * @param {string[]} orderNumbers
+ * @returns {Promise<Map<string, { cliente: string, nombreSuela: string, material: string, color: string }>>}
+ */
+export async function fetchInfoPedidos(orderNumbers) {
+  const mapa = new Map();
+  if (!orderNumbers || orderNumbers.length === 0) return mapa;
+
+  const { data, error } = await supabase
+    .from('vw_pedido_progreso')
+    .select('order_number, cliente, nombre_referencia, material, color')
+    .in('order_number', orderNumbers);
+
+  if (error) {
+    console.error('[despachosService] Error obteniendo la ficha de los pedidos:', error);
+    return mapa;
+  }
+
+  (data || []).forEach((f) => {
+    mapa.set(String(f.order_number), {
+      cliente: f.cliente || '',
+      nombreSuela: f.nombre_referencia || '',
+      material: f.material || '',
+      color: f.color || ''
+    });
+  });
+
+  return mapa;
+}
+
+/**
+ * Crea el despacho COMPLETO en una sola transacción atómica (RPC
+ * crear_despacho, ver supabase/sql/045_crear_despacho_parcial.sql).
+ *
+ * Desde 051 el usuario indica cuántas unidades salen de cada talla
+ * (`items`). El RPC vuelve a validar el saldo contra la base y además
+ * hay un trigger de último recurso, así que despachar de más es
+ * imposible aunque el cliente mande cualquier cosa.
+ *
+ * Los errores de validación llegan en español tal cual los lanzó el RPC
+ * (ej. "No hay saldo suficiente para despachar: pedido 3121 talla 35...").
+ *
+ * @param {{ orderNumbers: string[], totalBultos: number, pesos: number[], asignaciones: Array<{ order_number: string, bulto_numero: number }>, items: Array<{ item_id: string, cantidad: number }> }} datos
+ */
+export async function crearDespacho({ orderNumbers, totalBultos, pesos, asignaciones, items }) {
   const { data, error } = await supabase.rpc('crear_despacho', {
     p_order_numbers: orderNumbers,
     p_total_bultos: totalBultos,
     p_pesos: pesos,
-    p_asignaciones: asignaciones
+    p_asignaciones: asignaciones,
+    p_items: items
   });
 
   if (error) {
@@ -126,7 +272,7 @@ export async function crearDespacho({ orderNumbers, totalBultos, pesos, asignaci
         'Empaque',
         despacho.consecutivo,
         null,
-        { pedidos: orderNumbers, total_bultos: totalBultos, pesos, asignaciones },
+        { pedidos: orderNumbers, total_bultos: totalBultos, pesos, asignaciones, items },
         null
       );
     }
@@ -136,39 +282,6 @@ export async function crearDespacho({ orderNumbers, totalBultos, pesos, asignaci
   }
 
   return despacho;
-}
-
-/**
- * @param {{ page?: number, filters?: { fecha?: string, consecutivo?: string, orden?: string } }} options
- */
-export async function fetchDespachos(options = {}) {
-  const { page = 0, filters = {} } = options;
-  const { fecha = '', consecutivo = '', orden = '' } = filters;
-
-  let query = supabase.from('vw_despachos_resumen').select('*');
-
-  if (fecha.trim()) {
-    // Rango del día completo — created_at es timestamptz.
-    query = query.gte('created_at', `${fecha}T00:00:00`).lt('created_at', `${fecha}T23:59:59.999`);
-  }
-  if (consecutivo.trim()) query = query.ilike('consecutivo', `%${consecutivo.trim()}%`);
-  if (orden.trim()) query = query.contains('order_numbers', [orden.trim()]);
-
-  query = query
-    .order('created_at', { ascending: false })
-    .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
-
-  const { data, error } = await query;
-
-  if (error) {
-    console.error('[despachosService] Error obteniendo despachos:', error);
-    throw new Error('No se pudieron cargar los despachos.');
-  }
-
-  const hayMas = (data || []).length > PAGE_SIZE;
-  const despachos = (data || []).slice(0, PAGE_SIZE);
-
-  return { despachos, hayMas };
 }
 
 export async function fetchDetalleDespacho(despachoId) {
@@ -204,6 +317,94 @@ export async function fetchAsignacionesDespacho(despachoId) {
   }
 
   return data || [];
+}
+
+/**
+ * Acordeón Despachos > Despachado: una fila por despacho con sus agregados (bultos,
+ * kilos, unidades, órdenes). Ver vw_despachos_registro en
+ * supabase/sql/039_registros_despachos.sql.
+ * @param {{ page?: number, filters?: { fecha?: string, consecutivo?: string, orden?: string } }} options
+ */
+export async function fetchRegistrosDespachos(options = {}) {
+  const { page = 0, filters = {} } = options;
+  const { fecha = '', consecutivo = '', orden = '' } = filters;
+
+  let query = supabase.from('vw_despachos_registro').select('*');
+
+  if (fecha.trim()) {
+    query = query.gte('created_at', `${fecha}T00:00:00`).lt('created_at', `${fecha}T23:59:59.999`);
+  }
+  if (consecutivo.trim()) query = query.ilike('consecutivo', `%${consecutivo.trim()}%`);
+  if (orden.trim()) query = query.contains('order_numbers', [orden.trim()]);
+
+  query = query
+    .order('created_at', { ascending: false })
+    .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error('[despachosService] Error obteniendo registros de despachos:', error);
+    throw new Error('No se pudieron cargar los registros de despachos.');
+  }
+
+  const hayMas = (data || []).length > PAGE_SIZE;
+  return { despachos: (data || []).slice(0, PAGE_SIZE), hayMas };
+}
+
+/**
+ * Lo que realmente salió en UN despacho, agrupado por pedido.
+ *
+ * Desde 044 la fuente es despacho_orden_items, no p_pedidosh: con
+ * despachos parciales, mostrar el total del pedido sería engañoso — hay
+ * que mostrar lo que se despachó en esta salida concreta.
+ *
+ * @param {string} despachoId
+ * @returns {Promise<Map<string, Array<{ talla: string, unidades: number }>>>}
+ */
+export async function fetchItemsDespacho(despachoId) {
+  const { data, error } = await supabase
+    .from('despacho_orden_items')
+    .select('order_number, talla, cantidad')
+    .eq('despacho_id', despachoId);
+
+  if (error) {
+    console.error('[despachosService] Error obteniendo items del despacho:', error);
+    throw new Error('No se pudieron cargar las tallas del despacho.');
+  }
+
+  const porPedido = new Map();
+  (data || []).forEach((f) => {
+    const pedido = String(f.order_number);
+    if (!porPedido.has(pedido)) porPedido.set(pedido, []);
+    porPedido.get(pedido).push({ talla: String(f.talla ?? '—'), unidades: f.cantidad ?? 0 });
+  });
+
+  porPedido.forEach((tallas) =>
+    tallas.sort((a, b) => a.talla.localeCompare(b.talla, undefined, { numeric: true }))
+  );
+
+  return porPedido;
+}
+
+/**
+ * Elimina un despacho COMPLETO con motivo obligatorio. No existe borrado
+ * parcial: el RPC borra el despacho y sus órdenes/bultos/asignaciones en
+ * cascada, dejando snapshot en log_eliminaciones.
+ * El mensaje de error del RPC llega en español y se muestra tal cual.
+ * @param {string} despachoId
+ * @param {string} motivo
+ */
+export async function eliminarDespachoConMotivo(despachoId, motivo) {
+  const { error } = await supabase.rpc('eliminar_despacho_con_motivo', {
+    p_despacho_id: despachoId,
+    p_motivo: motivo
+  });
+
+  if (error) {
+    console.error('[despachosService] Error eliminando despacho:', error);
+    throw new Error(error.message || 'No se pudo eliminar el despacho.');
+  }
 }
 
 /** Bultos (número + peso) de un despacho, para el resumen de solo lectura. */

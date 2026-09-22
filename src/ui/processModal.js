@@ -19,14 +19,21 @@ export function inicializarModalProcesar() {
  * @param {Array<{ item: object, cantidad: number, pendiente: number }>} seleccion
  *   Una fila por cada talla con cantidad > 0 que el usuario cargó antes de
  *   presionar el botón único "Procesar" del encabezado de la orden.
+ * @param {boolean} esOrdenCompleta
+ *   true si viene de "Procesar toda la orden". El modal se pinta en verde
+ *   (el mismo del botón que lo abrió) en vez de azul, para que el usuario
+ *   distinga de un vistazo si está cerrando la orden entera o solo una
+ *   parte — son dos acciones con consecuencias muy distintas.
  */
-export function abrirModalProcesar(seleccion) {
+export function abrirModalProcesar(seleccion, esOrdenCompleta = false) {
   seleccionActual = seleccion;
   const { destinoConfirmadoOrden } = getState();
   const user = usuarioEfectivo();
 
+  const acento = esOrdenCompleta ? 'var(--green)' : 'var(--blue)';
+
   const totalUnidades = seleccion.reduce((sum, s) => sum + s.cantidad, 0);
-  const detalleHtml = `<span style="color: var(--blue);">${totalUnidades} und(es).</span> en <span style="color: var(--blue);">${seleccion.length}</span> talla(s)`;
+  const detalleHtml = `<span style="color: ${acento};">${totalUnidades.toLocaleString('es-CO')} und(es).</span> en <span style="color: ${acento};">${seleccion.length}</span> talla(s)`;
   document.getElementById('procesar-titulo').innerHTML =
     user.role === 'empaque'
       ? `¿Está seguro que va a marcar como completadas ${detalleHtml}?`
@@ -36,9 +43,14 @@ export function abrirModalProcesar(seleccion) {
     .map(({ item, cantidad }) => `
       <div style="display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--border); font-size:13px;">
         <span>Talla ${escapeHtml(String(item.talla))}</span>
-        <span style="font-weight:600; color:var(--blue);">${cantidad} und(es).</span>
+        <span style="font-weight:600; color:${acento};">${cantidad.toLocaleString('es-CO')} und(es).</span>
       </div>`)
     .join('');
+
+  // El botón de confirmar acompaña el mismo código de color.
+  const btnGuardar = document.getElementById('btn-guardar-procesar');
+  btnGuardar.classList.toggle('btn-success', esOrdenCompleta);
+  btnGuardar.classList.toggle('btn-primary', !esOrdenCompleta);
 
   document.getElementById('procesar-obs').value = '';
 
@@ -87,6 +99,14 @@ export function abrirModalProcesar(seleccion) {
 function cerrarModalProcesar() {
   document.getElementById('modal-procesar').classList.remove('open');
   seleccionActual = [];
+
+  // Salir sin confirmar debe dejar el detalle como estaba. Antes, si el
+  // usuario pulsaba "Procesar toda la orden" y cancelaba, las cantidades
+  // quedaban pre-llenadas al pendiente: la orden se veía "armada" sin
+  // que nadie lo hubiera decidido, y el siguiente clic la procesaba entera.
+  document
+    .querySelectorAll('#detalle-contenido .input-cantidad-procesar')
+    .forEach((input) => { input.value = ''; });
 }
 
 async function guardarProceso() {

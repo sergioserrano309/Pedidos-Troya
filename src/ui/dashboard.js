@@ -1,4 +1,5 @@
-import { fetchOrders, fetchOpcionesCliente, fetchOpcionesNombreSuela, fetchOpcionesMaterial, fetchOpcionesColor } from '../services/ordersService.js';
+import { fetchOrders, fetchFacetasOrdenes } from '../services/ordersService.js';
+import { calcularOpciones, reconstruirSelect } from '../lib/facetas.js';
 import { getState, setState } from '../state/appState.js';
 import { estadoPorPorcentaje } from '../lib/calculations.js';
 import { abrirDetalleOrden } from './orderDetail.js';
@@ -10,6 +11,7 @@ import { esValidador, obtenerRolActivo, establecerRolActivo, usuarioEfectivo, ro
 import { cargarValidadorPage } from './validatorPage.js';
 import { cargarAuditPage } from './auditPage.js';
 import { cargarDespachosTab, configurarUIDespachos } from './despachosPage.js';
+import { cargarEliminaciones } from './eliminacionesPage.js';
 import { cargarCompensacion } from './compensacionPage.js';
 import { inicializarFiltrosCustomSelect, sincronizarEtiquetaFiltro } from './customSelect.js';
 
@@ -19,6 +21,27 @@ let paginaActual = 0;
 let hayPaginaSiguiente = false;
 let filtros = { orden: '', cliente: '', nombreSuela: '', material: '', color: '', fecha: '' };
 let debounceTimer = null;
+// Una fila por pedido visible en la pestaña (Activas o Completadas), para
+// calcular las opciones de los filtros en cascada. Se descarga al entrar
+// a la pestaña, no en cada cambio de filtro.
+let filasFacetas = [];
+let tabFacetas = null;
+
+const CAMPOS_FACETAS = {
+  orden: { columna: 'order_number', modo: 'contiene' },
+  cliente: { columna: 'cliente', modo: 'exacto', lista: true },
+  nombreSuela: { columna: 'nombre_referencia', modo: 'exacto', lista: true },
+  material: { columna: 'material', modo: 'exacto', lista: true },
+  color: { columna: 'color', modo: 'exacto', lista: true },
+  fecha: { columna: 'fecha_pedido', modo: 'exacto' }
+};
+
+const SELECT_POR_FACETA = {
+  cliente: 'filtro-cliente',
+  nombreSuela: 'filtro-nombre-suela',
+  material: 'filtro-material',
+  color: 'filtro-color'
+};
 
 /**
  * Se llama DESPUÉS del login (main.js -> iniciarApp), no en el bootstrap
@@ -44,6 +67,7 @@ export function configurarUIValidador() {
     document.getElementById('tab-btn-reglas').style.display = 'none';
     document.getElementById('tab-btn-validador').style.display = 'none';
     document.getElementById('tab-btn-audit').style.display = 'none';
+    document.getElementById('tab-btn-eliminaciones').style.display = 'none';
     document.getElementById('rol-selector-container').style.display = 'none';
     return;
   }
@@ -51,6 +75,7 @@ export function configurarUIValidador() {
   document.getElementById('tab-btn-reglas').style.display = 'inline-block';
   document.getElementById('tab-btn-validador').style.display = 'inline-block';
   document.getElementById('tab-btn-audit').style.display = 'inline-block';
+  document.getElementById('tab-btn-eliminaciones').style.display = 'inline-block';
   document.getElementById('rol-selector-container').style.display = 'grid';
 
   const rolActivo = obtenerRolActivo();
@@ -96,18 +121,21 @@ export function configurarUIValidador() {
       // Si estaba en Despachos y el nuevo rol ya no es Empaque, la
       // pestaña acaba de ocultarse: regresar a "Activas" en vez de dejar
       // la sección de Despachos visible sin su botón de pestaña.
-      if (currentTab === 'despachos' && rolEfectivo() !== 'empaque') {
+      if (currentTab === 'despachos' && !esValidador() && rolEfectivo() !== 'empaque') {
         document.querySelector('#tabs-primarios .tab-btn[data-tab="activas"]')?.click();
         return;
       }
 
       paginaActual = 0;
+      // Otro rol ve otros pedidos: las opciones de los filtros cambian.
+      tabFacetas = null;
       if (currentTab === 'registros') {
         await cargarHistorial();
       } else if (currentTab === 'despachos') {
         await cargarDespachosTab();
-      } else if (!['validador', 'audit', 'reglas'].includes(currentTab)) {
+      } else if (!['validador', 'audit', 'reglas', 'eliminaciones'].includes(currentTab)) {
         await cargarOrdenes();
+        await cargarFacetasOrdenes();
       }
     });
   }
@@ -126,7 +154,20 @@ export function inicializarPaginaOrdenes() {
       const esPestanaValidador = tab === 'validador';
       const esAudit = tab === 'audit';
       const esDespachos = tab === 'despachos';
-      const esOrdenes = !esRegistros && !esReglas && !esPestanaValidador && !esAudit && !esDespachos;
+      const esEliminaciones = tab === 'eliminaciones';
+      const esOrdenes = !esRegistros && !esReglas && !esPestanaValidador && !esAudit && !esDespachos && !esEliminaciones;
+
+      // La barra "Filtros (n) / Limpiar" de celular solo sirve en Activas
+      // y Completadas. Al salir se cierra también el panel: su regla de
+      // "abierto" lleva !important y le ganaría al display:none de abajo.
+      const barraMovil = document.getElementById('filtros-barra-mobile');
+      const divisorMovil = document.getElementById('ordenes-header-divider');
+      if (barraMovil) barraMovil.style.display = esOrdenes ? '' : 'none';
+      if (divisorMovil) divisorMovil.style.display = esOrdenes ? '' : 'none';
+      if (!esOrdenes) {
+        document.getElementById('ordenes-filtros')?.classList.remove('filtros-abiertos');
+        document.getElementById('btn-toggle-filtros')?.classList.remove('filtros-activo');
+      }
 
       document.getElementById('ordenes-filtros').style.display = esOrdenes ? 'grid' : 'none';
       document.getElementById('ordenes-seccion').style.display = esOrdenes ? 'block' : 'none';
@@ -135,6 +176,7 @@ export function inicializarPaginaOrdenes() {
       document.getElementById('page-validador').style.display = esPestanaValidador ? 'block' : 'none';
       document.getElementById('page-audit').style.display = esAudit ? 'block' : 'none';
       document.getElementById('despachos-seccion').style.display = esDespachos ? 'block' : 'none';
+      document.getElementById('eliminaciones-seccion').style.display = esEliminaciones ? 'block' : 'none';
 
       if (esRegistros) {
         cargarHistorial();
@@ -146,9 +188,12 @@ export function inicializarPaginaOrdenes() {
         cargarAuditPage();
       } else if (esDespachos) {
         cargarDespachosTab();
+      } else if (esEliminaciones) {
+        cargarEliminaciones();
       } else {
         paginaActual = 0;
         cargarOrdenes();
+        cargarFacetasOrdenes();
       }
     });
   });
@@ -173,6 +218,7 @@ export function inicializarPaginaOrdenes() {
         filtros[FILTRO_ID_A_CLAVE[id]] = el.value;
         paginaActual = 0;
         actualizarContadorFiltros();
+        actualizarOpcionesFiltros();
         cargarOrdenes();
       });
     } else {
@@ -182,13 +228,13 @@ export function inicializarPaginaOrdenes() {
           filtros[FILTRO_ID_A_CLAVE[id]] = el.value.trim();
           paginaActual = 0;
           actualizarContadorFiltros();
+          actualizarOpcionesFiltros();
           cargarOrdenes();
         }, 350);
       });
     }
   });
 
-  poblarFiltrosDropdown();
   inicializarFiltrosCustomSelect();
   inicializarControlesMobile();
   actualizarContadorFiltros();
@@ -221,34 +267,39 @@ export function inicializarPaginaOrdenes() {
  * valor nuevo que llegue en un pedido futuro aparece automáticamente la
  * próxima vez que se cargue la app, sin tocar código.
  */
-async function poblarFiltrosDropdown() {
-  const rellenar = (id, valores) => {
-    const select = document.getElementById(id);
-    if (!select) return;
-    const actual = select.value;
-    valores.forEach((valor) => {
-      const option = document.createElement('option');
-      option.value = valor;
-      option.textContent = valor;
-      select.appendChild(option);
-    });
-    select.value = actual;
-  };
-
-  try {
-    const [clientes, nombresSuela, materiales, colores] = await Promise.all([
-      fetchOpcionesCliente(),
-      fetchOpcionesNombreSuela(),
-      fetchOpcionesMaterial(),
-      fetchOpcionesColor()
-    ]);
-    rellenar('filtro-cliente', clientes);
-    rellenar('filtro-nombre-suela', nombresSuela);
-    rellenar('filtro-material', materiales);
-    rellenar('filtro-color', colores);
-  } catch (err) {
-    console.error('[dashboard] Error cargando opciones de filtros:', err);
+/**
+ * Descarga (una vez por pestaña) los pedidos visibles para calcular las
+ * opciones de los filtros en cascada. Se llama al entrar a Activas o
+ * Completadas, tras el login, al cambiar de Rol Activo y en los refrescos
+ * en tiempo real.
+ * @param {{ forzar?: boolean }} opciones forzar=true ignora la caché de pestaña
+ */
+export async function cargarFacetasOrdenes({ forzar = false } = {}) {
+  const { user, currentTab } = getState();
+  if (!user || !['activas', 'completadas'].includes(currentTab)) return;
+  if (!forzar && tabFacetas === currentTab) {
+    actualizarOpcionesFiltros();
+    return;
   }
+
+  const tabPedida = currentTab;
+  const filas = await fetchFacetasOrdenes(usuarioEfectivo(), tabPedida);
+
+  // Si mientras tanto el usuario cambió de pestaña, esta respuesta ya no aplica.
+  if (getState().currentTab !== tabPedida) return;
+
+  filasFacetas = filas;
+  tabFacetas = tabPedida;
+  actualizarOpcionesFiltros();
+}
+
+/** Recalcula las cuatro listas con los filtros actuales (sin consultar). */
+function actualizarOpcionesFiltros() {
+  const opciones = calcularOpciones(filasFacetas, filtros, CAMPOS_FACETAS);
+  Object.entries(SELECT_POR_FACETA).forEach(([clave, selectId]) => {
+    reconstruirSelect(selectId, opciones[clave] || []);
+    sincronizarEtiquetaFiltro(selectId);
+  });
 }
 
 /**
@@ -273,6 +324,7 @@ function inicializarControlesMobile() {
     ['filtro-cliente', 'filtro-nombre-suela', 'filtro-material', 'filtro-color'].forEach(sincronizarEtiquetaFiltro);
     paginaActual = 0;
     actualizarContadorFiltros();
+    actualizarOpcionesFiltros();
     cargarOrdenes();
   });
 }
@@ -369,7 +421,8 @@ function renderOrdenes(orders) {
       // en index.html): línea única "Suela · Material · Color · Etapa"
       // y anillo de progreso, en vez de las columnas separadas + badge +
       // barra que usa desktop/tablet.
-      const atributosMobile = [orden.nombre_referencia, orden.material, orden.color, orden.etapa_actual]
+      // La etapa ya no va aqui: en movil tiene su propia celda bajo el numero de orden.
+      const atributosMobile = [orden.nombre_referencia, orden.material, orden.color]
         .filter(Boolean)
         .map((v) => escapeHtml(v))
         .join(' · ');

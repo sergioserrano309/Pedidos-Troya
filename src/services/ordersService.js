@@ -47,24 +47,14 @@ const PROCESO_COLUMNAS = {
 const PAGE_SIZE = 30;
 
 /**
- * @param {{ role: string }} user
- * @param {'activas'|'completadas'} tab
- * @param {{ page?: number, filters?: { orden?: string, cliente?: string, nombreSuela?: string, material?: string, color?: string, fecha?: string } }} options
+ * Qué pedidos ve un rol en una pestaña. La usan el listado Y las
+ * opciones de los filtros (fetchFacetasOrdenes): si cada uno tuviera su
+ * propia copia, tarde o temprano las listas ofrecerían valores que el
+ * listado no muestra.
  */
-export async function fetchOrders(user, tab = 'activas', options = {}) {
-  const { page = 0, filters = {} } = options;
-  const { orden = '', cliente = '', nombreSuela = '', material = '', color = '', fecha = '' } = filters;
-
+function aplicarVisibilidad(query, user, tab) {
   const proceso = ROLE_TO_PROCESS[user.role];
   const columnas = proceso ? PROCESO_COLUMNAS[proceso] : null;
-
-  // OJO: sin count:'exact' a propósito. Contar el total exacto de filas
-  // obliga a Postgres a calcular la vista COMPLETA (todos los pedidos que
-  // cumplan el filtro) antes de poder aplicar el LIMIT, aunque solo se
-  // vayan a mostrar 30 — eso duplicaba el trabajo real en cada consulta.
-  // En su lugar pedimos PAGE_SIZE+1 filas: si llegan más de PAGE_SIZE,
-  // sabemos que hay una página siguiente, sin necesidad de contar todo.
-  let query = supabase.from('vw_pedido_progreso').select('*');
 
   if (columnas?.entrada) {
     // Visibilidad basada en si algo fue REALMENTE enviado a mi proceso
@@ -101,6 +91,29 @@ export async function fetchOrders(user, tab = 'activas', options = {}) {
     }
   }
 
+  return query;
+}
+
+/**
+ * @param {{ role: string }} user
+ * @param {'activas'|'completadas'} tab
+ * @param {{ page?: number, filters?: { orden?: string, cliente?: string, nombreSuela?: string, material?: string, color?: string, fecha?: string } }} options
+ */
+export async function fetchOrders(user, tab = 'activas', options = {}) {
+  const { page = 0, filters = {} } = options;
+  const { orden = '', cliente = '', nombreSuela = '', material = '', color = '', fecha = '' } = filters;
+
+  const proceso = ROLE_TO_PROCESS[user.role];
+  const columnas = proceso ? PROCESO_COLUMNAS[proceso] : null;
+
+  // OJO: sin count:'exact' a propósito. Contar el total exacto de filas
+  // obliga a Postgres a calcular la vista COMPLETA (todos los pedidos que
+  // cumplan el filtro) antes de poder aplicar el LIMIT, aunque solo se
+  // vayan a mostrar 30 — eso duplicaba el trabajo real en cada consulta.
+  // En su lugar pedimos PAGE_SIZE+1 filas: si llegan más de PAGE_SIZE,
+  // sabemos que hay una página siguiente, sin necesidad de contar todo.
+  let query = aplicarVisibilidad(supabase.from('vw_pedido_progreso').select('*'), user, tab);
+
   if (orden.trim()) {
     query = query.ilike('order_number', `%${orden.trim()}%`);
   }
@@ -124,8 +137,16 @@ export async function fetchOrders(user, tab = 'activas', options = {}) {
     query = query.eq('fecha_pedido', fecha.trim());
   }
 
+  // Las pestañas Activas y Completadas se ordenan por FECHA DEL PEDIDO,
+  // de la más vieja a la más nueva: lo que lleva más tiempo esperando es
+  // lo más urgente, y así queda arriba. El número de orden queda solo
+  // como desempate — y es imprescindible que esté: sin un criterio
+  // único, dos pedidos del mismo día pueden intercambiarse entre una
+  // página y la siguiente, duplicando uno y escondiendo otro.
+  // Despachos y Registros no se tocan: tienen su propio servicio.
   query = query
-    .order('order_number', { ascending: false })
+    .order('fecha_pedido', { ascending: true, nullsFirst: false })
+    .order('order_number', { ascending: true })
     .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE); // PAGE_SIZE + 1 filas
 
   const { data, error } = await query;
@@ -154,6 +175,41 @@ export async function fetchOrders(user, tab = 'activas', options = {}) {
   }
 
   return { orders: filteredData, hayMas };
+}
+
+/**
+ * Filas para calcular las opciones de los filtros en cascada (ver
+ * src/lib/facetas.js): una por pedido visible en la pestaña, con solo
+ * las columnas que filtran. Se pide al entrar a la pestaña, no en cada
+ * cambio de filtro. Paginado de a 1000 porque ese es el tope por
+ * consulta de Supabase.
+ * @param {{ role: string }} user
+ * @param {'activas'|'completadas'} tab
+ */
+export async function fetchFacetasOrdenes(user, tab = 'activas') {
+  const LOTE = 1000;
+  const filas = [];
+
+  for (let desde = 0; ; desde += LOTE) {
+    const query = aplicarVisibilidad(
+      supabase.from('vw_pedido_progreso').select('order_number, cliente, nombre_referencia, material, color, fecha_pedido'),
+      user,
+      tab
+    )
+      .order('order_number', { ascending: false })
+      .range(desde, desde + LOTE - 1);
+
+    const { data, error } = await query;
+    if (error) {
+      console.error('[ordersService] Error obteniendo opciones de filtros:', error);
+      return filas;
+    }
+
+    filas.push(...(data || []));
+    if (!data || data.length < LOTE) break;
+  }
+
+  return filas;
 }
 
 /**
