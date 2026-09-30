@@ -1788,6 +1788,71 @@
       justify-content: center;
     }
 
+    /* Cierre forzado (057): tarjeta amarilla suave + badge + check del
+       Validador, pegados a la esquina superior derecha de la tarjeta para
+       que se vean en todos los anchos (col-estado se oculta en compacto). */
+    .orden-fila { position: relative; }
+
+    .orden-fila.forzada {
+      background: #fffbe6;
+      border-color: #f3dd8a;
+    }
+
+    .orden-cierre {
+      position: absolute;
+      top: 4px;
+      right: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Tarjeta con check a la izquierda y fuera (Validador, cierre forzado),
+       mismo esquema que .despacho-pedido-row pero SIN tocar el grid de la
+       tarjeta. */
+    .orden-fila-con-check {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    .orden-fila-con-check > .orden-fila {
+      flex: 1;
+      min-width: 0;
+      margin-bottom: 0;
+    }
+
+    .orden-fila-con-check > .checkbox-registro {
+      flex-shrink: 0;
+    }
+
+    .badge-forzada {
+      background: #fdeeb0;
+      color: #8a5a00;
+      padding: 1px 7px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .banner-cierre-forzado {
+      background: #fffbe6;
+      border: 1px solid #f3dd8a;
+      color: #6b4a00;
+      border-radius: var(--r);
+      padding: 10px 12px;
+      font-size: 13px;
+      margin: 10px 0;
+    }
+
+    .banner-cierre-forzado-nota {
+      font-size: 12px;
+      opacity: .8;
+      margin-top: 2px;
+    }
+
     .checkbox-revisado:hover:not(:disabled) {
       border-color: var(--green);
       background: var(--green-bg);
@@ -4272,6 +4337,12 @@
         page-break-inside: avoid;
       }
 
+      /* Datos internos (p. ej. "Comp.") que se ven en pantalla pero no
+         deben llegarle al cliente en el PDF. */
+      #modal-detalle-despacho.open .col-solo-pantalla {
+        display: none !important;
+      }
+
       /* El riel horizontal es un recurso de pantalla: en la hoja la
          matriz se imprime completa. */
       #modal-detalle-despacho.open .detalle-despacho-matriz {
@@ -5307,6 +5378,32 @@
       <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem;">
         <button class="btn btn-secondary" id="btn-cancelar-eliminar-despacho">Cancelar</button>
         <button class="btn btn-danger" id="btn-confirmar-eliminar-despacho">Eliminar Despacho</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Cerrar pedido a la fuerza (solo Validador) -->
+  <div id="modal-cierre-forzado" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-title">Cerrar pedido a la fuerza</div>
+        <button class="modal-close" id="btn-cerrar-cierre-forzado">×</button>
+      </div>
+
+      <div id="cierre-forzado-resumen" style="font-size:13px; color:var(--text2); margin-bottom:1rem;"></div>
+
+      <div class="form-group">
+        <label for="cierre-forzado-motivo">Motivo del cierre</label>
+        <textarea id="cierre-forzado-motivo" placeholder="Explica por qué se cierra sin completarse (obligatorio)"></textarea>
+      </div>
+
+      <div style="font-size: 12px; color: var(--amber-text); margin-top: -0.5rem; margin-bottom: 1rem;">
+        El pedido pasará a "Completadas" para todos los usuarios, marcado como cerrado a la fuerza. Nadie podrá registrar ni eliminar movimientos ni despachos sobre él hasta que lo reabras (desmarcando el check).
+      </div>
+
+      <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem;">
+        <button class="btn btn-secondary" id="btn-cancelar-cierre-forzado">Cancelar</button>
+        <button class="btn btn-primary" id="btn-confirmar-cierre-forzado">Cerrar pedido</button>
       </div>
     </div>
   </div>

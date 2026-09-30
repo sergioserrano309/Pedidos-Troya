@@ -7,12 +7,13 @@ import { mostrarToast } from './toast.js';
 import { cargarHistorial } from './historyPage.js';
 import { cargarReglas } from './reglasPage.js';
 import { generarExcel } from '../services/excelService.js';
-import { esValidador, obtenerRolActivo, establecerRolActivo, usuarioEfectivo, rolEfectivo } from '../services/validatorService.js';
+import { esValidador, esVistaMaestra, obtenerRolActivo, establecerRolActivo, usuarioEfectivo, rolEfectivo } from '../services/validatorService.js';
 import { cargarValidadorPage } from './validatorPage.js';
 import { cargarAuditPage } from './auditPage.js';
 import { cargarDespachosTab, configurarUIDespachos } from './despachosPage.js';
 import { cargarEliminaciones } from './eliminacionesPage.js';
 import { cargarCompensacion } from './compensacionPage.js';
+import { alternarCierreForzado } from './cierreForzado.js';
 import { inicializarFiltrosCustomSelect, sincronizarEtiquetaFiltro } from './customSelect.js';
 
 const PAGE_SIZE = 30;
@@ -57,6 +58,15 @@ export function configurarUIValidador() {
   const btnExcel = document.getElementById('btn-descargar-excel');
   if (btnExcel) btnExcel.style.display = esVal ? '' : 'none';
 
+  // Completadas y Registros (sin id propio): Propuesta no los ve; el resto
+  // sí. Se fija siempre para no arrastrar el estado de una sesión anterior
+  // en la misma pestaña del navegador.
+  const esPropuesta = getState().user?.role === 'propuesta';
+  ['completadas', 'registros'].forEach((t) => {
+    const b = document.querySelector(`#tabs-primarios .tab-btn[data-tab="${t}"]`);
+    if (b) b.style.display = esPropuesta ? 'none' : '';
+  });
+
   if (!esVal) {
     // Sin esto, un usuario NO-validador que inicia sesión en la misma
     // pestaña donde antes hubo una sesión de Validador (el logout no
@@ -65,9 +75,13 @@ export function configurarUIValidador() {
     // "Reglas de Enrutamiento" es exclusiva de Validador — Refilado ya
     // no la ve (antes era una excepción explícita, se retiró).
     document.getElementById('tab-btn-reglas').style.display = 'none';
-    document.getElementById('tab-btn-validador').style.display = 'none';
+    // Control Central (solo lectura, sin Excel): además del Validador, lo
+    // ven Propuesta y Empaque.
+    const verControlCentral = esPropuesta || getState().user?.role === 'empaque';
+    document.getElementById('tab-btn-validador').style.display = verControlCentral ? 'inline-block' : 'none';
     document.getElementById('tab-btn-audit').style.display = 'none';
     document.getElementById('tab-btn-eliminaciones').style.display = 'none';
+    // Sin "Rol Activo": es exclusivo del Validador.
     document.getElementById('rol-selector-container').style.display = 'none';
     return;
   }
@@ -409,7 +423,7 @@ function renderOrdenes(orders) {
   // Validador (Rol Activo = "Validador"). Si Validador está actuando
   // como un proceso específico, ve el mismo badge/barra que vería ese
   // rol real — "exactamente como lo vería un usuario Acabado real".
-  const modoMaestroValidador = esValidador() && obtenerRolActivo() === 'Validador';
+  const modoMaestroValidador = esVistaMaestra();
 
   contenedor.innerHTML = orders
     .map((orden) => {
@@ -430,8 +444,25 @@ function renderOrdenes(orders) {
         ? 'anillo-completado'
         : (progreso > 0 ? 'anillo-progreso' : '');
 
-      return `
-        <div class="orden-fila" data-order="${escapeHtml(orden.order_number)}">
+      // Cierre forzado (057): el check lo ve solo el Validador en vista
+      // maestra; el badge y el fondo amarillo, todos.
+      const forzada = !!orden.cierre_forzado;
+      const puedeCerrar = esValidador() && esVistaMaestra();
+      const marcaCierre = forzada ? `
+          <div class="orden-cierre">
+            <span class="badge-forzada" title="Cerrada a la fuerza por ${escapeHtml(orden.cierre_forzado_por || 'el Validador')}: ${escapeHtml(orden.cierre_forzado_motivo || '')}">Cerrada</span>
+          </div>` : '';
+
+      // Check a la IZQUIERDA y FUERA de la tarjeta, igual que en
+      // Despachos > A Despachar (círculo .checkbox-registro).
+      const checkCierre = puedeCerrar ? `<input type="checkbox" class="checkbox-registro" data-cierre-forzado="${escapeHtml(orden.order_number)}"
+              ${forzada ? 'checked' : ''}
+              title="${forzada ? 'Cerrada a la fuerza. Desmarca para reabrir el pedido.' : 'Cerrar el pedido a la fuerza (pasa a Completadas)'}"
+              aria-label="Cerrar pedido a la fuerza">` : '';
+
+      const tarjeta = `
+        <div class="orden-fila${forzada ? ' forzada' : ''}" data-order="${escapeHtml(orden.order_number)}">
+          ${marcaCierre}
           <div class="col-numero" title="Número de orden">${escapeHtml(orden.order_number)}</div>
           <div class="col-cliente" title="Nombre del cliente">${escapeHtml(orden.cliente || '—')}</div>
           <div class="col-fecha" title="Fecha de creación del pedido">${formatearFecha(orden.fecha_pedido)}</div>
@@ -473,11 +504,19 @@ function renderOrdenes(orders) {
           </div>
         </div>
       `;
+      return puedeCerrar ? `<div class="orden-fila-con-check">${checkCierre}${tarjeta}</div>` : tarjeta;
     })
     .join('');
 
   contenedor.querySelectorAll('.orden-fila').forEach((fila) => {
     fila.addEventListener('click', () => abrirDetalleOrden(fila.dataset.order));
+  });
+
+  contenedor.querySelectorAll('input[data-cierre-forzado]').forEach((check) => {
+    check.addEventListener('change', () => alternarCierreForzado(check, async () => {
+      await cargarOrdenes();
+      cargarFacetasOrdenes({ forzar: true });
+    }));
   });
 }
 

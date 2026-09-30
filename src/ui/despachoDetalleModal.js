@@ -154,7 +154,16 @@ export async function abrirDetalleDespacho(despachoId, consecutivo) {
 
 /** [No. Orden]: [Suela] [Material] [Color] */
 function renderFichaPedido(orden, info) {
-  const atributos = [info?.nombreSuela, info?.material, info?.color].filter(Boolean);
+  const siNo = (etiqueta, valor) => (valor === undefined ? null : `${etiqueta}: ${valor ? 'Sí' : 'No'}`);
+  const atributos = [
+    info?.nombreSuela,
+    info?.material,
+    info?.color,
+    siNo('VIRA', info?.vira),
+    siNo('ACABADO', info?.acabado),
+    siNo('ESTERILLA', info?.esterilla),
+    siNo('MARQUILLA', info?.marquilla)
+  ].filter(Boolean);
   return `
     <div class="detalle-despacho-ficha">
       <span class="detalle-despacho-ficha-orden">${escapeHtml(orden)}</span>
@@ -224,7 +233,7 @@ function renderMatrizPedidos(ordenes, { bultosDe, unidadesDe, estadoPorPedido })
           <td class="col-num">${unidadesDe(orden)}</td>
           <td class="col-num">${escapeHtml(bultosDe(orden))}</td>
           <td class="col-num">${despachado}</td>
-          <td class="col-num">${badgeSiNo(estado?.completo ?? false)}</td>
+          <td class="col-num col-solo-pantalla">${badgeSiNo(estado?.completo ?? false)}</td>
         </tr>
       `;
     })
@@ -239,7 +248,7 @@ function renderMatrizPedidos(ordenes, { bultosDe, unidadesDe, estadoPorPedido })
             <th class="col-num">Unidades</th>
             <th class="col-num">Bultos</th>
             <th class="col-num">Desp.</th>
-            <th class="col-num">Comp.</th>
+            <th class="col-num col-solo-pantalla">Comp.</th>
           </tr>
         </thead>
         <tbody>${filas}</tbody>

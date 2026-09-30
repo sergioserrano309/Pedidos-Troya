@@ -77,17 +77,19 @@ function aplicarVisibilidad(query, user, tab) {
     // Validador ve el estado real de la orden (etapa_actual = 'Fin' solo
     // cuando ya pasó por Empaque, ver 018_fix_etapa_fin.sql), no el %
     // global (que puede llegar a 100% sin haber pasado por Empaque).
+    // Un pedido cerrado a la fuerza por el Validador (057) cuenta como
+    // completado para TODOS los roles, aunque no haya llegado al 100%.
     if (tab === 'completadas') {
-      query = query.eq('etapa_actual', 'Fin');
+      query = query.or('etapa_actual.eq.Fin,cierre_forzado.eq.true');
     } else {
-      query = query.neq('etapa_actual', 'Fin');
+      query = query.neq('etapa_actual', 'Fin').eq('cierre_forzado', false);
     }
   } else {
     const columnaPorcentaje = columnas ? columnas.porcentaje : 'porcentaje_completado';
     if (tab === 'completadas') {
-      query = query.eq(columnaPorcentaje, 100);
+      query = query.or(`${columnaPorcentaje}.eq.100,cierre_forzado.eq.true`);
     } else {
-      query = query.lt(columnaPorcentaje, 100);
+      query = query.lt(columnaPorcentaje, 100).eq('cierre_forzado', false);
     }
   }
 

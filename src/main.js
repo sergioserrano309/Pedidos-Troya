@@ -19,6 +19,7 @@ import { inicializarModalDetalleDespacho } from './ui/despachoDetalleModal.js';
 import { inicializarPaginaEliminaciones } from './ui/eliminacionesPage.js';
 import { inicializarPaginaPropuesta, configurarUIPropuesta, cargarPropuesta } from './ui/propuestaPage.js';
 import { iniciarRealtime } from './realtime.js';
+import { inicializarModalCierreForzado } from './ui/cierreForzado.js';
 
 /**
  * Punto de entrada de la app. No usa ningún framework: conecta la UI
@@ -56,6 +57,7 @@ function inicializarUI() {
   inicializarModalDetalleDespacho();
   inicializarPaginaEliminaciones();
   inicializarPaginaPropuesta();
+  inicializarModalCierreForzado();
 
   initLoginPage(mostrarModalCodigoAcceso);
 }
@@ -85,6 +87,11 @@ async function iniciarApp(user) {
   // despachos ni historial — ver src/ui/propuestaPage.js.
   configurarUIPropuesta();
   if (user.role === 'propuesta') {
+    // Arranca en Cotizador; Órdenes (solo lectura) se carga al abrirla
+    // desde el menú, pero sus pestañas se configuran ya.
+    configurarUIValidador();
+    configurarUIDespachos();
+    cargarFacetasOrdenes({ forzar: true });
     await cargarPropuesta();
     return;
   }

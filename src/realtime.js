@@ -21,6 +21,7 @@ export function iniciarRealtime(onChange) {
     .channel('produccion-realtime')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'production_movements' }, dispararCambio)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'returns' }, dispararCambio)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'pedido_cierre_forzado' }, dispararCambio)
     .subscribe();
 }
 

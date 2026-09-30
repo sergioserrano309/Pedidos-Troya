@@ -13,6 +13,16 @@ export function esValidador() {
 }
 
 /**
+ * Vista maestra en Órdenes (badges R/A/M/E % por proceso): Validador con
+ * Rol Activo = "Validador", o Propuesta (que solo tiene esta vista).
+ */
+export function esVistaMaestra() {
+  const { user } = getState();
+  if (user?.role === 'propuesta') return true;
+  return esValidador() && obtenerRolActivo() === 'Validador';
+}
+
+/**
  * Obtiene el rol de proceso actualmente activo del validador (para actuar
  * como Refilado/Acabado/Empaque). Se guarda en localStorage para persistencia.
  */
@@ -37,6 +47,11 @@ export function establecerRolActivo(rol) {
 export function rolEfectivo() {
   const { user } = getState();
   if (!user) return null;
+  // Propuesta ve Órdenes SOLO en vista maestra y de solo lectura: se le
+  // trata como 'validador' para VER (listado y tarjetas), pero
+  // esValidador() sigue siendo falso, así que no puede procesar, ni
+  // descargar Excel, ni revisar despachos, ni cerrar órdenes.
+  if (user.role === 'propuesta') return 'validador';
   if (user.role !== 'validador') return user.role;
 
   const activo = obtenerRolActivo();

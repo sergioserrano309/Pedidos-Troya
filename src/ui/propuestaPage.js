@@ -261,11 +261,12 @@ export function configurarUIPropuesta() {
 
   if (!esPropuesta) return;
 
-  // El rol 'propuesta' no tiene nada que hacer en Órdenes/Compensación:
-  // se ocultan y "Cotizador" queda como única página activa.
+  // El rol 'propuesta' no tiene nada que hacer en Compensación: se oculta.
+  // Órdenes SÍ se le muestra (solo lectura: Activas en vista maestra y
+  // Control Central, ver dashboard.js) y "Cotizador" sigue siendo la
+  // página con la que arranca.
   document.getElementById('nav-item-compensacion')?.style.setProperty('display', 'none');
-  const navOrdenes = document.querySelector('.nav-item[data-page="ordenes"]');
-  navOrdenes?.style.setProperty('display', 'none');
+  document.querySelector('.nav-item[data-page="ordenes"]')?.style.setProperty('display', '');
 
   document.querySelectorAll('.nav-item[data-page]').forEach((b) => b.classList.remove('active'));
   navPropuesta.classList.add('active');

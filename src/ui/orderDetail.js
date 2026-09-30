@@ -8,6 +8,7 @@ import { abrirModalProcesar } from './processModal.js';
 import { abrirModalDevolucion } from './returnModal.js';
 import { mostrarToast } from './toast.js';
 import { usuarioEfectivo } from '../services/validatorService.js';
+import { fetchCierreForzadoDePedido } from '../services/cierreForzadoService.js';
 
 export function inicializarModalDetalle() {
   // Formateo en vivo del campo "Procesar": solo dígitos, máximo 5, con
@@ -38,7 +39,7 @@ export async function abrirDetalleOrden(orderNumber) {
   contenedor.innerHTML = '<div class="loading"><div class="spinner"></div> Cargando...</div>';
   modal.classList.add('open');
 
-  setState({ selectedOrderNumber: orderNumber, selectedItem: null, destinoConfirmadoOrden: null });
+  setState({ selectedOrderNumber: orderNumber, selectedItem: null, destinoConfirmadoOrden: null, cierreForzadoOrden: null });
   actualizarBotonDevolucion();
 
   try {
@@ -47,13 +48,14 @@ export async function abrirDetalleOrden(orderNumber) {
     // supabase/sql/013_auto_enrutamiento_trigger.sql): Refilado nunca
     // llega a abrir estos pedidos porque ordersService.js ya los oculta
     // de su listado. Aquí solo queda leer lo que ya exista.
-    const [items, movimientos, destino] = await Promise.all([
+    const [items, movimientos, destino, cierreForzado] = await Promise.all([
       fetchOrderDetail(orderNumber),
       fetchMovimientosOrden(orderNumber),
-      fetchDestinoOrden(orderNumber)
+      fetchDestinoOrden(orderNumber),
+      fetchCierreForzadoDePedido(orderNumber)
     ]);
 
-    setState({ selectedOrderItems: items, selectedOrderMovimientos: movimientos, destinoConfirmadoOrden: destino });
+    setState({ selectedOrderItems: items, selectedOrderMovimientos: movimientos, destinoConfirmadoOrden: destino, cierreForzadoOrden: cierreForzado });
 
     if (items.length > 0) {
       const firstItem = items[0];
@@ -108,7 +110,7 @@ function renderDestinoHeader(orderNumber, destino, movimientos) {
 
   const sinMovimientos = movimientos.length === 0;
   const esCambio = !!destino;
-  const esEditable = destino && !destino.es_automatico && sinMovimientos && effectiveUser.role === 'refilado';
+  const esEditable = destino && !destino.es_automatico && sinMovimientos && effectiveUser.role === 'refilado' && !getState().cierreForzadoOrden;
 
   if (destino && !esEditable) {
     el.innerHTML = `
@@ -179,10 +181,23 @@ function renderDestinoHeader(orderNumber, destino, movimientos) {
  * registro/movimiento independiente, ver processModal.js).
  */
 function renderProcesarLoteHeader() {
-  const { destinoConfirmadoOrden } = getState();
+  const { destinoConfirmadoOrden, cierreForzadoOrden } = getState();
   const effectiveUser = usuarioEfectivo();
   const el = document.getElementById('detalle-procesar-lote');
   if (!el) return;
+
+  // Pedido cerrado a la fuerza por el Validador (057): solo lectura para todos.
+  if (cierreForzadoOrden) {
+    const cuando = cierreForzadoOrden.cerradoAt ? new Date(cierreForzadoOrden.cerradoAt).toLocaleDateString('es-CO') : '';
+    el.innerHTML = `
+      <div class="banner-cierre-forzado">
+        <strong>Cerrada a la fuerza</strong>${cierreForzadoOrden.cerradoPor ? ` por ${escapeHtml(cierreForzadoOrden.cerradoPor)}` : ''}${cuando ? ` · ${cuando}` : ''}
+        <div>Motivo: ${escapeHtml(cierreForzadoOrden.motivo || '—')}</div>
+        <div class="banner-cierre-forzado-nota">No admite registros ni eliminaciones mientras el Validador no la reabra.</div>
+      </div>
+      <div class="orden-divider"></div>`;
+    return;
+  }
 
   if (!esRolDeProceso(effectiveUser.role) || (effectiveUser.role === 'refilado' && !destinoConfirmadoOrden)) {
     el.innerHTML = '';
@@ -320,7 +335,7 @@ export async function refrescarDetalleActual() {
 
 
 function renderDetalleItems(items, movimientos) {
-  const { user, destinoConfirmadoOrden } = getState();
+  const { user, destinoConfirmadoOrden, cierreForzadoOrden } = getState();
   const effectiveUser = usuarioEfectivo();
   const contenedor = document.getElementById('detalle-contenido');
 
@@ -363,11 +378,11 @@ function renderDetalleItems(items, movimientos) {
       // Refilado debe confirmar primero el destino de TODO el pedido en
       // el encabezado (ver renderDestinoHeader) antes de poder procesar
       // cualquier item; los demas roles de proceso no lo necesitan.
-      const puedeProcesar = esProceso && pendienteEnMiProceso > 0 && (effectiveUser.role !== 'refilado' || !!destinoConfirmadoOrden);
+      const puedeProcesar = !cierreForzadoOrden && esProceso && pendienteEnMiProceso > 0 && (effectiveUser.role !== 'refilado' || !!destinoConfirmadoOrden);
       // Devoluciones quedan atadas al rol REAL (no al rol emulado): es
       // una función exclusiva de Comercial, fuera del alcance de "actuar
       // como" que tiene Validador.
-      const puedeDevolver = user.role === 'comercial';
+      const puedeDevolver = user.role === 'comercial' && !cierreForzadoOrden;
 
       const badgeHtml = sinEnviar
         ? `<span class="estado-badge estado-etapa-previa">${escapeHtml(item.etapa_actual)}</span>`

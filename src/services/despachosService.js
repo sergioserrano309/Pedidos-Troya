@@ -1,5 +1,6 @@
 import { supabase } from '../config/supabaseClient.js';
 import { esValidador, registrarAuditValidador } from './validatorService.js';
+import { fetchPedidosCerradosForzado } from './cierreForzadoService.js';
 
 /**
  * Servicio del módulo Despachos (Fase 1 — operado únicamente por el rol
@@ -35,6 +36,10 @@ export async function fetchPedidosPorDespachar(options = {}) {
 
   let query = supabase.from('vw_pedidos_por_despachar').select('*');
 
+  // Los pedidos cerrados a la fuerza por el Validador (057) ya no se despachan.
+  const cerrados = await fetchPedidosCerradosForzado();
+  if (cerrados.length) query = query.not('order_number', 'in', `(${cerrados.join(',')})`);
+
   if (orden.trim()) query = query.ilike('order_number', `%${orden.trim()}%`);
   if (cliente.trim()) query = query.eq('cliente', cliente.trim());
   if (nombreSuela.trim()) query = query.eq('nombre_referencia', nombreSuela.trim());
@@ -66,11 +71,14 @@ export async function fetchPedidosPorDespachar(options = {}) {
 export async function fetchFacetasADespachar() {
   const LOTE = 1000;
   const filas = [];
+  const cerrados = await fetchPedidosCerradosForzado();
 
   for (let desde = 0; ; desde += LOTE) {
-    const { data, error } = await supabase
+    let q = supabase
       .from('vw_pedidos_por_despachar')
-      .select('order_number, cliente, nombre_referencia, material, color')
+      .select('order_number, cliente, nombre_referencia, material, color');
+    if (cerrados.length) q = q.not('order_number', 'in', `(${cerrados.join(',')})`);
+    const { data, error } = await q
       .order('order_number', { ascending: false })
       .range(desde, desde + LOTE - 1);
 
@@ -230,6 +238,29 @@ export async function fetchInfoPedidos(orderNumbers) {
       material: f.material || '',
       color: f.color || ''
     });
+  });
+
+  // Vira/Acabado/Esterilla/Marquilla: los mismos booleanos que usa el Excel
+  // (vw_despacho_orden_detalle, salen de p_pedidosh). Consulta aparte y
+  // tolerante a fallos: si falla, la ficha se muestra sin esos cuatro datos.
+  const { data: attrs, error: errAttrs } = await supabase
+    .from('vw_despacho_orden_detalle')
+    .select('order_number, vira, acabado, esterilla, marquilla')
+    .in('order_number', orderNumbers);
+
+  if (errAttrs) {
+    console.error('[despachosService] Error obteniendo Vira/Acabado/Esterilla/Marquilla:', errAttrs);
+    return mapa;
+  }
+
+  (attrs || []).forEach((a) => {
+    const ficha = mapa.get(String(a.order_number));
+    if (ficha && ficha.vira === undefined) {
+      ficha.vira = !!a.vira;
+      ficha.acabado = !!a.acabado;
+      ficha.esterilla = !!a.esterilla;
+      ficha.marquilla = !!a.marquilla;
+    }
   });
 
   return mapa;
