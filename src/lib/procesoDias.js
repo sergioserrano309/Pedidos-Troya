@@ -4,6 +4,8 @@
  * para el contexto original de esta lógica.
  */
 
+import { diaPedidoLocal } from './fechas.js';
+
 function obtenerDateObject(fecha) {
   if (!fecha) return null;
   try {
@@ -91,7 +93,7 @@ export function calcularDiasPorProceso(orden, mapaUltimaFecha) {
   const usoAcabado = (orden.entrada_acabado ?? 0) > 0;
   const usoMateado = (orden.entrada_mateado ?? 0) > 0;
 
-  const dRefilado = refiladoListo ? diferenciaDias(orden.fecha_pedido, fRefilado) : 'No';
+  const dRefilado = refiladoListo ? diferenciaDias(diaPedidoLocal(orden.fecha_pedido), fRefilado) : 'No';
 
   let dAcabado = 'NA';
   if (usoAcabado) {

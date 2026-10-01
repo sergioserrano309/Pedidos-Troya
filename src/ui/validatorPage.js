@@ -1,4 +1,5 @@
 import { supabase } from '../config/supabaseClient.js';
+import { formatearFechaPedido } from '../lib/fechas.js';
 import { mostrarToast } from './toast.js';
 import { fetchOpcionesCliente, fetchOpcionesNombreSuela, fetchOpcionesMaterial, fetchOpcionesColor } from '../services/ordersService.js';
 import { construirMapaUltimaFechaPorProceso, calcularDiasPorProceso } from '../lib/procesoDias.js';
@@ -222,13 +223,9 @@ function badgeEtapa(etapa) {
   return `<span style="background:${s.bg}; color:${s.color}; padding:3px 10px; border-radius:4px; font-weight:600;">${etapa || '—'}</span>`;
 }
 
+/** Solo se usa para fecha_pedido (fecha de calendario a medianoche UTC): ver lib/fechas.js. */
 function formatearFecha(fecha) {
-  if (!fecha) return '—';
-  try {
-    return new Date(fecha).toLocaleDateString('es-CO');
-  } catch {
-    return String(fecha);
-  }
+  return formatearFechaPedido(fecha);
 }
 
 /** Celda de días: números tal cual, 'No'/'NA' en gris tenue. */

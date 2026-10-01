@@ -1,4 +1,5 @@
 import { fetchOrders, fetchFacetasOrdenes } from '../services/ordersService.js';
+import { formatearFechaPedido } from '../lib/fechas.js';
 import { calcularOpciones, reconstruirSelect } from '../lib/facetas.js';
 import { getState, setState } from '../state/appState.js';
 import { estadoPorPorcentaje } from '../lib/calculations.js';
@@ -576,13 +577,9 @@ function renderPaginacionMobile() {
   }
 }
 
+/** Solo se usa para fecha_pedido (fecha de calendario a medianoche UTC): ver lib/fechas.js. */
 function formatearFecha(fecha) {
-  if (!fecha) return '—';
-  try {
-    return new Date(fecha).toLocaleDateString('es-CO');
-  } catch {
-    return String(fecha);
-  }
+  return formatearFechaPedido(fecha);
 }
 
 function escapeHtml(value) {

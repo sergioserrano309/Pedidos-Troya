@@ -1,4 +1,5 @@
 import { fetchOrderDetail, fetchMovimientosOrden } from '../services/ordersService.js';
+import { formatearFechaPedido } from '../lib/fechas.js';
 import { fetchDestinoOrden, confirmarDestinoOrden, cambiarDestinoOrden } from '../services/destinoService.js';
 import { getState, setState } from '../state/appState.js';
 import { estadoPorPorcentaje } from '../lib/calculations.js';
@@ -455,13 +456,9 @@ export function cerrarDetalle() {
   document.getElementById('modal-detalle').classList.remove('open');
 }
 
+/** Solo se usa para fecha_pedido (fecha de calendario a medianoche UTC): ver lib/fechas.js. */
 function formatearFecha(fecha) {
-  if (!fecha) return '—';
-  try {
-    return new Date(fecha).toLocaleDateString('es-CO');
-  } catch {
-    return String(fecha);
-  }
+  return formatearFechaPedido(fecha);
 }
 
 function escapeHtml(value) {

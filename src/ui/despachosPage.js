@@ -1,4 +1,5 @@
 import { getState } from '../state/appState.js';
+import { formatearFechaPedido } from '../lib/fechas.js';
 import {
   fetchPedidosPorDespachar,
   fetchFacetasADespachar,
@@ -775,13 +776,9 @@ async function confirmarCrearSalida() {
 // Utilidades (duplicadas de dashboard.js — no exportadas desde allí)
 // ---------------------------------------------------------------------
 
+/** Solo se usa para fecha_pedido (fecha de calendario a medianoche UTC): ver lib/fechas.js. */
 function formatearFecha(fecha) {
-  if (!fecha) return '—';
-  try {
-    return new Date(fecha).toLocaleDateString('es-CO');
-  } catch {
-    return String(fecha);
-  }
+  return formatearFechaPedido(fecha);
 }
 
 function escapeHtml(value) {

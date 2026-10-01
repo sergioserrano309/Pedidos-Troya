@@ -1,5 +1,6 @@
 import { supabase } from '../config/supabaseClient.js';
 import * as XLSX from 'xlsx';
+import { serialExcelDeDia, diaPedidoLocal } from '../lib/fechas.js';
 import { soloFecha, construirMapaUltimaFechaPorProceso, fechaFinProceso, calcularDiasPorProceso } from '../lib/procesoDias.js';
 
 const PAGE_SIZE = 1000;
@@ -183,6 +184,30 @@ function obtenerDateObject(fecha) {
   }
 }
 
+// Fechas de solo-día como número de serie de Excel (entero) + formato de
+// fecha. Con Date la librería xlsx deja la medianoche local de Colombia
+// unos segundos antes de la medianoche y Excel muestra el día anterior
+// (ver lib/fechas.js). Las columnas con hora real (despachos, eliminaciones)
+// siguen como Date y no tienen ese problema.
+const FORMATO_FECHA_EXCEL = 'm/d/yy';
+
+function diaExcel(valor) {
+  return valor instanceof Date ? serialExcelDeDia(valor) : valor;
+}
+
+function formatearColumnasFecha(ws, encabezados) {
+  if (!ws || !ws['!ref']) return;
+  const rango = XLSX.utils.decode_range(ws['!ref']);
+  for (let c = rango.s.c; c <= rango.e.c; c++) {
+    const titulo = ws[XLSX.utils.encode_cell({ r: rango.s.r, c })]?.v;
+    if (!encabezados.includes(titulo)) continue;
+    for (let r = rango.s.r + 1; r <= rango.e.r; r++) {
+      const celda = ws[XLSX.utils.encode_cell({ r, c })];
+      if (celda && celda.t === 'n') celda.z = FORMATO_FECHA_EXCEL;
+    }
+  }
+}
+
 export async function generarExcel() {
   const libro = XLSX.utils.book_new();
   const ordenes = await fetchTodasLasOrdenes();
@@ -215,7 +240,7 @@ export async function generarExcel() {
       'Nombre Suel': orden.nombre_referencia || '—',
       'Material': orden.material || '—',
       'Color': orden.color || '—',
-      'Fecha': soloFecha(orden.fecha_pedido),
+      'Fecha': serialExcelDeDia(diaPedidoLocal(orden.fecha_pedido)),
       'Total Solicita': orden.total_solicitado ?? 0,
       'Total Procese': orden.total_procesado ?? 0,
       'Total Pendier': orden.total_pendiente ?? 0,
@@ -231,10 +256,10 @@ export async function generarExcel() {
       '%_Acabado': orden.porcentaje_acabado ?? 0,
       '%_Empaque': orden.porcentaje_empaque ?? 0,
       '%_Mateado': orden.porcentaje_mateado ?? 0,
-      'F_Refilado': fechaFinProceso(orden, 'Refilado', 'porcentaje_refilado', mapaUltimaFecha),
-      'F_Acabado': fechaFinProceso(orden, 'Acabado', 'porcentaje_acabado', mapaUltimaFecha),
-      'F_Empaque': fechaFinProceso(orden, 'Empaque', 'porcentaje_empaque', mapaUltimaFecha),
-      'F_Mateado': fechaFinProceso(orden, 'Mateado', 'porcentaje_mateado', mapaUltimaFecha),
+      'F_Refilado': diaExcel(fechaFinProceso(orden, 'Refilado', 'porcentaje_refilado', mapaUltimaFecha)),
+      'F_Acabado': diaExcel(fechaFinProceso(orden, 'Acabado', 'porcentaje_acabado', mapaUltimaFecha)),
+      'F_Empaque': diaExcel(fechaFinProceso(orden, 'Empaque', 'porcentaje_empaque', mapaUltimaFecha)),
+      'F_Mateado': diaExcel(fechaFinProceso(orden, 'Mateado', 'porcentaje_mateado', mapaUltimaFecha)),
       'D_Refilado': dias.dRefilado,
       'D_Acabado': dias.dAcabado,
       'D_Mateado': dias.dMateado,
@@ -244,11 +269,12 @@ export async function generarExcel() {
       // pedido siga con saldo por despachar, queda en blanco aunque ya
       // haya salido parte — que es justo lo que distingue "despachado"
       // de "despachado a medias".
-      'F_Despacho': despachoDeOrden(orden.order_number, estadoDespacho).fecha,
+      'F_Despacho': diaExcel(despachoDeOrden(orden.order_number, estadoDespacho).fecha),
       'Unidades Despachadas': despachoDeOrden(orden.order_number, estadoDespacho).unidades
     };
   });
   const wsOrdenes = XLSX.utils.json_to_sheet(hojaCórdenes);
+  formatearColumnasFecha(wsOrdenes, ['Fecha', 'F_Refilado', 'F_Acabado', 'F_Empaque', 'F_Mateado', 'F_Despacho']);
   XLSX.utils.book_append_sheet(libro, wsOrdenes, 'Órdenes');
 
   // === HOJAS DE PROCESOS ===
@@ -272,7 +298,7 @@ export async function generarExcel() {
           'Comisión': h.valor_cop ?? '—',
           'Enviado a': h.to_process || '—',
           'Usuario': usuario,
-          'Fecha': soloFecha(h.created_at),
+          'Fecha': serialExcelDeDia(soloFecha(h.created_at)),
           'Hora': formatearHora24(h.created_at),
           'Observaciones': h.observation || '—'
         };
@@ -280,6 +306,7 @@ export async function generarExcel() {
 
     if (filasMovimientos.length > 0) {
       const ws = XLSX.utils.json_to_sheet(filasMovimientos);
+      formatearColumnasFecha(ws, ['Fecha']);
       XLSX.utils.book_append_sheet(libro, ws, proceso);
     }
   });
@@ -299,13 +326,14 @@ export async function generarExcel() {
         'Causal': h.causal || '—',
         'Acción': h.action || '—',
         'Usuario': h.user_name || '—',
-        'Fecha': soloFecha(h.created_at),
+        'Fecha': serialExcelDeDia(soloFecha(h.created_at)),
         'Hora': formatearHora24(h.created_at),
         'Observaciones': h.observation || '—'
       };
     });
 
   const wsInyeccion = XLSX.utils.json_to_sheet(filasInyeccion);
+  formatearColumnasFecha(wsInyeccion, ['Fecha']);
   XLSX.utils.book_append_sheet(libro, wsInyeccion, 'Inyección');
 
   // === HOJA DESPACHOS ===
