@@ -220,7 +220,9 @@ function formatearFechaCorta(fecha) {
  * reflejan aquí ANTES de que el usuario escriba un motivo en vano:
  *   - no es suyo            -> ni checkbox ni botón
  *   - la talla ya se despachó (046) -> botón gris, sin checkbox
- *   - hay un movimiento posterior para esa talla (014) -> ídem
+ *   - (059) hay un registro posterior del MISMO proceso en esa talla, o el
+ *     proceso que recibió esas unidades ya las usó -> ídem (la columna
+ *     tiene_movimiento_posterior de vw_historial ya trae esa regla)
  */
 function metaFila(row) {
   const { user } = getState();
@@ -242,7 +244,7 @@ function metaFila(row) {
   if (bloqueadoPorDespacho) {
     boton = `<button class="btn-eliminar-registro" disabled title="La talla ${escapeHtml(row.size ?? '')} del pedido ${escapeHtml(row.order_number)} ya fue despachada. Elimina primero ese despacho en Despachos > Despachado." aria-label="Eliminar registro (bloqueado: talla despachada)">×</button>`;
   } else if (bloqueadoPorPosterior) {
-    boton = `<button class="btn-eliminar-registro" disabled title="Ya se registró un movimiento posterior para esta talla. Ese debe eliminarse primero." aria-label="Eliminar registro (bloqueado: existe movimiento posterior)">×</button>`;
+    boton = `<button class="btn-eliminar-registro" disabled title="No se puede eliminar todavía: hay un registro posterior de tu proceso en esta talla, o el proceso siguiente ya usó estas unidades. Elimina primero ese registro." aria-label="Eliminar registro (bloqueado: hay un registro posterior que depende de este)">×</button>`;
   } else if (puedeEliminar) {
     boton = `<button class="btn-eliminar-registro" data-id="${escapeHtml(row.id)}" title="Eliminar registro" aria-label="Eliminar registro">×</button>`;
   }
