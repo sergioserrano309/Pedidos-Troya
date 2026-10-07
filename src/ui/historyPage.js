@@ -1,5 +1,5 @@
 import { fetchHistory } from '../services/historyService.js';
-import { eliminarMovimientoConMotivo } from '../services/movementsService.js';
+import { eliminarMovimientoConMotivo, eliminarMovimientosConMotivo } from '../services/movementsService.js';
 import { getState } from '../state/appState.js';
 import { mostrarToast } from './toast.js';
 import { esValidador, obtenerRolActivo } from '../services/validatorService.js';
@@ -219,7 +219,9 @@ function formatearFechaCorta(fecha) {
  * Los tres motivos por los que el servidor rechaza un borrado se
  * reflejan aquí ANTES de que el usuario escriba un motivo en vano:
  *   - no es suyo            -> ni checkbox ni botón
- *   - la talla ya se despachó (046) -> botón gris, sin checkbox
+ *   - (060) el registro es de Empaque y quitarlo dejaría menos unidades
+ *     empacadas que despachadas en esa talla (reemplaza al bloqueo 046 por
+ *     "talla con algún despacho") -> botón gris, sin checkbox
  *   - (059) hay un registro posterior del MISMO proceso en esa talla, o el
  *     proceso que recibió esas unidades ya las usó -> ídem (la columna
  *     tiene_movimiento_posterior de vw_historial ya trae esa regla)
@@ -229,7 +231,9 @@ function metaFila(row) {
   const fecha = new Date(row.created_at);
 
   const puedeEliminar = row.tipo === 'movimiento' && row.user_id === user?.id;
-  const bloqueadoPorDespacho = puedeEliminar && !!row.fecha_despacho;
+  // 060: bloquea solo si quitar este registro de Empaque dejaría menos unidades
+  // empacadas que despachadas (antes: cualquier talla con algún despacho).
+  const bloqueadoPorDespacho = puedeEliminar && !!row.bloqueado_por_despacho;
   const bloqueadoPorPosterior = puedeEliminar && !bloqueadoPorDespacho && !!row.tiene_movimiento_posterior;
   const bloqueado = bloqueadoPorDespacho || bloqueadoPorPosterior;
 
@@ -242,7 +246,7 @@ function metaFila(row) {
 
   let boton = '';
   if (bloqueadoPorDespacho) {
-    boton = `<button class="btn-eliminar-registro" disabled title="La talla ${escapeHtml(row.size ?? '')} del pedido ${escapeHtml(row.order_number)} ya fue despachada. Elimina primero ese despacho en Despachos > Despachado." aria-label="Eliminar registro (bloqueado: talla despachada)">×</button>`;
+    boton = `<button class="btn-eliminar-registro" disabled title="Este registro cubre unidades de la talla ${escapeHtml(row.size ?? '')} del pedido ${escapeHtml(row.order_number)} que ya fueron despachadas. Elimina primero ese despacho en Despachos > Despachado." aria-label="Eliminar registro (bloqueado: unidades ya despachadas)">×</button>`;
   } else if (bloqueadoPorPosterior) {
     boton = `<button class="btn-eliminar-registro" disabled title="No se puede eliminar todavía: hay un registro posterior de tu proceso en esta talla, o el proceso siguiente ya usó estas unidades. Elimina primero ese registro." aria-label="Eliminar registro (bloqueado: hay un registro posterior que depende de este)">×</button>`;
   } else if (puedeEliminar) {
@@ -693,12 +697,12 @@ async function confirmarEliminarMultiples() {
   btn.disabled = true;
 
   try {
-    // Eliminar todos los registros seleccionados
-    for (const id of registrosSeleccionados) {
-      await eliminarMovimientoConMotivo(id, motivo);
-    }
-
+    // Todos o ninguno (060): una sola operación en la base. Si cualquier
+    // registro incumple una regla, no se elimina ninguno y el mensaje
+    // dice cuál y por qué (el modal queda abierto para corregir).
     const cantidad = registrosSeleccionados.size;
+    await eliminarMovimientosConMotivo([...registrosSeleccionados], motivo);
+
     mostrarToast(`${cantidad} registro${cantidad > 1 ? 's' : ''} eliminado${cantidad > 1 ? 's' : ''} correctamente.`, 'ok');
     cerrarModalEliminarMultiples();
     registrosSeleccionados.clear();
