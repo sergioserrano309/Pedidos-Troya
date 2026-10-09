@@ -369,7 +369,13 @@ function renderCuerpoImpresion(ctx, fechaImpreso, consecutivo) {
       <div class="despacho-print-brand">Suelas<span>.</span></div>
       <div class="despacho-print-fecha">${escapeHtml(fechaImpreso)}</div>
     </div>
-    <div class="despacho-print-titulo">Detalle del Despacho — ${escapeHtml(consecutivo)}</div>
+    <div class="despacho-print-titulo-fila">
+      <div class="despacho-print-titulo">Detalle del Despacho — ${escapeHtml(consecutivo)}</div>
+      <div class="despacho-print-fecha-creacion">
+        <label>Fecha de creación</label>
+        <div>${formatearFecha(detalle.created_at)}</div>
+      </div>
+    </div>
 
     <div class="detalle-despacho-print-linea-cliente">
       <span class="detalle-despacho-print-cliente">${clienteTxt}</span>
@@ -383,11 +389,6 @@ function renderCuerpoImpresion(ctx, fechaImpreso, consecutivo) {
     <div class="form-group form-group-print">
       <label>Pedidos del despacho</label>
       ${ordenes.map((o) => renderFichaPedidoImpresion(o, infoPorPedido.get(o))).join('') || '<div class="empty">Sin pedidos.</div>'}
-    </div>
-
-    <div class="form-group form-group-print">
-      <label>Fecha de creación</label>
-      <div>${formatearFecha(detalle.created_at)}</div>
     </div>
 
     <div class="form-group form-group-print">

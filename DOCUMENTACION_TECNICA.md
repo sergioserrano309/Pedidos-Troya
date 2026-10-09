@@ -701,9 +701,9 @@ async function bootstrap() {
 | Bloque PDF | Regla |
 |---|---|
 | Encabezado | Marca “Suelas.” + “Impreso el …” en cada copia |
+| Título + fecha | **Misma franja:** “Detalle del Despacho — {consecutivo}” a la izquierda; “Fecha de creación” + valor a la derecha (ya no va como bloque entre pedidos y bultos). En pantalla el modal sigue mostrando la fecha en su sección propia |
 | Cliente + totales | **Misma línea:** nombre del cliente a la izquierda; Kg, Bultos y Unidades a la derecha |
 | Pedidos del despacho | Suela · material · color; procesos (VIRA, ACABADO, ESTERILLA, MARQUILLA) **solo si aplican**, y **solo el nombre** (sin `: Sí` / `: No`) |
-| Fecha de creación | Igual que en pantalla |
 | Bultos | Hasta **4 columnas** fijas con cabecera **Bulto \| Peso (kg)** en cada una; separador vertical entre columnas; solo nº + peso (sin pedidos). Relleno **fila a fila, izquierda → derecha** (1,2,3,4 luego 5,6,7,8…). Celdas vacías si no hay dato. Peso con el mismo redondeo que en pantalla (`formatearKilos`) |
 | Unidades por pedido y talla | Una sola matriz: Pedido \| tallas \| **Und** \| **Bultos**. No hay sección “Resumen por pedido” ni columna **Desp.** en el PDF |
 | Hoja | **Dos copias idénticas** en la misma hoja, separadas por una **línea de corte** punteada (sin textos “copia fábrica / copia cliente”). Márgenes de impresión sin cambio (~8 mm) |
