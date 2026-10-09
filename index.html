@@ -2444,11 +2444,130 @@
       display: flex;
     }
 
-    /* Encabezado de marca del PDF del despacho: oculto siempre, salvo
-       en @media print. La regla base vive fuera de la media query para
-       que NUNCA se vea en pantalla. */
+    /* Encabezado de marca del PDF del despacho: oculto en el chrome del
+       modal. La maqueta de descarga lo incluye dentro de cada copia
+       (.despacho-print-header-en-copia) y @media print lo muestra. */
     .despacho-print-header {
       display: none;
+    }
+
+    /* Vista previa en pantalla cuando se descarga el PDF (maqueta distinta
+       al detalle de solo lectura). */
+    #modal-detalle-despacho.maqueta-pdf-despacho .modal-content {
+      max-width: 900px;
+    }
+
+    #modal-detalle-despacho.maqueta-pdf-despacho .despacho-print-header-en-copia {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 0.45rem;
+      padding-bottom: 0.35rem;
+      border-bottom: 2px solid var(--text);
+    }
+
+    .despacho-print-brand {
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .despacho-print-brand span {
+      color: var(--blue);
+    }
+
+    .despacho-print-fecha {
+      font-size: 12px;
+      color: var(--text2);
+    }
+
+    .despacho-print-titulo {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 0.45rem;
+      padding-bottom: 0.35rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .detalle-despacho-print-linea-cliente {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px 16px;
+      margin-bottom: 0.75rem;
+    }
+
+    .detalle-despacho-print-cliente {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+      text-transform: uppercase;
+      min-width: 0;
+    }
+
+    .detalle-despacho-print-totales {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+    }
+
+    .despacho-print-bultos-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0;
+      align-items: start;
+    }
+
+    .despacho-print-bultos-col {
+      padding: 0 6px;
+      border-right: 1px solid var(--text);
+      min-width: 0;
+    }
+
+    .despacho-print-bultos-col:first-child {
+      padding-left: 0;
+    }
+
+    .despacho-print-bultos-col:last-child {
+      border-right: none;
+      padding-right: 0;
+    }
+
+    .despacho-print-bultos-col .regd-detalle-tabla {
+      width: 100%;
+      font-size: 11px;
+    }
+
+    .despacho-print-bultos-col .regd-detalle-tabla th,
+    .despacho-print-bultos-col .regd-detalle-tabla td {
+      padding: 3px 4px;
+    }
+
+    .despacho-print-corte {
+      border-top: 1px dashed var(--text2);
+      margin: 14px 0;
+      height: 0;
+    }
+
+    .detalle-despacho-matriz-print .regd-detalle-tabla th,
+    .detalle-despacho-matriz-print .regd-detalle-tabla td {
+      padding: 4px 5px;
+      font-size: 12px;
+    }
+
+    .form-group-print {
+      margin-bottom: 0.65rem;
+    }
+
+    .form-group-print > label {
+      margin-bottom: 0.25rem;
+      font-size: 11px;
     }
 
     .modal-content {
@@ -4278,27 +4397,17 @@
       }
 
       /* --- Detalle del Despacho (Despachos > Despachado, botón ↓) ---
-         Se imprime el modal tal como se ve en pantalla; solo se le
-         quitan el fondo oscuro, el alto fijo y los botones. */
+         Maqueta de impresión propia (doble copia + layout compacto).
+         No reutiliza el HTML del modal de solo lectura. */
       #modal-detalle-despacho.open,
       #modal-detalle-despacho.open * {
         visibility: visible;
       }
 
-      /* La regla general de arriba (body * { visibility: hidden }) hace
-         invisible el resto de la aplicación, pero NO le quita el espacio
-         que ocupa: el documento seguía midiendo lo que mide el listado
-         completo y salían dos o tres hojas en blanco detrás. Con la
-         clase que pone descargarDetalleDespachoPDF, esos elementos dejan
-         de ocupar lugar y la hoja termina donde termina la tarjeta. */
       body.imprimiendo-despacho > *:not(#modal-detalle-despacho) {
         display: none !important;
       }
 
-      /* Ya sin hermanos que lo desplacen, el modal entra en el flujo
-         normal (static, no absolute): así el alto del documento es
-         exactamente el alto de la tarjeta y el navegador cuenta bien
-         las páginas. */
       body.imprimiendo-despacho #modal-detalle-despacho.open {
         position: static;
       }
@@ -4324,42 +4433,38 @@
         padding: 0;
       }
 
-      /* El pie completo, no solo el botón: si se ocultara únicamente el
-         botón, su contenedor dejaría 1.5rem en blanco al final de la
-         hoja. */
+      /* Chrome del modal: el título y la marca van dentro de cada copia. */
+      #modal-detalle-despacho.open > .modal-content > .despacho-print-header,
+      #modal-detalle-despacho.open .modal-header,
       #modal-detalle-despacho.open .modal-close,
       #modal-detalle-despacho.open .detalle-despacho-pie {
         display: none !important;
       }
 
-      #modal-detalle-despacho.open .regd-detalle-tabla,
-      #modal-detalle-despacho.open .form-group {
+      #modal-detalle-despacho.open .form-group-print {
         page-break-inside: avoid;
+        margin-bottom: 0.4rem;
       }
 
-      /* Datos internos (p. ej. "Comp.") que se ven en pantalla pero no
-         deben llegarle al cliente en el PDF. */
       #modal-detalle-despacho.open .col-solo-pantalla {
         display: none !important;
       }
 
-      /* El riel horizontal es un recurso de pantalla: en la hoja la
-         matriz se imprime completa. */
       #modal-detalle-despacho.open .detalle-despacho-matriz {
         overflow-x: visible;
       }
 
-      #modal-detalle-despacho.open .despacho-print-header {
+      #modal-detalle-despacho.open .despacho-print-header-en-copia {
         display: flex;
         justify-content: space-between;
         align-items: baseline;
-        margin-bottom: 0.6rem;
-        padding-bottom: 0.5rem;
+        margin-bottom: 0.35rem;
+        padding-bottom: 0.3rem;
         border-bottom: 2px solid var(--text);
       }
 
       .despacho-print-brand {
-        font-size: 17px;
+        font-size: 14px;
         font-weight: 700;
         color: var(--text);
       }
@@ -4369,8 +4474,62 @@
       }
 
       .despacho-print-fecha {
-        font-size: 12px;
+        font-size: 10px;
         color: var(--text2);
+      }
+
+      #modal-detalle-despacho.open .despacho-print-titulo {
+        font-size: 13px;
+        margin-bottom: 0.3rem;
+        padding-bottom: 0.25rem;
+      }
+
+      #modal-detalle-despacho.open .detalle-despacho-print-linea-cliente {
+        margin-bottom: 0.45rem;
+      }
+
+      #modal-detalle-despacho.open .detalle-despacho-print-cliente {
+        font-size: 12px;
+      }
+
+      #modal-detalle-despacho.open .detalle-despacho-print-totales {
+        font-size: 11px;
+        gap: 8px 12px;
+      }
+
+      #modal-detalle-despacho.open .detalle-despacho-ficha {
+        font-size: 11px;
+        padding: 1px 0;
+      }
+
+      #modal-detalle-despacho.open .form-group-print > label {
+        font-size: 10px;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+      }
+
+      #modal-detalle-despacho.open .despacho-print-bultos-col .regd-detalle-tabla,
+      #modal-detalle-despacho.open .detalle-despacho-matriz-print .regd-detalle-tabla {
+        font-size: 10px;
+      }
+
+      #modal-detalle-despacho.open .despacho-print-bultos-col .regd-detalle-tabla th,
+      #modal-detalle-despacho.open .despacho-print-bultos-col .regd-detalle-tabla td,
+      #modal-detalle-despacho.open .detalle-despacho-matriz-print .regd-detalle-tabla th,
+      #modal-detalle-despacho.open .detalle-despacho-matriz-print .regd-detalle-tabla td {
+        padding: 2px 3px;
+      }
+
+      /* Dos copias idénticas en una hoja; línea de corte entre ellas.
+         La densidad con muchos bultos (>20) queda sujeta a validación
+         en fábrica (puede compactarse más tras prueba real). */
+      #modal-detalle-despacho.open .despacho-print-corte {
+        border-top: 1px dashed #333;
+        margin: 3mm 0;
+      }
+
+      #modal-detalle-despacho.open .despacho-print-copia {
+        page-break-inside: avoid;
       }
 
       .propuesta-print-header {
@@ -5336,11 +5495,11 @@
     </div>
   </div>
 
-  <!-- Modal: Detalle de un despacho (Despachos > Despachado) — solo lectura -->
+  <!-- Modal: Detalle de un despacho (Despachos > Despachado) — solo lectura.
+       La descarga PDF arma una maqueta propia dentro de #detalle-despacho-contenido
+       (clase maqueta-pdf-despacho); este encabezado queda de respaldo / fecha. -->
   <div id="modal-detalle-despacho" class="modal">
     <div class="modal-content">
-      <!-- Solo aparece en el PDF (ver @media print): en pantalla el
-           encabezado del modal ya dice de qué despacho se trata. -->
       <div class="despacho-print-header">
         <div class="despacho-print-brand">Suelas<span>.</span></div>
         <div class="despacho-print-fecha" id="detalle-despacho-print-fecha"></div>

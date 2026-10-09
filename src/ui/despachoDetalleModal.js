@@ -10,22 +10,17 @@ import {
 /**
  * Modal "Detalle del Despacho", que se abre desde Despachos > Despachado.
  *
- * Antes había dos modales distintos ("Resumen del Despacho" y "Detalle
- * del Despacho") con casi la misma información ordenada de otra forma.
- * Se unificaron en este, que se lee de arriba abajo como una remesa:
+ * En pantalla se lee de arriba abajo como una remesa:
  *   (a) Cliente y totales del despacho (kilos, bultos, unidades)
- *   (b) Ficha de cada pedido: suela, material y color
+ *   (b) Ficha de cada pedido: suela, material y color (+ Vira/etc Sí/No)
  *   (c) Fecha de creación
  *   (d) Bultos: número, peso y pedidos que van dentro
- *   (e) Unidades por pedido y talla — UNA matriz para todo el despacho
- *   (f) Resumen por pedido — otra matriz
+ *   (e) Unidades por pedido y talla
+ *   (f) Resumen por pedido (incluye Desp. y Comp.)
  *
- * Las dos matrices sustituyen al bloque que se repetía por pedido
- * (tabla de tallas + tres renglones de texto): con cuatro pedidos, esa
- * forma ocupaba una hoja entera para decir lo mismo.
- *
- * El mismo contenido se imprime en PDF (descargarDetalleDespachoPDF),
- * así que no hay una segunda maqueta que mantener en paralelo.
+ * La descarga PDF (descargarDetalleDespachoPDF) usa una maqueta de
+ * impresión distinta — no altera esta vista ni la lógica de despachos.
+ * Ver DOCUMENTACION_TECNICA.md §12.7.
  */
 
 export function inicializarModalDetalleDespacho() {
@@ -34,7 +29,8 @@ export function inicializarModalDetalleDespacho() {
 }
 
 export function cerrarDetalleDespacho() {
-  document.getElementById('modal-detalle-despacho').classList.remove('open');
+  const modal = document.getElementById('modal-detalle-despacho');
+  modal?.classList.remove('open', 'maqueta-pdf-despacho');
 }
 
 /**
@@ -46,113 +42,146 @@ export function cerrarDetalleDespacho() {
  *   archivo con el ID de verdad y no con el que venía en la tarjeta.
  */
 export async function abrirDetalleDespacho(despachoId, consecutivo) {
+  const modal = document.getElementById('modal-detalle-despacho');
   const titulo = document.getElementById('detalle-despacho-titulo');
   const contenido = document.getElementById('detalle-despacho-contenido');
 
+  modal.classList.remove('maqueta-pdf-despacho');
   titulo.textContent = `Detalle del Despacho — ${consecutivo || ''}`.trim();
   contenido.innerHTML = '<div class="loading"><div class="spinner"></div> Cargando...</div>';
-  document.getElementById('modal-detalle-despacho').classList.add('open');
+  modal.classList.add('open');
 
   try {
-    const [detalle, asignaciones, bultos, tallasPorPedido] = await Promise.all([
-      fetchDetalleDespacho(despachoId),
-      fetchAsignacionesDespacho(despachoId),
-      fetchBultosDespacho(despachoId),
-      fetchItemsDespacho(despachoId)
-    ]);
-
-    titulo.textContent = `Detalle del Despacho — ${detalle.consecutivo}`;
-
-    const ordenes = detalle.order_numbers || [];
-    // Completitud del PEDIDO sumando todas sus remesas, no solo esta, y
-    // la ficha (cliente/suela/material/color) de cada uno.
-    const [estadoPorPedido, infoPorPedido] = ordenes.length
-      ? await Promise.all([fetchEstadoPedidos(ordenes), fetchInfoPedidos(ordenes)])
-      : [new Map(), new Map()];
-
-    // La asignación es de muchos a muchos: un bulto puede llevar varios
-    // pedidos y un pedido puede ir repartido en varios bultos. Por eso se
-    // arman los dos índices: uno por pedido (para el resumen) y otro por
-    // bulto (para la tabla de bultos).
-    const bultosPorOrden = new Map();
-    const ordenesPorBulto = new Map();
-    asignaciones.forEach((a) => {
-      if (!bultosPorOrden.has(a.order_number)) bultosPorOrden.set(a.order_number, []);
-      bultosPorOrden.get(a.order_number).push(a.bulto_numero);
-
-      if (!ordenesPorBulto.has(a.bulto_numero)) ordenesPorBulto.set(a.bulto_numero, []);
-      ordenesPorBulto.get(a.bulto_numero).push(a.order_number);
-    });
-    const bultosDe = (orden) =>
-      (bultosPorOrden.get(orden) || []).sort((a, b) => a - b).join(', ') || '—';
-    const pedidosDe = (bulto) =>
-      (ordenesPorBulto.get(bulto) || []).sort().join(', ') || '—';
-
-    const unidadesDe = (orden) =>
-      (tallasPorPedido.get(orden) || []).reduce((sum, t) => sum + t.unidades, 0);
-
-    const pesoTotal = bultos.reduce((sum, b) => sum + Number(b.peso || 0), 0);
-    const unidadesTotal = ordenes.reduce((sum, o) => sum + unidadesDe(o), 0);
-
-    // En teoría un despacho lleva un solo cliente. Si no, no se bloquea
-    // nada: se listan todos los nombres distintos que aparezcan.
-    const clientes = [...new Set(ordenes.map((o) => infoPorPedido.get(o)?.cliente).filter(Boolean))];
-
-    contenido.innerHTML = `
-      <div class="detalle-despacho-cliente">${clientes.length ? escapeHtml(clientes.join(' · ')) : 'Cliente sin registrar'}</div>
-
-      <div class="detalle-despacho-totales">
-        <span class="detalle-despacho-badge">${formatearKilos(pesoTotal)} Kg</span>
-        <span class="detalle-despacho-badge">${bultos.length} ${bultos.length === 1 ? 'Bulto' : 'Bultos'}</span>
-        <span class="detalle-despacho-badge">${unidadesTotal} ${unidadesTotal === 1 ? 'Unidad' : 'Unidades'}</span>
-      </div>
-
-      <div class="form-group">
-        <label>Pedidos del despacho</label>
-        ${ordenes.map((o) => renderFichaPedido(o, infoPorPedido.get(o))).join('') || '<div class="empty">Sin pedidos.</div>'}
-      </div>
-
-      <div class="form-group">
-        <label>Fecha de creación</label>
-        <div>${formatearFecha(detalle.created_at)}</div>
-      </div>
-
-      <div class="form-group">
-        <label>Bultos</label>
-        <table class="regd-detalle-tabla">
-          <thead><tr><th>Bulto</th><th>Peso (kg)</th><th>Pedidos</th></tr></thead>
-          <tbody>
-            ${bultos
-              .map(
-                (b) => `<tr>
-              <td>${b.bulto_numero}</td>
-              <td>${formatearKilos(b.peso)}</td>
-              <td>${escapeHtml(pedidosDe(b.bulto_numero))}</td>
-            </tr>`
-              )
-              .join('')}
-          </tbody>
-        </table>
-      </div>
-
-      <div class="form-group">
-        <label>Unidades por pedido y talla</label>
-        ${renderMatrizTallas(ordenes, tallasPorPedido)}
-      </div>
-
-      <div class="form-group">
-        <label>Resumen por pedido</label>
-        ${renderMatrizPedidos(ordenes, { bultosDe, unidadesDe, estadoPorPedido })}
-      </div>
-    `;
-    return String(detalle.consecutivo || consecutivo || '').trim() || null;
+    const ctx = await cargarContextoDetalle(despachoId);
+    titulo.textContent = `Detalle del Despacho — ${ctx.detalle.consecutivo}`;
+    contenido.innerHTML = renderContenidoPantalla(ctx);
+    return String(ctx.detalle.consecutivo || consecutivo || '').trim() || null;
   } catch (err) {
     contenido.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
     return null;
   }
 }
 
-/** [No. Orden]: [Suela] [Material] [Color] */
+/**
+ * Carga todo lo que necesitan la vista en pantalla y la maqueta PDF.
+ * @param {string} despachoId
+ */
+async function cargarContextoDetalle(despachoId) {
+  const [detalle, asignaciones, bultos, tallasPorPedido] = await Promise.all([
+    fetchDetalleDespacho(despachoId),
+    fetchAsignacionesDespacho(despachoId),
+    fetchBultosDespacho(despachoId),
+    fetchItemsDespacho(despachoId)
+  ]);
+
+  const ordenes = detalle.order_numbers || [];
+  const [estadoPorPedido, infoPorPedido] = ordenes.length
+    ? await Promise.all([fetchEstadoPedidos(ordenes), fetchInfoPedidos(ordenes)])
+    : [new Map(), new Map()];
+
+  const bultosPorOrden = new Map();
+  const ordenesPorBulto = new Map();
+  asignaciones.forEach((a) => {
+    if (!bultosPorOrden.has(a.order_number)) bultosPorOrden.set(a.order_number, []);
+    bultosPorOrden.get(a.order_number).push(a.bulto_numero);
+
+    if (!ordenesPorBulto.has(a.bulto_numero)) ordenesPorBulto.set(a.bulto_numero, []);
+    ordenesPorBulto.get(a.bulto_numero).push(a.order_number);
+  });
+
+  const bultosDe = (orden) =>
+    (bultosPorOrden.get(orden) || []).sort((a, b) => a - b).join(', ') || '—';
+  const pedidosDe = (bulto) =>
+    (ordenesPorBulto.get(bulto) || []).sort().join(', ') || '—';
+  const unidadesDe = (orden) =>
+    (tallasPorPedido.get(orden) || []).reduce((sum, t) => sum + t.unidades, 0);
+
+  const pesoTotal = bultos.reduce((sum, b) => sum + Number(b.peso || 0), 0);
+  const unidadesTotal = ordenes.reduce((sum, o) => sum + unidadesDe(o), 0);
+  const clientes = [...new Set(ordenes.map((o) => infoPorPedido.get(o)?.cliente).filter(Boolean))];
+
+  return {
+    detalle,
+    bultos,
+    tallasPorPedido,
+    ordenes,
+    estadoPorPedido,
+    infoPorPedido,
+    bultosDe,
+    pedidosDe,
+    unidadesDe,
+    pesoTotal,
+    unidadesTotal,
+    clientes
+  };
+}
+
+function renderContenidoPantalla(ctx) {
+  const {
+    detalle,
+    bultos,
+    tallasPorPedido,
+    ordenes,
+    estadoPorPedido,
+    infoPorPedido,
+    bultosDe,
+    pedidosDe,
+    unidadesDe,
+    pesoTotal,
+    unidadesTotal,
+    clientes
+  } = ctx;
+
+  return `
+    <div class="detalle-despacho-cliente">${clientes.length ? escapeHtml(clientes.join(' · ')) : 'Cliente sin registrar'}</div>
+
+    <div class="detalle-despacho-totales">
+      <span class="detalle-despacho-badge">${formatearKilos(pesoTotal)} Kg</span>
+      <span class="detalle-despacho-badge">${bultos.length} ${bultos.length === 1 ? 'Bulto' : 'Bultos'}</span>
+      <span class="detalle-despacho-badge">${unidadesTotal} ${unidadesTotal === 1 ? 'Unidad' : 'Unidades'}</span>
+    </div>
+
+    <div class="form-group">
+      <label>Pedidos del despacho</label>
+      ${ordenes.map((o) => renderFichaPedido(o, infoPorPedido.get(o))).join('') || '<div class="empty">Sin pedidos.</div>'}
+    </div>
+
+    <div class="form-group">
+      <label>Fecha de creación</label>
+      <div>${formatearFecha(detalle.created_at)}</div>
+    </div>
+
+    <div class="form-group">
+      <label>Bultos</label>
+      <table class="regd-detalle-tabla">
+        <thead><tr><th>Bulto</th><th>Peso (kg)</th><th>Pedidos</th></tr></thead>
+        <tbody>
+          ${bultos
+            .map(
+              (b) => `<tr>
+            <td>${b.bulto_numero}</td>
+            <td>${formatearKilos(b.peso)}</td>
+            <td>${escapeHtml(pedidosDe(b.bulto_numero))}</td>
+          </tr>`
+            )
+            .join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="form-group">
+      <label>Unidades por pedido y talla</label>
+      ${renderMatrizTallas(ordenes, tallasPorPedido)}
+    </div>
+
+    <div class="form-group">
+      <label>Resumen por pedido</label>
+      ${renderMatrizPedidos(ordenes, { bultosDe, unidadesDe, estadoPorPedido })}
+    </div>
+  `;
+}
+
+/** [No. Orden]: [Suela] [Material] [Color] + procesos Sí/No (solo pantalla). */
 function renderFichaPedido(orden, info) {
   const siNo = (etiqueta, valor) => (valor === undefined ? null : `${etiqueta}: ${valor ? 'Sí' : 'No'}`);
   const atributos = [
@@ -173,12 +202,31 @@ function renderFichaPedido(orden, info) {
 }
 
 /**
+ * Ficha para PDF: procesos solo si aplican, y solo el nombre (ej. ACABADO),
+ * sin ": Sí" / ": No".
+ */
+function renderFichaPedidoImpresion(orden, info) {
+  const atributos = [
+    info?.nombreSuela,
+    info?.material,
+    info?.color,
+    info?.vira ? 'VIRA' : null,
+    info?.acabado ? 'ACABADO' : null,
+    info?.esterilla ? 'ESTERILLA' : null,
+    info?.marquilla ? 'MARQUILLA' : null
+  ].filter(Boolean);
+  return `
+    <div class="detalle-despacho-ficha">
+      <span class="detalle-despacho-ficha-orden">${escapeHtml(orden)}</span>
+      <span class="detalle-despacho-ficha-attrs">${atributos.length ? escapeHtml(atributos.join(' · ')) : 'Sin referencia'}</span>
+    </div>
+  `;
+}
+
+/**
  * Una sola matriz para todo el despacho: un pedido por fila, una talla
  * por columna. Las columnas son la unión de las tallas de TODOS los
- * pedidos, así que la suma de la matriz es el total de pares de la
- * remesa. Las casillas vacías llevan guion, no cero: no es que se
- * hayan despachado cero pares de esa talla, es que esa talla no entra
- * en ese pedido.
+ * pedidos. Las casillas vacías llevan guion, no cero.
  */
 function renderMatrizTallas(ordenes, tallasPorPedido) {
   const tallas = [
@@ -213,10 +261,151 @@ function renderMatrizTallas(ordenes, tallasPorPedido) {
 }
 
 /**
+ * Matriz unificada solo para PDF: Pedido | tallas | Und | Bultos.
+ * Sin columna Desp. (esa queda en el resumen de pantalla).
+ */
+function renderMatrizImpresion(ordenes, tallasPorPedido, { bultosDe, unidadesDe }) {
+  if (ordenes.length === 0) return '<div class="empty">Sin pedidos.</div>';
+
+  const tallas = [
+    ...new Set(ordenes.flatMap((o) => (tallasPorPedido.get(o) || []).map((t) => t.talla)))
+  ].sort(compararTallas);
+
+  if (tallas.length === 0) {
+    return '<div class="empty">Sin tallas registradas.</div>';
+  }
+
+  const filas = ordenes
+    .map((orden) => {
+      const porTalla = new Map((tallasPorPedido.get(orden) || []).map((t) => [t.talla, t.unidades]));
+      const celdas = tallas
+        .map((t) => `<td class="col-num">${porTalla.has(t) ? porTalla.get(t) : '<span class="celda-vacia">—</span>'}</td>`)
+        .join('');
+      return `<tr>
+        <td class="celda-pedido">${escapeHtml(orden)}</td>
+        ${celdas}
+        <td class="col-num">${unidadesDe(orden)}</td>
+        <td class="col-num">${escapeHtml(bultosDe(orden))}</td>
+      </tr>`;
+    })
+    .join('');
+
+  return `
+    <div class="detalle-despacho-matriz detalle-despacho-matriz-print">
+      <table class="regd-detalle-tabla">
+        <thead>
+          <tr>
+            <th>Pedido</th>
+            ${tallas.map((t) => `<th class="col-num">${escapeHtml(t)}</th>`).join('')}
+            <th class="col-num">Und</th>
+            <th class="col-num">Bultos</th>
+          </tr>
+        </thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+/**
+ * Bultos en PDF: 4 columnas fijas BULTO | PESO (KG), relleno fila a fila
+ * de izquierda a derecha (1,2,3,4 / 5,6,7,8…). Celdas vacías si sobran.
+ */
+function renderBultosImpresion(bultos) {
+  const COLS = 4;
+  const columnas = Array.from({ length: COLS }, () => []);
+  bultos.forEach((b, i) => {
+    columnas[i % COLS].push(b);
+  });
+  const filasMax = Math.max(1, ...columnas.map((c) => c.length));
+
+  const colsHtml = columnas
+    .map((col) => {
+      const filas = [];
+      for (let r = 0; r < filasMax; r++) {
+        const b = col[r];
+        if (b) {
+          filas.push(`<tr><td>${b.bulto_numero}</td><td class="col-num">${formatearKilos(b.peso)}</td></tr>`);
+        } else {
+          filas.push('<tr><td>&nbsp;</td><td class="col-num">&nbsp;</td></tr>');
+        }
+      }
+      return `
+        <div class="despacho-print-bultos-col">
+          <table class="regd-detalle-tabla">
+            <thead><tr><th>Bulto</th><th class="col-num">Peso (kg)</th></tr></thead>
+            <tbody>${filas.join('')}</tbody>
+          </table>
+        </div>`;
+    })
+    .join('');
+
+  return `<div class="despacho-print-bultos-grid">${colsHtml}</div>`;
+}
+
+/**
+ * Una copia completa del PDF (sin duplicar aún).
+ */
+function renderCuerpoImpresion(ctx, fechaImpreso, consecutivo) {
+  const {
+    detalle,
+    bultos,
+    tallasPorPedido,
+    ordenes,
+    infoPorPedido,
+    bultosDe,
+    unidadesDe,
+    pesoTotal,
+    unidadesTotal,
+    clientes
+  } = ctx;
+
+  const clienteTxt = clientes.length ? escapeHtml(clientes.join(' · ')) : 'Cliente sin registrar';
+  const labelBultos = `${bultos.length} ${bultos.length === 1 ? 'Bulto' : 'Bultos'}`;
+  const labelUnd = `${unidadesTotal} ${unidadesTotal === 1 ? 'Unidad' : 'Unidades'}`;
+
+  return `
+    <div class="despacho-print-header despacho-print-header-en-copia">
+      <div class="despacho-print-brand">Suelas<span>.</span></div>
+      <div class="despacho-print-fecha">${escapeHtml(fechaImpreso)}</div>
+    </div>
+    <div class="despacho-print-titulo">Detalle del Despacho — ${escapeHtml(consecutivo)}</div>
+
+    <div class="detalle-despacho-print-linea-cliente">
+      <span class="detalle-despacho-print-cliente">${clienteTxt}</span>
+      <span class="detalle-despacho-print-totales">
+        <span>${formatearKilos(pesoTotal)} Kg</span>
+        <span>${labelBultos}</span>
+        <span>${labelUnd}</span>
+      </span>
+    </div>
+
+    <div class="form-group form-group-print">
+      <label>Pedidos del despacho</label>
+      ${ordenes.map((o) => renderFichaPedidoImpresion(o, infoPorPedido.get(o))).join('') || '<div class="empty">Sin pedidos.</div>'}
+    </div>
+
+    <div class="form-group form-group-print">
+      <label>Fecha de creación</label>
+      <div>${formatearFecha(detalle.created_at)}</div>
+    </div>
+
+    <div class="form-group form-group-print">
+      <label>Bultos</label>
+      ${bultos.length ? renderBultosImpresion(bultos) : '<div class="empty">Sin bultos.</div>'}
+    </div>
+
+    <div class="form-group form-group-print">
+      <label>Unidades por pedido y talla</label>
+      ${renderMatrizImpresion(ordenes, tallasPorPedido, { bultosDe, unidadesDe })}
+    </div>
+  `;
+}
+
+/**
  * El resumen que antes iba en tres renglones de texto por pedido, ahora
  * en una fila por pedido. "Desp." es el acumulado del PEDIDO sumando
- * todas sus remesas, no lo de esta salida: por eso puede decir 20 de 20
- * aunque en esta salida hayan ido 2.
+ * todas sus remesas. Solo se muestra en pantalla (no en el PDF).
  */
 function renderMatrizPedidos(ordenes, { bultosDe, unidadesDe, estadoPorPedido }) {
   if (ordenes.length === 0) return '<div class="empty">Sin pedidos.</div>';
@@ -263,60 +452,69 @@ function compararTallas(a, b) {
 }
 
 /**
- * Descarga el despacho en PDF. Mismo mecanismo que el Cotizador
- * (propuestaPage.js): se abre el detalle, se manda a imprimir
- * (Ctrl+P → "Guardar como PDF") y la hoja @media print de index.html
- * esconde todo menos esta tarjeta. Sin librerías nuevas y sin una
- * segunda maqueta que se pueda desincronizar de la pantalla.
+ * Descarga el despacho en PDF. Mecanismo: window.print → "Guardar como PDF".
+ * La maqueta de impresión es independiente del modal en pantalla (cliente
+ * + totales en una línea, etapas solo si aplican, bultos en 4 columnas,
+ * matriz unificada sin Desp., dos copias con línea de corte).
  *
- * document.title es el nombre de archivo que sugieren casi todos los
- * navegadores: se deja en el consecutivo pelado (D1032) para que el PDF
- * quede nombrado con el ID del despacho, y se restaura al terminar.
- *
- * Los dos esperas de abajo no son adorno, son lo que hace que el nombre
- * sugerido salga bien; están explicadas en su sitio.
+ * document.title = consecutivo (nombre sugerido del archivo).
  */
 export async function descargarDetalleDespachoPDF(despachoId, consecutivo) {
-  const consecutivoReal = await abrirDetalleDespacho(despachoId, consecutivo);
-  if (!consecutivoReal) return;
+  const modal = document.getElementById('modal-detalle-despacho');
+  const titulo = document.getElementById('detalle-despacho-titulo');
+  const contenido = document.getElementById('detalle-despacho-contenido');
 
-  const fechaEl = document.getElementById('detalle-despacho-print-fecha');
-  if (fechaEl) {
-    fechaEl.textContent = `Impreso el ${new Date().toLocaleDateString('es-CO', {
+  titulo.textContent = `Detalle del Despacho — ${consecutivo || ''}`.trim();
+  contenido.innerHTML = '<div class="loading"><div class="spinner"></div> Cargando...</div>';
+  modal.classList.add('open', 'maqueta-pdf-despacho');
+
+  let consecutivoReal;
+  try {
+    const ctx = await cargarContextoDetalle(despachoId);
+    consecutivoReal = String(ctx.detalle.consecutivo || consecutivo || '').trim() || null;
+    if (!consecutivoReal) {
+      contenido.innerHTML = '<div class="empty">No se pudo identificar el despacho.</div>';
+      return;
+    }
+
+    titulo.textContent = `Detalle del Despacho — ${consecutivoReal}`;
+
+    const fechaImpreso = `Impreso el ${new Date().toLocaleDateString('es-CO', {
       day: '2-digit',
       month: 'long',
       year: 'numeric'
     })}`;
+
+    const fechaEl = document.getElementById('detalle-despacho-print-fecha');
+    if (fechaEl) fechaEl.textContent = fechaImpreso;
+
+    const cuerpo = renderCuerpoImpresion(ctx, fechaImpreso, consecutivoReal);
+    contenido.innerHTML = `
+      <div class="despacho-print-hoja">
+        <div class="despacho-print-copia">${cuerpo}</div>
+        <div class="despacho-print-corte" aria-hidden="true"></div>
+        <div class="despacho-print-copia">${cuerpo}</div>
+      </div>
+    `;
+  } catch (err) {
+    contenido.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
+    return;
   }
 
   const tituloOriginal = document.title;
   document.title = consecutivoReal;
 
-  // Sin esta clase la hoja sale con páginas en blanco detrás: el resto
-  // de la aplicación se esconde con visibility:hidden, que lo vuelve
-  // invisible pero NO le quita el espacio que ocupa, así que el
-  // documento seguía midiendo lo que mide el listado completo. La clase
-  // hace que esos elementos dejen de ocupar lugar mientras se imprime
-  // (ver @media print en index.html).
   document.body.classList.add('imprimiendo-despacho');
 
   const restaurarTitulo = () => {
     window.removeEventListener('afterprint', restaurarTitulo);
     document.body.classList.remove('imprimiendo-despacho');
-    // afterprint se dispara cuando se cierra la vista previa, que en
-    // Windows es ANTES de que se abra el cuadro "Guardar como" del
-    // sistema — y ese cuadro toma de ahí el nombre sugerido. Restaurar
-    // de una alcanzaba a borrárselo.
     setTimeout(() => {
       document.title = tituloOriginal;
     }, 2000);
   };
   window.addEventListener('afterprint', restaurarTitulo);
 
-  // El navegador lee el título al generar la vista previa, y el cambio
-  // necesita una vuelta del ciclo de eventos para quedar aplicado.
-  // Llamar a print() en la misma vuelta dejaba el nombre anterior
-  // ("Suelas — Producción").
   setTimeout(() => window.print(), 200);
 }
 
