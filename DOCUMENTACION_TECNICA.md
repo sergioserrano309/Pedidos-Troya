@@ -18,7 +18,6 @@
 10. [Seguridad: Row Level Security (RLS) por rol](#10-seguridad-row-level-security-rls-por-rol)
 11. [Autenticación y gestión de usuarios](#11-autenticación-y-gestión-de-usuarios)
 12. [Frontend: estructura y funcionamiento de cada módulo](#12-frontend-estructura-y-funcionamiento-de-cada-módulo)
-    - [12.7 PDF de detalle de despacho (solo impresión)](#127-pdf-de-detalle-de-despacho-solo-impresión)
 13. [Estado de la aplicación (appState)](#13-estado-de-la-aplicación-appstate)
 14. [Tiempo real (Realtime)](#14-tiempo-real-realtime)
 15. [Variables de entorno](#15-variables-de-entorno)
@@ -690,28 +689,6 @@ async function bootstrap() {
 
 `iniciarApp(user)` es lo que corre justo después de un login exitoso (o al recargar la página con sesión activa): oculta el login, pinta el nombre/rol en la topbar, carga las órdenes, y arranca la suscripción de Realtime.
 
-### 12.7 PDF de detalle de despacho (solo impresión)
-
-**Entrada:** Órdenes → Despachos → Despachado → botón ↓ (`descargarDetalleDespachoPDF` en `src/ui/despachoDetalleModal.js`).
-
-**Mecanismo:** no hay librería de PDF. Se abre el modal, se pinta una **maqueta de impresión** distinta a la vista de solo lectura, se llama `window.print()` y el usuario elige “Guardar como PDF”. El nombre sugerido del archivo es el **consecutivo** del despacho (`document.title`, p. ej. `D1133`). Los estilos viven en `@media print` de `index.html` (clase `body.imprimiendo-despacho` + `maqueta-pdf-despacho` en el modal).
-
-**Alcance (importante):** estos ajustes aplican **únicamente** a la descarga/impresión del PDF. No cambian el modal al hacer clic en la fila, ni RPCs, ni servicios, ni el pipeline de despachos. En pantalla el “Resumen por pedido” sigue mostrando la columna **Desp.** (y Comp.).
-
-| Bloque PDF | Regla |
-|---|---|
-| Encabezado | Marca “Suelas.” + “Impreso el …” en cada copia |
-| Cliente + totales | **Misma línea:** nombre del cliente a la izquierda; Kg, Bultos y Unidades a la derecha |
-| Pedidos del despacho | Suela · material · color; procesos (VIRA, ACABADO, ESTERILLA, MARQUILLA) **solo si aplican**, y **solo el nombre** (sin `: Sí` / `: No`) |
-| Fecha de creación | Igual que en pantalla |
-| Bultos | Hasta **4 columnas** fijas con cabecera **Bulto \| Peso (kg)** en cada una; separador vertical entre columnas; solo nº + peso (sin pedidos). Relleno **fila a fila, izquierda → derecha** (1,2,3,4 luego 5,6,7,8…). Celdas vacías si no hay dato. Peso con el mismo redondeo que en pantalla (`formatearKilos`) |
-| Unidades por pedido y talla | Una sola matriz: Pedido \| tallas \| **Und** \| **Bultos**. No hay sección “Resumen por pedido” ni columna **Desp.** en el PDF |
-| Hoja | **Dos copias idénticas** en la misma hoja, separadas por una **línea de corte** punteada (sin textos “copia fábrica / copia cliente”). Márgenes de impresión sin cambio (~8 mm) |
-
-**Validación pendiente:** la densidad con muchos bultos (**>20**) y que cada copia quepa cómoda en media hoja A4 queda **sujeta a revisión** tras prueba real en fábrica; se puede compactar tipografía/padding sin tocar datos ni lógica.
-
-**Archivos:** `src/ui/despachoDetalleModal.js` (maqueta), `src/ui/registrosDespachosPage.js` (botón ↓), estilos de impresión en `index.html`.
-
 ---
 
 ## 13. Estado de la aplicación (appState)
@@ -782,7 +759,6 @@ El documento de especificaciones (`Contexto Cursor pedidos.md`) dejaba varios pu
 - **La búsqueda del dashboard/historial es por coincidencia de texto simple** (`ilike`), no hay filtros avanzados (por fecha, por material, etc.) — la sección 17 del documento original solo pedía "Search" genérico.
 - **No hay soporte offline ni cacheo agresivo** de las consultas (más allá de lo que el propio navegador haga); la sección 20 del documento sugiere "cache Supabase queries" como optimización futura, no implementada aún.
 - **Escalabilidad futura** (sección 21 del documento: KPIs, códigos de barras, múltiples fábricas, etc.) no está implementada, pero la arquitectura de vistas + RLS + tablas append-only está pensada para poder agregarse sin romper lo existente (por ejemplo, una nueva vista `vw_kpis_produccion` se podría construir sobre las mismas tablas base).
-- **PDF de despacho en media hoja:** la maqueta compacta y la doble copia (véase §12.7) están pensadas para que fábrica y cliente usen una sola hoja A4. Con despachos de muchos bultos (**>20**) o muchas tallas, el alto real puede superar media hoja según impresora/márgenes; esa densidad queda **sujeta a validación en fábrica** y puede ajustarse solo en CSS/HTML de impresión sin tocar la lógica de despachos.
 
 ---
 
