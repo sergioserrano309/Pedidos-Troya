@@ -2481,13 +2481,47 @@
       color: var(--text2);
     }
 
+    /* Título + fecha de creación en la misma franja (solo maqueta PDF). */
+    .despacho-print-titulo-fila {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px 16px;
+      margin-bottom: 0.45rem;
+      padding-bottom: 0.35rem;
+      border-bottom: 1px solid var(--border);
+    }
+
     .despacho-print-titulo {
       font-size: 15px;
       font-weight: 700;
       color: var(--text);
-      margin-bottom: 0.45rem;
-      padding-bottom: 0.35rem;
-      border-bottom: 1px solid var(--border);
+      margin: 0;
+      padding: 0;
+      border: none;
+      min-width: 0;
+    }
+
+    .despacho-print-fecha-creacion {
+      text-align: right;
+      flex-shrink: 0;
+    }
+
+    .despacho-print-fecha-creacion > label {
+      display: block;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      color: var(--text2);
+      margin: 0 0 2px;
+    }
+
+    .despacho-print-fecha-creacion > div {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
     }
 
     .detalle-despacho-print-linea-cliente {
@@ -4478,10 +4512,21 @@
         color: var(--text2);
       }
 
-      #modal-detalle-despacho.open .despacho-print-titulo {
-        font-size: 13px;
+      #modal-detalle-despacho.open .despacho-print-titulo-fila {
         margin-bottom: 0.3rem;
         padding-bottom: 0.25rem;
+      }
+
+      #modal-detalle-despacho.open .despacho-print-titulo {
+        font-size: 13px;
+      }
+
+      #modal-detalle-despacho.open .despacho-print-fecha-creacion > label {
+        font-size: 9px;
+      }
+
+      #modal-detalle-despacho.open .despacho-print-fecha-creacion > div {
+        font-size: 11px;
       }
 
       #modal-detalle-despacho.open .detalle-despacho-print-linea-cliente {
