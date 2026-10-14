@@ -4,7 +4,7 @@ import {
   eliminarDespachoConMotivo,
   marcarDespachoRevisado
 } from '../services/despachosService.js';
-import { esValidador } from '../services/validatorService.js';
+import { esValidador, esPropuesta } from '../services/validatorService.js';
 import { abrirDetalleDespacho, descargarDetalleDespachoPDF } from './despachoDetalleModal.js';
 import { mostrarToast } from './toast.js';
 
@@ -110,6 +110,9 @@ function renderDespachos(despachos) {
 
   // El visto bueno es del Validador; los demás lo ven, pero no lo mueven.
   const puedeRevisar = esValidador();
+  // Propuesta solo mira: sin ×. La columna se conserva (vacía) para que
+  // la grilla de la fila no cambie de forma.
+  const puedeEliminar = !esPropuesta();
 
   contenedor.innerHTML = despachos
     .map((d) => {
@@ -136,9 +139,9 @@ function renderDespachos(despachos) {
             <button class="btn-descargar-registro" data-descargar="${escapeHtml(d.id)}" title="Descargar el despacho en PDF" aria-label="Descargar el despacho en PDF">${ICONO_DESCARGA}</button>
           </div>
           <div class="regd-col-accion">
-            <button class="btn-eliminar-registro" data-eliminar="${escapeHtml(d.id)}" ${bloqueado ? 'disabled' : ''}
+            ${puedeEliminar ? `<button class="btn-eliminar-registro" data-eliminar="${escapeHtml(d.id)}" ${bloqueado ? 'disabled' : ''}
               title="${bloqueado ? 'El Validador ya revisó este despacho. Pídele que quite el visto bueno para poder eliminarlo.' : 'Eliminar despacho completo'}"
-              aria-label="Eliminar despacho completo">×</button>
+              aria-label="Eliminar despacho completo">×</button>` : ''}
           </div>
         </div>
       `;

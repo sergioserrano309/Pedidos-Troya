@@ -226,6 +226,22 @@ export async function generarExcel() {
 
   const mapaUltimaFecha = construirMapaUltimaFechaPorProceso(historial);
 
+  // IDs de despacho (consecutivo, p. ej. "D1028") por orden, sin repetir y
+  // en orden numérico (D2 antes que D10, que un orden alfabético no da).
+  const despachosPorOrden = new Map();
+  detalleDespachos.forEach((d) => {
+    if (!d.consecutivo) return;
+    const clave = String(d.order_number);
+    if (!despachosPorOrden.has(clave)) despachosPorOrden.set(clave, new Set());
+    despachosPorOrden.get(clave).add(String(d.consecutivo));
+  });
+  despachosPorOrden.forEach((ids, clave) => {
+    despachosPorOrden.set(
+      clave,
+      [...ids].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+    );
+  });
+
   // === HOJA ÓRDENES ===
   const hojaCórdenes = ordenes.map((orden) => {
     const destino = destinos[orden.order_number];
@@ -270,11 +286,24 @@ export async function generarExcel() {
       // haya salido parte — que es justo lo que distingue "despachado"
       // de "despachado a medias".
       'F_Despacho': diaExcel(despachoDeOrden(orden.order_number, estadoDespacho).fecha),
-      'Unidades Despachadas': despachoDeOrden(orden.order_number, estadoDespacho).unidades
+      // Todos los despachos en los que está la orden (los mismos IDs que
+      // la hoja Despachos), no solo el que la completó.
+      'Despachos': (despachosPorOrden.get(String(orden.order_number)) || []).join(', ') || '—',
+      'Unidades Despachadas': despachoDeOrden(orden.order_number, estadoDespacho).unidades,
+      // Cierre forzado por el Validador (057). Solo informativo: viene de
+      // vw_pedido_progreso y no altera ninguna otra columna. El cierre es
+      // un instante real (timestamptz), por eso va por soloFecha (día
+      // local) como las fechas de movimientos, con el mismo formato de
+      // 'Fecha'. Sin cierre, las dos columnas de detalle dicen "No".
+      'CerradaF': orden.cierre_forzado ? 'Sí' : 'No',
+      'FechaCerradaF': orden.cierre_forzado
+        ? (serialExcelDeDia(soloFecha(orden.cierre_forzado_at)) ?? '—')
+        : 'No',
+      'MotivoCierreF': orden.cierre_forzado ? (orden.cierre_forzado_motivo || '—') : 'No'
     };
   });
   const wsOrdenes = XLSX.utils.json_to_sheet(hojaCórdenes);
-  formatearColumnasFecha(wsOrdenes, ['Fecha', 'F_Refilado', 'F_Acabado', 'F_Empaque', 'F_Mateado', 'F_Despacho']);
+  formatearColumnasFecha(wsOrdenes, ['Fecha', 'F_Refilado', 'F_Acabado', 'F_Empaque', 'F_Mateado', 'F_Despacho', 'FechaCerradaF']);
   XLSX.utils.book_append_sheet(libro, wsOrdenes, 'Órdenes');
 
   // === HOJAS DE PROCESOS ===
