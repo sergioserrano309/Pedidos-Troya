@@ -4,9 +4,11 @@ import {
   fetchBultosDespacho,
   fetchItemsDespacho,
   fetchEstadoPedidos,
-  fetchInfoPedidos
+  fetchInfoPedidos,
+  editarComentarioDespacho
 } from '../services/despachosService.js';
-import { esPropuesta } from '../services/validatorService.js';
+import { esPropuesta, esValidador } from '../services/validatorService.js';
+import { mostrarToast } from './toast.js';
 
 /**
  * Modal "Detalle del Despacho", que se abre desde Despachos > Despachado.
@@ -56,6 +58,7 @@ export async function abrirDetalleDespacho(despachoId, consecutivo) {
     const ctx = await cargarContextoDetalle(despachoId);
     titulo.textContent = `Detalle del Despacho — ${ctx.detalle.consecutivo}`;
     contenido.innerHTML = renderContenidoPantalla(ctx);
+    enlazarEdicionComentario(despachoId, ctx.detalle.comentario);
     return String(ctx.detalle.consecutivo || consecutivo || '').trim() || null;
   } catch (err) {
     contenido.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
@@ -179,7 +182,81 @@ function renderContenidoPantalla(ctx) {
       <label>Resumen por pedido</label>
       ${renderMatrizPedidos(ordenes, { bultosDe, unidadesDe, estadoPorPedido })}
     </div>
+${esValidador() ? renderComentarioEditable(detalle.comentario) : renderComentario(detalle.comentario, 'form-group')}
   `;
+}
+
+/**
+ * Comentario de la salida (062). Solo se pinta si lo hay: los despachos
+ * sin comentario (todos los anteriores a 062) se ven exactamente igual.
+ * Va escapado y con saltos de línea respetados (white-space: pre-wrap).
+ */
+function renderComentario(comentario, clasesGrupo) {
+  const texto = String(comentario ?? '').trim();
+  if (!texto) return '';
+  return `
+    <div class="${clasesGrupo}">
+      <label>Comentarios</label>
+      <div class="detalle-despacho-comentario">${escapeHtml(texto)}</div>
+    </div>`;
+}
+
+/**
+ * Comentario editable (063), solo para el Validador y solo en pantalla: el
+ * PDF usa siempre renderComentario (texto fijo). El botón nace apagado y
+ * se prende al cambiar el texto.
+ */
+function renderComentarioEditable(comentario) {
+  const texto = String(comentario ?? '');
+  return `
+    <div class="form-group">
+      <label for="detalle-despacho-comentario-input">Comentarios</label>
+      <textarea id="detalle-despacho-comentario-input" maxlength="255" rows="3"
+        placeholder="Sin comentario. Escribe aquí lo que quieras dejar anotado sobre este despacho.">${escapeHtml(texto)}</textarea>
+      <div class="detalle-despacho-comentario-pie">
+        <span id="detalle-despacho-comentario-contador" class="crear-despacho-contador">${texto.length} / 255</span>
+        <button type="button" class="btn btn-primary btn-sm" id="detalle-despacho-comentario-guardar" disabled>Guardar comentario</button>
+      </div>
+    </div>`;
+}
+
+/**
+ * Engancha el campo editable recién pintado. No-op si no hay campo
+ * (cualquier usuario que no sea Validador). Los listeners viven en nodos
+ * que se recrean en cada apertura del modal, así que no se acumulan.
+ */
+function enlazarEdicionComentario(despachoId, comentarioInicial) {
+  const campo = document.getElementById('detalle-despacho-comentario-input');
+  const boton = document.getElementById('detalle-despacho-comentario-guardar');
+  const contador = document.getElementById('detalle-despacho-comentario-contador');
+  if (!campo || !boton) return;
+
+  let guardado = String(comentarioInicial ?? '').trim();
+
+  const sincronizar = () => {
+    if (contador) contador.textContent = `${campo.value.length} / ${campo.maxLength}`;
+    boton.disabled = campo.value.trim() === guardado;
+  };
+  campo.addEventListener('input', sincronizar);
+
+  boton.addEventListener('click', async () => {
+    const nuevo = campo.value.trim();
+    if (nuevo === guardado) return;
+
+    boton.disabled = true;
+    campo.disabled = true;
+    try {
+      await editarComentarioDespacho(despachoId, nuevo);
+      guardado = nuevo;
+      campo.value = nuevo;
+      mostrarToast(nuevo ? 'Comentario guardado.' : 'Comentario eliminado.', 'ok');
+    } catch (err) {
+      mostrarToast(err.message, 'error');
+    } finally {
+      campo.disabled = false;
+      sincronizar();
+    }
+  });
 }
 
 /** [No. Orden]: [Suela] [Material] [Color] + procesos Sí/No (solo pantalla). */
@@ -401,6 +478,7 @@ function renderCuerpoImpresion(ctx, fechaImpreso, consecutivo) {
       <label>Unidades por pedido y talla</label>
       ${renderMatrizImpresion(ordenes, tallasPorPedido, { bultosDe, unidadesDe })}
     </div>
+${renderComentario(detalle.comentario, 'form-group form-group-print')}
   `;
 }
 
