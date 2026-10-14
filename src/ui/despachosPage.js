@@ -7,7 +7,7 @@ import {
   fetchEstadoPedidos,
   crearDespacho
 } from '../services/despachosService.js';
-import { rolEfectivo, esValidador } from '../services/validatorService.js';
+import { rolEfectivo, esValidador, esPropuesta } from '../services/validatorService.js';
 import { calcularOpciones, reconstruirSelect } from '../lib/facetas.js';
 import { abrirDetalleOrden } from './orderDetail.js';
 import { cargarRegistrosDespachos, EVENTO_DESPACHO_ELIMINADO } from './registrosDespachosPage.js';
@@ -181,17 +181,35 @@ export function inicializarPaginaDespachos() {
  */
 export function configurarUIDespachos() {
   const tabBtn = document.getElementById('tab-btn-despachos');
+  const propuesta = esPropuesta();
   // El Validador la ve siempre (también en vista maestra); los demás solo
-  // si su rol efectivo es Empaque.
-  const mostrar = esValidador() || rolEfectivo() === 'empaque';
+  // si su rol efectivo es Empaque. Propuesta la ve en solo lectura y solo
+  // la sección "Despachado".
+  const mostrar = esValidador() || rolEfectivo() === 'empaque' || propuesta;
   if (tabBtn) tabBtn.style.display = mostrar ? 'inline-block' : 'none';
+
+  // Se fija siempre (no solo para Propuesta) para no arrastrar el estado
+  // de una sesión anterior en la misma pestaña del navegador.
+  const seccionADespachar = document.getElementById('desp-a-despachar-seccion');
+  if (seccionADespachar) seccionADespachar.style.display = propuesta ? 'none' : '';
+
+  const notaDespachado = document.getElementById('desp-despachado-nota');
+  if (notaDespachado) notaDespachado.style.display = propuesta ? 'none' : '';
+
+  // Sin "A Despachar" encima, "Despachado" es lo único de la pestaña: se
+  // deja abierto en vez de obligar a un clic.
+  const seccionDespachado = document.getElementById('desp-despachado-seccion');
+  if (seccionDespachado && propuesta) seccionDespachado.open = true;
 }
 
 /** "A Despachar" y "Despachado" son acordeones independientes (<details> nativos) — ambos se cargan siempre, sin importar cuál esté abierto. */
 export function cargarDespachosTab() {
   if (!getState().user) return;
-  cargarPedidosPorDespachar();
-  cargarFacetasADespachar();
+  // Propuesta no ve "A Despachar": ni se consulta.
+  if (!esPropuesta()) {
+    cargarPedidosPorDespachar();
+    cargarFacetasADespachar();
+  }
   cargarRegistrosDespachos();
 }
 

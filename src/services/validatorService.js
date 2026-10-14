@@ -13,6 +13,16 @@ export function esValidador() {
 }
 
 /**
+ * Propuesta es un rol de solo lectura: ve Despachos > Despachado pero no
+ * crea, elimina ni revisa nada (el servidor lo rechaza igual; esto solo
+ * evita ofrecer controles que van a fallar).
+ */
+export function esPropuesta() {
+  const { user } = getState();
+  return user?.role === 'propuesta';
+}
+
+/**
  * Vista maestra en Órdenes (badges R/A/M/E % por proceso): Validador con
  * Rol Activo = "Validador", o Propuesta (que solo tiene esta vista).
  */

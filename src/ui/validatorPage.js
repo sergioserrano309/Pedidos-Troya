@@ -223,6 +223,30 @@ function badgeEtapa(etapa) {
   return `<span style="background:${s.bg}; color:${s.color}; padding:3px 10px; border-radius:4px; font-weight:600;">${etapa || '—'}</span>`;
 }
 
+/**
+ * Badge de Estado. Un pedido cerrado a la fuerza por el Validador (057)
+ * conserva su estatus_general real (p. ej. "En Proceso", porque no se
+ * completó), así que se muestra "Cerrada" para que no parezca abierto.
+ */
+function badgeEstado(o) {
+  if (o.cierre_forzado) {
+    const quien = o.cierre_forzado_por || 'el Validador';
+    const motivo = o.cierre_forzado_motivo ? `: ${o.cierre_forzado_motivo}` : '';
+    return `<span class="estado-badge estado-cerrada" title="${escapeHtml(`Cerrada a la fuerza por ${quien}${motivo}`)}">Cerrada</span>`;
+  }
+  return `<span class="estado-badge estado-${o.estatus_general === 'Completado' ? 'completado' : 'en-proceso'}">${o.estatus_general}</span>`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[c]));
+}
+
 /** Solo se usa para fecha_pedido (fecha de calendario a medianoche UTC): ver lib/fechas.js. */
 function formatearFecha(fecha) {
   return formatearFechaPedido(fecha);
@@ -305,9 +329,7 @@ function renderTablaValidador(ordenes, mapaUltimaFecha) {
             <td style="padding: 8px; text-align: center;"><strong>${o.dias_orden ?? 0}</strong></td>
             <td style="padding: 8px; text-align: center;">${badgeEtapa(o.etapa_actual)}</td>
             <td style="padding: 8px; text-align: center;">
-              <span class="estado-badge estado-${o.estatus_general === 'Completado' ? 'completado' : 'en-proceso'}">
-                ${o.estatus_general}
-              </span>
+              ${badgeEstado(o)}
             </td>
           </tr>
         `;
