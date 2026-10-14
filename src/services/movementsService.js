@@ -113,3 +113,26 @@ export async function eliminarMovimientoConMotivo(movimientoId, motivo) {
     throw new Error(error.message || 'No se pudo eliminar el registro.');
   }
 }
+
+/**
+ * Elimina VARIOS movimientos propios en UNA sola operación: todos o ninguno
+ * (ver supabase/sql/060_borrado_por_unidades_y_lote_atomico.sql). Si
+ * cualquiera incumple una regla, no se elimina ninguno y el error indica
+ * cuál y por qué.
+ * @param {string[]} movimientoIds
+ * @param {string} motivo
+ * @returns {Promise<number>} cuántos se eliminaron
+ */
+export async function eliminarMovimientosConMotivo(movimientoIds, motivo) {
+  const { data, error } = await supabase.rpc('eliminar_movimientos_con_motivo', {
+    p_ids: movimientoIds,
+    p_motivo: motivo
+  });
+
+  if (error) {
+    console.error('[movementsService] Error eliminando movimientos en lote:', error);
+    throw new Error(error.message || 'No se pudieron eliminar los registros.');
+  }
+
+  return data ?? movimientoIds.length;
+}
