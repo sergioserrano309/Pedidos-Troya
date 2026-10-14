@@ -1963,6 +1963,33 @@
       white-space: nowrap;
     }
 
+    /* Comentario de la salida (062): texto libre, respeta saltos de línea. */
+    .detalle-despacho-comentario {
+      font-size: 13px;
+      color: var(--text);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .detalle-despacho-comentario-pie {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-top: 6px;
+    }
+
+    .detalle-despacho-comentario-pie .crear-despacho-contador {
+      margin-top: 0;
+    }
+
+    .crear-despacho-contador {
+      margin-top: 4px;
+      font-size: 11px;
+      color: var(--text3);
+      text-align: right;
+    }
+
     /* Ficha de cada pedido: [número]  suela · material · color. */
     .detalle-despacho-ficha {
       display: flex;
@@ -4552,6 +4579,10 @@
         padding: 1px 0;
       }
 
+      #modal-detalle-despacho.open .detalle-despacho-comentario {
+        font-size: 11px;
+      }
+
       #modal-detalle-despacho.open .form-group-print > label {
         font-size: 10px;
         letter-spacing: 0.02em;
@@ -5686,6 +5717,13 @@
       <div class="form-group">
         <label id="crear-despacho-pedidos-label">Pedidos seleccionados</label>
         <div id="crear-despacho-pedidos-filas" style="margin-top:0.75rem;"></div>
+      </div>
+
+      <div class="form-group">
+        <label for="crear-despacho-comentario">Comentarios</label>
+        <textarea id="crear-despacho-comentario" maxlength="255" rows="3"
+          placeholder="(Opcional) Algo que quieras dejar anotado sobre esta salida"></textarea>
+        <div id="crear-despacho-comentario-contador" class="crear-despacho-contador">0 / 255</div>
       </div>
 
       <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem;">

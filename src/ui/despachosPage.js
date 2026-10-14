@@ -118,6 +118,7 @@ export function inicializarPaginaDespachos() {
   document.getElementById('btn-cerrar-crear-despacho')?.addEventListener('click', cerrarModalCrearSalida);
   document.getElementById('btn-cancelar-crear-despacho')?.addEventListener('click', cerrarModalCrearSalida);
   document.getElementById('btn-confirmar-crear-despacho')?.addEventListener('click', confirmarCrearSalida);
+  document.getElementById('crear-despacho-comentario')?.addEventListener('input', actualizarContadorComentario);
   document.getElementById('crear-despacho-num-bultos')?.addEventListener('input', (e) => {
     const n = Number(e.target.value) || 0;
     regenerarInputsPesoBultos(n);
@@ -418,6 +419,8 @@ async function abrirModalCrearSalida() {
   const ordenes = [...seleccionDespacho];
 
   document.getElementById('crear-despacho-num-bultos').value = '';
+  document.getElementById('crear-despacho-comentario').value = '';
+  actualizarContadorComentario();
   document.getElementById('crear-despacho-pesos').innerHTML = '';
   document.getElementById('crear-despacho-total-unidades').textContent = '…';
   document.getElementById('crear-despacho-total-kilos').textContent = '0';
@@ -512,6 +515,13 @@ function actualizarTotalUnidades() {
 
   const el = document.getElementById('crear-despacho-total-unidades');
   if (el) el.textContent = total;
+}
+
+/** "n / 255" del campo de comentarios de la salida. */
+function actualizarContadorComentario() {
+  const campo = document.getElementById('crear-despacho-comentario');
+  const contador = document.getElementById('crear-despacho-comentario-contador');
+  if (campo && contador) contador.textContent = `${campo.value.length} / ${campo.maxLength}`;
 }
 
 /** Suma de los pesos digitados. Se recalcula en cada tecla (listener delegado). */
@@ -775,7 +785,8 @@ async function confirmarCrearSalida() {
       totalBultos: numBultos,
       pesos,
       asignaciones,
-      items
+      items,
+      comentario: document.getElementById('crear-despacho-comentario')?.value || ''
     });
     mostrarToast(`Despacho ${despacho.consecutivo} creado correctamente.`, 'ok');
     cerrarModalCrearSalida();

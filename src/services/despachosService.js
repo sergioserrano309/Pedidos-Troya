@@ -278,16 +278,24 @@ export async function fetchInfoPedidos(orderNumbers) {
  * Los errores de validación llegan en español tal cual los lanzó el RPC
  * (ej. "No hay saldo suficiente para despachar: pedido 3121 talla 35...").
  *
- * @param {{ orderNumbers: string[], totalBultos: number, pesos: number[], asignaciones: Array<{ order_number: string, bulto_numero: number }>, items: Array<{ item_id: string, cantidad: number }> }} datos
+ * Comentario opcional (062): solo se envía p_comentario cuando el usuario
+ * escribió algo, así una salida sin comentario no depende de que el SQL 062
+ * ya esté aplicado.
+ *
+ * @param {{ orderNumbers: string[], totalBultos: number, pesos: number[], asignaciones: Array<{ order_number: string, bulto_numero: number }>, items: Array<{ item_id: string, cantidad: number }>, comentario?: string }} datos
  */
-export async function crearDespacho({ orderNumbers, totalBultos, pesos, asignaciones, items }) {
-  const { data, error } = await supabase.rpc('crear_despacho', {
+export async function crearDespacho({ orderNumbers, totalBultos, pesos, asignaciones, items, comentario = '' }) {
+  const params = {
     p_order_numbers: orderNumbers,
     p_total_bultos: totalBultos,
     p_pesos: pesos,
     p_asignaciones: asignaciones,
     p_items: items
-  });
+  };
+  const texto = String(comentario ?? '').trim();
+  if (texto) params.p_comentario = texto;
+
+  const { data, error } = await supabase.rpc('crear_despacho', params);
 
   if (error) {
     console.error('[despachosService] Error creando despacho:', error);
@@ -327,7 +335,15 @@ export async function fetchDetalleDespacho(despachoId) {
     throw new Error('No se pudo cargar el detalle del despacho.');
   }
 
-  return data;
+  // Comentario de la salida (062). Consulta aparte y tolerante: si la
+  // columna aún no existe en la base, el detalle se muestra igual, sin él.
+  const { data: extra } = await supabase
+    .from('despachos')
+    .select('comentario')
+    .eq('id', despachoId)
+    .maybeSingle();
+
+  return { ...data, comentario: extra?.comentario || '' };
 }
 
 /**
@@ -435,6 +451,26 @@ export async function eliminarDespachoConMotivo(despachoId, motivo) {
   if (error) {
     console.error('[despachosService] Error eliminando despacho:', error);
     throw new Error(error.message || 'No se pudo eliminar el despacho.');
+  }
+}
+
+/**
+ * Edita, agrega o quita el comentario de un despacho ya creado (063).
+ * Solo el Validador: el RPC valida el rol en la base y deja el cambio
+ * (texto anterior y nuevo) en audit_validador. Texto vacío = quitar.
+ *
+ * @param {string} despachoId
+ * @param {string} comentario
+ */
+export async function editarComentarioDespacho(despachoId, comentario) {
+  const { error } = await supabase.rpc('editar_comentario_despacho', {
+    p_despacho_id: despachoId,
+    p_comentario: String(comentario ?? '').trim()
+  });
+
+  if (error) {
+    console.error('[despachosService] Error editando el comentario del despacho:', error);
+    throw new Error(error.message || 'No se pudo guardar el comentario del despacho.');
   }
 }
 

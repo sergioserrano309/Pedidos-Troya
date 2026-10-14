@@ -96,6 +96,32 @@ async function fetchTodoElDetalleDespachos() {
 }
 
 /**
+ * Comentario de cada salida (062), por despacho_id. Solo vienen los
+ * despachos que tienen comentario. Si falla (p. ej. el SQL 062 aún no
+ * está aplicado y la columna no existe), la hoja sale igual con la
+ * columna vacía en vez de impedir la descarga.
+ */
+async function fetchComentariosDespachos() {
+  const mapa = new Map();
+  let page = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from('despachos')
+      .select('id, comentario')
+      .not('comentario', 'is', null)
+      .order('id', { ascending: true })
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+    if (error) return mapa;
+    if (!data || data.length === 0) break;
+    data.forEach((f) => {
+      if (f.comentario) mapa.set(f.id, f.comentario);
+    });
+    page++;
+  }
+  return mapa;
+}
+
+/**
  * Unidades por despacho x orden x talla. Es lo que se pivota en las
  * columnas de talla de la hoja "Despachos".
  */
@@ -217,6 +243,7 @@ export async function generarExcel() {
   const estadoDespacho = await fetchTodoElEstadoDespacho();
   const detalleDespachos = await fetchTodoElDetalleDespachos();
   const itemsDespachados = await fetchTodosLosItemsDespachados();
+  const comentariosDespachos = await fetchComentariosDespachos();
   const tallas = await fetchTodasLasTallas();
 
   const mapaOrdenes = {};
@@ -402,6 +429,9 @@ export async function generarExcel() {
     fila['Unidades del Despacho'] = d.unidades_despacho ?? 0;
     fila['% Despachado de la Orden'] = d.porcentaje_despachado ?? 0;
     fila['Orden Completa'] = d.pedido_completo ? 'Sí' : 'No';
+    // Comentario de la salida (062), repetido en cada fila del mismo
+    // despacho como los totales del despacho. Vacío si no tiene.
+    fila['Comentario'] = comentariosDespachos.get(d.despacho_id) || '';
 
     // Las tallas van de últimas: son muchas columnas y dejaban los datos
     // del despacho fuera de la pantalla. La suma de estas columnas es

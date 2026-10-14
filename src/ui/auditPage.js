@@ -22,6 +22,7 @@ export async function cargarAuditPage() {
             <option value="crear_regla">Crear Regla</option>
             <option value="editar_regla">Editar Regla</option>
             <option value="eliminar_regla">Eliminar Regla</option>
+            <option value="editar_comentario_despacho">Editar Comentario de Despacho</option>
           </select>
         </div>
         <div>
@@ -114,7 +115,7 @@ function renderTablaAudit(registros) {
             <td style="padding: 8px;">${r.orden_id || '—'}</td>
             <td style="padding: 8px; color: var(--text2); font-size: 11px;">${r.razon || '—'}</td>
             <td style="padding: 8px; color: var(--text3); font-size: 10px;">
-              <code style="background: var(--bg); padding: 2px 4px; border-radius: 2px;">
+              <code title="${r.detalle ? escapeAttr(JSON.stringify(r.detalle)) : ''}" style="background: var(--bg); padding: 2px 4px; border-radius: 2px;">
                 ${r.detalle ? JSON.stringify(r.detalle).substring(0, 100) + '...' : '—'}
               </code>
             </td>
@@ -125,6 +126,17 @@ function renderTablaAudit(registros) {
   `;
 
   tabla.innerHTML = html;
+}
+
+/** Para volcar el detalle completo en un atributo title sin romper el HTML. */
+function escapeAttr(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[c]));
 }
 
 function formatearFecha(fecha) {
