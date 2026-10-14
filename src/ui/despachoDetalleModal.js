@@ -6,6 +6,7 @@ import {
   fetchEstadoPedidos,
   fetchInfoPedidos
 } from '../services/despachosService.js';
+import { esPropuesta } from '../services/validatorService.js';
 
 /**
  * Modal "Detalle del Despacho", que se abre desde Despachos > Despachado.
@@ -461,6 +462,10 @@ function compararTallas(a, b) {
  * document.title = consecutivo (nombre sugerido del archivo).
  */
 export async function descargarDetalleDespachoPDF(despachoId, consecutivo) {
+  // Propuesta solo consulta: no descarga despachos (el botón ya no se
+  // le pinta; esto cubre cualquier otra vía que llegue hasta aquí).
+  if (esPropuesta()) return;
+
   const modal = document.getElementById('modal-detalle-despacho');
   const titulo = document.getElementById('detalle-despacho-titulo');
   const contenido = document.getElementById('detalle-despacho-contenido');

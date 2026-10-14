@@ -110,9 +110,10 @@ function renderDespachos(despachos) {
 
   // El visto bueno es del Validador; los demás lo ven, pero no lo mueven.
   const puedeRevisar = esValidador();
-  // Propuesta solo mira: sin ×. La columna se conserva (vacía) para que
-  // la grilla de la fila no cambie de forma.
+  // Propuesta solo mira: sin × y sin descarga del PDF. Las columnas se
+  // conservan (vacías) para que la grilla de la fila no cambie de forma.
   const puedeEliminar = !esPropuesta();
+  const puedeDescargar = !esPropuesta();
 
   contenedor.innerHTML = despachos
     .map((d) => {
@@ -136,7 +137,7 @@ function renderDespachos(despachos) {
               title="${tituloRevisado(d, puedeRevisar)}" aria-label="Revisado por el Validador">
           </div>
           <div class="regd-col-descarga">
-            <button class="btn-descargar-registro" data-descargar="${escapeHtml(d.id)}" title="Descargar el despacho en PDF" aria-label="Descargar el despacho en PDF">${ICONO_DESCARGA}</button>
+            ${puedeDescargar ? `<button class="btn-descargar-registro" data-descargar="${escapeHtml(d.id)}" title="Descargar el despacho en PDF" aria-label="Descargar el despacho en PDF">${ICONO_DESCARGA}</button>` : ''}
           </div>
           <div class="regd-col-accion">
             ${puedeEliminar ? `<button class="btn-eliminar-registro" data-eliminar="${escapeHtml(d.id)}" ${bloqueado ? 'disabled' : ''}
