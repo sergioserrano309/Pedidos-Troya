@@ -53,6 +53,14 @@ Refilado → (Acabado O Mateado, nunca ambos) → Empaque → Completado
 - **Validaciones:**
   - Solo usuario que creó el movimiento puede eliminarlo
   - Solo si es el movimiento MÁS RECIENTE de esa talla
+
+### 5b. **Despachos → Despachado: indicador de comentario**
+- Icono de bocadillo **solo** en filas con `despachos.comentario` no vacío
+- Clic abre popover de **solo lectura** (estilo nota Excel); no abre el detalle
+- Visible para todos los roles con acceso a Despachos (incluye Propuesta)
+- Dato expuesto en `vw_despachos_registro` vía SQL `064` (una sola query; no fetch aparte)
+- Edición del comentario sigue en el modal de detalle (Validador, SQL `063`)
+- Detalle técnico y decisiones: `DOCUMENTACION_TECNICA.md` §12.8
 - **Log inmutable** en `log_eliminaciones` (fecha, usuario, motivo, snapshot completo)
 
 ### 6. **Gestión de Reglas de Enrutamiento**
@@ -276,6 +284,9 @@ supabase/sql/
 ├── 014_eliminacion_registros.sql    → Log eliminaciones + función
 ├── 015_indices_performance.sql      → Índices para speedup
 ├── 016_item_id_materializado.sql    → Columna generated stored
+├── 062_despacho_comentario.sql      → Columna comentario al crear salida
+├── 063_editar_comentario_despacho.sql → Edición Validador
+├── 064_despachos_registro_comentario.sql → comentario en vw_despachos_registro (listado)
 └── FASE_11_SUPABASE_MIGRATION.sql   → Optimizaciones finales vw_pedido_progreso
 
 index.html                   → HTML estructura + CSS

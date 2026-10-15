@@ -93,6 +93,13 @@ export async function cargarRegistrosDespachos() {
  */
 const ICONO_DESCARGA = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
 
+/** Bocadillo de comentario (064): misma familia de trazos que la descarga. */
+const ICONO_COMENTARIO = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
+
+/** Popover de solo lectura anclado al icono de comentario de la fila. */
+let popoverComentario = null;
+let botonComentarioActivo = null;
+
 function contadorCompletos(completos, total) {
   const todos = total > 0 && completos === total;
   const bg = todos ? 'var(--green-bg)' : 'var(--amber-bg)';
@@ -102,6 +109,7 @@ function contadorCompletos(completos, total) {
 
 function renderDespachos(despachos) {
   const contenedor = document.getElementById('regd-lista');
+  cerrarPopoverComentario();
 
   if (despachos.length === 0) {
     contenedor.innerHTML = '<div class="empty">No hay despachos para mostrar.</div>';
@@ -112,12 +120,14 @@ function renderDespachos(despachos) {
   const puedeRevisar = esValidador();
   // Propuesta solo mira: sin × y sin descarga del PDF. Las columnas se
   // conservan (vacías) para que la grilla de la fila no cambie de forma.
+  // El icono de comentario (064) sí lo ven todos, incluido Propuesta.
   const puedeEliminar = !esPropuesta();
   const puedeDescargar = !esPropuesta();
 
   contenedor.innerHTML = despachos
     .map((d) => {
       const listaOrdenes = (d.order_numbers || []).join(', ');
+      const comentario = String(d.comentario ?? '').trim();
       // El × se apaga con el visto bueno puesto, salvo para el propio
       // Validador — que de todos modos puede quitarlo. Es el mismo
       // criterio de Registros: no ofrecer lo que el servidor rechazaría.
@@ -136,6 +146,9 @@ function renderDespachos(despachos) {
               ${d.revisado ? 'checked' : ''} ${puedeRevisar ? '' : 'disabled'}
               title="${tituloRevisado(d, puedeRevisar)}" aria-label="Revisado por el Validador">
           </div>
+          <div class="regd-col-comentario">
+            ${comentario ? `<button type="button" class="btn-comentario-registro" data-comentario="${escapeHtml(comentario)}" title="Ver comentario" aria-label="Ver comentario" aria-expanded="false">${ICONO_COMENTARIO}</button>` : ''}
+          </div>
           <div class="regd-col-descarga">
             ${puedeDescargar ? `<button class="btn-descargar-registro" data-descargar="${escapeHtml(d.id)}" title="Descargar el despacho en PDF" aria-label="Descargar el despacho en PDF">${ICONO_DESCARGA}</button>` : ''}
           </div>
@@ -150,7 +163,10 @@ function renderDespachos(despachos) {
     .join('');
 
   contenedor.querySelectorAll('.regd-fila').forEach((fila) => {
-    fila.addEventListener('click', () => abrirDetalleDespacho(fila.dataset.despacho, fila.dataset.consecutivo));
+    fila.addEventListener('click', () => {
+      cerrarPopoverComentario();
+      abrirDetalleDespacho(fila.dataset.despacho, fila.dataset.consecutivo);
+    });
   });
 
   contenedor.querySelectorAll('[data-revisar]').forEach((cb) => {
@@ -159,11 +175,20 @@ function renderDespachos(despachos) {
     cb.addEventListener('change', () => cambiarRevisado(cb));
   });
 
+  contenedor.querySelectorAll('.btn-comentario-registro').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      // La fila entera abre el detalle; el popover es solo lectura aquí.
+      event.stopPropagation();
+      alternarPopoverComentario(btn);
+    });
+  });
+
   contenedor.querySelectorAll('[data-descargar]').forEach((btn) => {
     btn.addEventListener('click', (event) => {
       // La fila entera abre el detalle; este botón abre lo mismo y además
       // manda a imprimir, así que no debe dispararla también.
       event.stopPropagation();
+      cerrarPopoverComentario();
       const fila = btn.closest('.regd-fila');
       descargarDetalleDespachoPDF(btn.dataset.descargar, fila.dataset.consecutivo);
     });
@@ -173,10 +198,81 @@ function renderDespachos(despachos) {
     btn.addEventListener('click', (event) => {
       // La fila entera abre el detalle; el × no debe dispararlo.
       event.stopPropagation();
+      cerrarPopoverComentario();
       const fila = btn.closest('.regd-fila');
       abrirModalEliminar(btn.dataset.eliminar, fila.dataset);
     });
   });
+}
+
+function asegurarListenersPopoverComentario() {
+  if (asegurarListenersPopoverComentario.listo) return;
+  asegurarListenersPopoverComentario.listo = true;
+
+  document.addEventListener('click', (event) => {
+    if (!popoverComentario) return;
+    if (popoverComentario.contains(event.target)) return;
+    if (botonComentarioActivo?.contains(event.target)) return;
+    cerrarPopoverComentario();
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') cerrarPopoverComentario();
+  });
+
+  window.addEventListener('resize', cerrarPopoverComentario);
+  document.getElementById('regd-lista')?.addEventListener('scroll', cerrarPopoverComentario, true);
+}
+
+function alternarPopoverComentario(boton) {
+  asegurarListenersPopoverComentario();
+
+  if (botonComentarioActivo === boton && popoverComentario) {
+    cerrarPopoverComentario();
+    return;
+  }
+
+  cerrarPopoverComentario();
+
+  const texto = boton.dataset.comentario || '';
+  const pop = document.createElement('div');
+  pop.className = 'regd-comentario-popover';
+  pop.setAttribute('role', 'dialog');
+  pop.setAttribute('aria-label', 'Comentario del despacho');
+  pop.innerHTML = `
+    <div class="regd-comentario-popover-titulo">Comentario</div>
+    <div class="regd-comentario-popover-texto">${escapeHtml(texto)}</div>
+  `;
+  document.body.appendChild(pop);
+
+  const rect = boton.getBoundingClientRect();
+  const margen = 8;
+  const ancho = pop.offsetWidth;
+  const alto = pop.offsetHeight;
+  let left = rect.left + rect.width / 2 - ancho / 2;
+  left = Math.max(margen, Math.min(left, window.innerWidth - ancho - margen));
+  let top = rect.bottom + 6;
+  if (top + alto + margen > window.innerHeight && rect.top - alto - 6 > margen) {
+    top = rect.top - alto - 6;
+  }
+
+  pop.style.left = `${Math.round(left)}px`;
+  pop.style.top = `${Math.round(top)}px`;
+
+  popoverComentario = pop;
+  botonComentarioActivo = boton;
+  boton.setAttribute('aria-expanded', 'true');
+}
+
+function cerrarPopoverComentario() {
+  if (popoverComentario) {
+    popoverComentario.remove();
+    popoverComentario = null;
+  }
+  if (botonComentarioActivo) {
+    botonComentarioActivo.setAttribute('aria-expanded', 'false');
+    botonComentarioActivo = null;
+  }
 }
 
 /** Texto del tooltip de la casilla, según quién esté mirando. */

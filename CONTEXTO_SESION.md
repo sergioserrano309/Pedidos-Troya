@@ -162,3 +162,25 @@ El usuario (Sergio) solicitó las siguientes mejoras a la aplicación de gestió
 - Los cambios se despliegan automáticamente cuando se hace `git push`
 - Usuario usa VSCode + GitHub + Vercel + Supabase (no ejecuta npm localmente)
 
+---
+
+## Sesión — Indicador de comentario en Despachado (2026-10-15)
+
+**Pedido:** en Despachos > Despachado, poder ver si un despacho tiene comentario sin abrir el detalle; icono + popover estilo Excel, solo lectura.
+
+**Decisiones cerradas con el usuario:**
+1. Mostrar el comentario actual (un texto), no un hilo.
+2. Popover solo ver (edición sigue en el modal de detalle para Validador).
+3. Icono solo si hay comentario.
+4. Visible para todos los roles con acceso a Despachos.
+5. Exponer el campo en la vista SQL (más rápido que un segundo fetch).
+6. **No** generar script `.sql` de revertir para este cambio.
+
+**Implementado:**
+- `supabase/sql/064_despachos_registro_comentario.sql` — `vw_despachos_registro` + columna `comentario`
+- `src/ui/registrosDespachosPage.js` — icono + popover
+- `index.html` — grid `.regd-*` y estilos del popover
+- Documentado en `DOCUMENTACION_TECNICA.md` §12.8 y resumen en `PROYECTO_RESUMEN.md` §5b
+
+**Pendiente operativo:** ejecutar `064` en el SQL Editor de Supabase para que el listado reciba `comentario`.
+

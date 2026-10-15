@@ -19,6 +19,7 @@
 11. [Autenticación y gestión de usuarios](#11-autenticación-y-gestión-de-usuarios)
 12. [Frontend: estructura y funcionamiento de cada módulo](#12-frontend-estructura-y-funcionamiento-de-cada-módulo)
     - [12.7 PDF de detalle de despacho (solo impresión)](#127-pdf-de-detalle-de-despacho-solo-impresión)
+    - [12.8 Indicador de comentario en Despachado](#128-indicador-de-comentario-en-despachado)
 13. [Estado de la aplicación (appState)](#13-estado-de-la-aplicación-appstate)
 14. [Tiempo real (Realtime)](#14-tiempo-real-realtime)
 15. [Variables de entorno](#15-variables-de-entorno)
@@ -729,6 +730,36 @@ async function bootstrap() {
 
 **Archivos:** `src/ui/despachoDetalleModal.js`, `src/ui/registrosDespachosPage.js`, estilos en `index.html`.
 
+### 12.8 Indicador de comentario en Despachado
+
+**Entrada:** Órdenes → Despachos → Despachado → icono de bocadillo en la fila (solo si esa salida tiene comentario).
+
+**Qué es el comentario (contexto previo):** cada despacho puede llevar un texto opcional de hasta 255 caracteres en `despachos.comentario` (SQL `062`, al crear la salida). El Validador puede editarlo o quitarlo desde el modal de detalle (SQL `063`). No es un hilo de mensajes: es **un solo texto** por despacho.
+
+**Problema que resuelve:** en el listado Despachado no había forma de saber si una fila tenía comentario sin abrir el detalle completo. Se pedía un indicador estilo Excel (marca en la “celda” → clic abre un recuadro de solo lectura).
+
+**Decisiones tomadas:**
+
+| Decisión | Elección | Por qué |
+|---|---|---|
+| Contenido del popover | El comentario **actual** (un texto) | Es el modelo que ya existe; no hay historial de comentarios |
+| Interacción | **Solo lectura** en el listado | La edición sigue en el modal de detalle (Validador, `063`) |
+| Cuándo mostrar el icono | **Solo** si `comentario` no está vacío | Estilo Excel: sin nota, sin marca |
+| Quién lo ve | **Todos** los roles con acceso a Despachos (incluye Propuesta) | Distinto del PDF/×, que Propuesta no ve |
+| Cómo llegar el dato al listado | Columna `comentario` en `vw_despachos_registro` (SQL `064`) | Una sola consulta; más rápido que un segundo `select` a `despachos` por página |
+| Alternativa descartada | Fetch aparte desde el frontend sin tocar la vista | Evita migración, pero suma un round-trip HTTP en cada carga del listado |
+
+**Comportamiento UI** (`src/ui/registrosDespachosPage.js`):
+
+- Columna entre Revisado y Descarga (`.regd-col-comentario`).
+- Clic en el icono: `stopPropagation` (no abre el modal de detalle) + popover flotante con título “Comentario” y el texto (`white-space: pre-wrap`).
+- Cierre: Escape, clic fuera, abrir otro comentario, clic en la fila / PDF / ×, o al re-renderizar la lista.
+- Tras guardar o quitar el comentario en el detalle, el icono se actualiza al **refrescar** el listado (misma fuente: la vista).
+
+**SQL a ejecutar en Supabase:** [`supabase/sql/064_despachos_registro_comentario.sql`](supabase/sql/064_despachos_registro_comentario.sql) (requiere `062` ya aplicado). No hay script de revertir para este cambio.
+
+**Archivos:** `supabase/sql/064_despachos_registro_comentario.sql`, `src/ui/registrosDespachosPage.js`, estilos `.regd-col-comentario` / `.regd-comentario-popover` en `index.html`.
+
 ---
 
 ## 13. Estado de la aplicación (appState)
@@ -800,6 +831,7 @@ El documento de especificaciones (`Contexto Cursor pedidos.md`) dejaba varios pu
 - **No hay soporte offline ni cacheo agresivo** de las consultas (más allá de lo que el propio navegador haga); la sección 20 del documento sugiere "cache Supabase queries" como optimización futura, no implementada aún.
 - **Escalabilidad futura** (sección 21 del documento: KPIs, códigos de barras, múltiples fábricas, etc.) no está implementada, pero la arquitectura de vistas + RLS + tablas append-only está pensada para poder agregarse sin romper lo existente (por ejemplo, una nueva vista `vw_kpis_produccion` se podría construir sobre las mismas tablas base).
 - **PDF de despacho en media hoja:** preview A4; en print cada mitad = **50 % del papel elegido** (`@page size: auto`), con corte al centro (véase §12.7). No usar altura fija en mm de A4 en print ni remedir a `--dos-paginas` en `beforeprint`. Si caben → una página; si no → dos con contenido.
+- **Indicador de comentario en Despachado:** icono solo si hay texto; popover de solo lectura; dato vía `vw_despachos_registro.comentario` (SQL `064`). No inventar hilo de comentarios ni editar desde el listado (véase §12.8).
 
 ---
 

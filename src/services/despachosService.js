@@ -368,8 +368,8 @@ export async function fetchAsignacionesDespacho(despachoId) {
 
 /**
  * Acordeón Despachos > Despachado: una fila por despacho con sus agregados (bultos,
- * kilos, unidades, órdenes). Ver vw_despachos_registro en
- * supabase/sql/039_registros_despachos.sql.
+ * kilos, unidades, órdenes, comentario desde 064). Ver vw_despachos_registro
+ * (039 → 046 → 053 → 064).
  * @param {{ page?: number, filters?: { fecha?: string, consecutivo?: string, orden?: string } }} options
  */
 export async function fetchRegistrosDespachos(options = {}) {
