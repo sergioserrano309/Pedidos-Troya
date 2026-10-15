@@ -26,9 +26,54 @@ import { mostrarToast } from './toast.js';
  * si no caben, una copia por página sin corte. Ver §12.7.
  */
 
+/** Pendiente del modal “¿incluir comentario en el PDF?”. */
+let pdfPendiente = null;
+
 export function inicializarModalDetalleDespacho() {
   document.getElementById('btn-cerrar-detalle-despacho')?.addEventListener('click', cerrarDetalleDespacho);
   document.getElementById('btn-cerrar-detalle-despacho-2')?.addEventListener('click', cerrarDetalleDespacho);
+
+  document.getElementById('btn-cerrar-pdf-comentario')?.addEventListener('click', cerrarModalPdfComentario);
+  document.getElementById('btn-cancelar-pdf-comentario')?.addEventListener('click', cerrarModalPdfComentario);
+  document.getElementById('btn-confirmar-pdf-comentario')?.addEventListener('click', confirmarPdfComentario);
+}
+
+/**
+ * Entrada del botón ↓ en Despachado. Si la salida no tiene comentario,
+ * imprime directo. Si tiene, abre un modal con toggle (default: incluir)
+ * antes de generar el PDF. No cambia el layout de impresión: solo decide
+ * si se pinta el bloque de comentario.
+ *
+ * @param {string} despachoId
+ * @param {string} consecutivo
+ * @param {{ tieneComentario?: boolean }} [opciones]
+ */
+export function solicitarDescargaDetalleDespachoPDF(despachoId, consecutivo, opciones = {}) {
+  if (esPropuesta()) return;
+
+  const tieneComentario = Boolean(opciones.tieneComentario);
+  if (!tieneComentario) {
+    descargarDetalleDespachoPDF(despachoId, consecutivo, { incluirComentario: true });
+    return;
+  }
+
+  pdfPendiente = { despachoId, consecutivo };
+  const toggle = document.getElementById('pdf-despacho-incluir-comentario');
+  if (toggle) toggle.checked = true;
+  document.getElementById('modal-pdf-comentario-despacho')?.classList.add('open');
+}
+
+function cerrarModalPdfComentario() {
+  document.getElementById('modal-pdf-comentario-despacho')?.classList.remove('open');
+  pdfPendiente = null;
+}
+
+function confirmarPdfComentario() {
+  if (!pdfPendiente) return;
+  const { despachoId, consecutivo } = pdfPendiente;
+  const incluir = Boolean(document.getElementById('pdf-despacho-incluir-comentario')?.checked);
+  cerrarModalPdfComentario();
+  descargarDetalleDespachoPDF(despachoId, consecutivo, { incluirComentario: incluir });
 }
 
 export function cerrarDetalleDespacho() {
@@ -426,7 +471,13 @@ function renderBultosImpresion(bultos) {
  * layout de hoja (mitad física o dos páginas) lo arma
  * descargarDetalleDespachoPDF + aplicarLayoutHojaImpresion.
  */
-function renderCuerpoImpresion(ctx, fechaImpreso, consecutivo) {
+/**
+ * @param {object} ctx
+ * @param {string} fechaImpreso
+ * @param {string} consecutivo
+ * @param {{ incluirComentario?: boolean }} [opciones]
+ */
+function renderCuerpoImpresion(ctx, fechaImpreso, consecutivo, opciones = {}) {
   const {
     detalle,
     bultos,
@@ -440,6 +491,7 @@ function renderCuerpoImpresion(ctx, fechaImpreso, consecutivo) {
     clientes
   } = ctx;
 
+  const incluirComentario = opciones.incluirComentario !== false;
   const clienteTxt = clientes.length ? escapeHtml(clientes.join(' · ')) : 'Cliente sin registrar';
   const labelBultos = `${bultos.length} ${bultos.length === 1 ? 'Bulto' : 'Bultos'}`;
   const labelUnd = `${unidadesTotal} ${unidadesTotal === 1 ? 'Unidad' : 'Unidades'}`;
@@ -480,7 +532,7 @@ function renderCuerpoImpresion(ctx, fechaImpreso, consecutivo) {
       <label>Unidades por pedido y talla</label>
       ${renderMatrizImpresion(ordenes, tallasPorPedido, { bultosDe, unidadesDe })}
     </div>
-${renderComentario(detalle.comentario, 'form-group form-group-print')}
+${incluirComentario ? renderComentario(detalle.comentario, 'form-group form-group-print') : ''}
   `;
 }
 
@@ -564,11 +616,17 @@ function aplicarLayoutHojaImpresion(hoja) {
  * (@page size: auto) con corte en el centro; si no caben, --dos-paginas.
  *
  * document.title = consecutivo (nombre sugerido del archivo).
+ *
+ * @param {string} despachoId
+ * @param {string} consecutivo
+ * @param {{ incluirComentario?: boolean }} [opciones] default: incluir
  */
-export async function descargarDetalleDespachoPDF(despachoId, consecutivo) {
+export async function descargarDetalleDespachoPDF(despachoId, consecutivo, opciones = {}) {
   // Propuesta solo consulta: no descarga despachos (el botón ya no se
   // le pinta; esto cubre cualquier otra vía que llegue hasta aquí).
   if (esPropuesta()) return;
+
+  const incluirComentario = opciones.incluirComentario !== false;
 
   const modal = document.getElementById('modal-detalle-despacho');
   const titulo = document.getElementById('detalle-despacho-titulo');
@@ -598,7 +656,7 @@ export async function descargarDetalleDespachoPDF(despachoId, consecutivo) {
     const fechaEl = document.getElementById('detalle-despacho-print-fecha');
     if (fechaEl) fechaEl.textContent = fechaImpreso;
 
-    const cuerpo = renderCuerpoImpresion(ctx, fechaImpreso, consecutivoReal);
+    const cuerpo = renderCuerpoImpresion(ctx, fechaImpreso, consecutivoReal, { incluirComentario });
     contenido.innerHTML = `
       <div class="despacho-print-hoja">
         <div class="despacho-print-copia">${cuerpo}</div>

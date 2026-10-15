@@ -5,7 +5,7 @@ import {
   marcarDespachoRevisado
 } from '../services/despachosService.js';
 import { esValidador, esPropuesta } from '../services/validatorService.js';
-import { abrirDetalleDespacho, descargarDetalleDespachoPDF } from './despachoDetalleModal.js';
+import { abrirDetalleDespacho, solicitarDescargaDetalleDespachoPDF } from './despachoDetalleModal.js';
 import { mostrarToast } from './toast.js';
 
 /**
@@ -133,7 +133,7 @@ function renderDespachos(despachos) {
       // criterio de Registros: no ofrecer lo que el servidor rechazaría.
       const bloqueado = d.revisado && !puedeRevisar;
       return `
-        <div class="regd-fila" data-despacho="${escapeHtml(d.id)}" data-consecutivo="${escapeHtml(d.consecutivo)}" data-ordenes="${escapeHtml(listaOrdenes)}" data-bultos="${d.total_bultos}">
+        <div class="regd-fila" data-despacho="${escapeHtml(d.id)}" data-consecutivo="${escapeHtml(d.consecutivo)}" data-ordenes="${escapeHtml(listaOrdenes)}" data-bultos="${d.total_bultos}"${comentario ? ' data-tiene-comentario="1"' : ''}>
           <div class="regd-col-consecutivo">${escapeHtml(d.consecutivo)}</div>
           <div class="regd-col-fecha">${formatearFecha(d.created_at)}</div>
           <div class="regd-col-ordenes" data-lbl="Pedidos" title="${escapeHtml(listaOrdenes)}">${escapeHtml(listaOrdenes) || '—'}</div>
@@ -190,7 +190,9 @@ function renderDespachos(despachos) {
       event.stopPropagation();
       cerrarPopoverComentario();
       const fila = btn.closest('.regd-fila');
-      descargarDetalleDespachoPDF(btn.dataset.descargar, fila.dataset.consecutivo);
+      solicitarDescargaDetalleDespachoPDF(btn.dataset.descargar, fila.dataset.consecutivo, {
+        tieneComentario: fila.dataset.tieneComentario === '1'
+      });
     });
   });
 

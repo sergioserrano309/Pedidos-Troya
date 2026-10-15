@@ -728,7 +728,14 @@ async function bootstrap() {
 3. Margen asimétrico bajo el corte → `padding-top: 8mm` en la 2.ª copia.
 4. Remedir en `beforeprint` hacia `--dos-paginas` → mitades en hojas distintas → **no remedir** en print.
 
-**Archivos:** `src/ui/despachoDetalleModal.js`, `src/ui/registrosDespachosPage.js`, estilos en `index.html`.
+**Comentario en el PDF (opción al descargar):**
+
+- Si el despacho **no** tiene comentario → se imprime directo (igual que antes).
+- Si **sí** tiene → modal previo con toggle “Incluir comentarios en el PDF” (**default: sí**). Cancelar / Descargar.
+- Solo afecta si se llama a `renderComentario` en la maqueta; no cambia mitades, corte ni `window.print`.
+- Entrada: `solicitarDescargaDetalleDespachoPDF` → `descargarDetalleDespachoPDF(..., { incluirComentario })`.
+
+**Archivos:** `src/ui/despachoDetalleModal.js`, `src/ui/registrosDespachosPage.js`, `#modal-pdf-comentario-despacho` y estilos en `index.html`.
 
 ### 12.8 Indicador de comentario en Despachado
 
@@ -830,7 +837,7 @@ El documento de especificaciones (`Contexto Cursor pedidos.md`) dejaba varios pu
 - **La búsqueda del dashboard/historial es por coincidencia de texto simple** (`ilike`), no hay filtros avanzados (por fecha, por material, etc.) — la sección 17 del documento original solo pedía "Search" genérico.
 - **No hay soporte offline ni cacheo agresivo** de las consultas (más allá de lo que el propio navegador haga); la sección 20 del documento sugiere "cache Supabase queries" como optimización futura, no implementada aún.
 - **Escalabilidad futura** (sección 21 del documento: KPIs, códigos de barras, múltiples fábricas, etc.) no está implementada, pero la arquitectura de vistas + RLS + tablas append-only está pensada para poder agregarse sin romper lo existente (por ejemplo, una nueva vista `vw_kpis_produccion` se podría construir sobre las mismas tablas base).
-- **PDF de despacho en media hoja:** preview A4; en print cada mitad = **50 % del papel elegido** (`@page size: auto`), con corte al centro (véase §12.7). No usar altura fija en mm de A4 en print ni remedir a `--dos-paginas` en `beforeprint`. Si caben → una página; si no → dos con contenido.
+- **PDF de despacho en media hoja:** preview A4; en print cada mitad = **50 % del papel elegido** (`@page size: auto`), con corte al centro (véase §12.7). No usar altura fija en mm de A4 en print ni remedir a `--dos-paginas` en `beforeprint`. Si caben → una página; si no → dos con contenido. Si hay comentario → modal con toggle (default incluir); sin comentario → imprimir directo.
 - **Indicador de comentario en Despachado:** icono solo si hay texto; popover de solo lectura; dato vía `vw_despachos_registro.comentario` (SQL `064`). No inventar hilo de comentarios ni editar desde el listado (véase §12.8).
 
 ---

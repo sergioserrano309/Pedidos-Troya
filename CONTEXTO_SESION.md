@@ -184,3 +184,15 @@ El usuario (Sergio) solicitó las siguientes mejoras a la aplicación de gestió
 
 **Pendiente operativo:** ejecutar `064` en el SQL Editor de Supabase para que el listado reciba `comentario`.
 
+---
+
+## Sesión — Toggle comentario en PDF de despacho (2026-10-15)
+
+**Pedido:** al descargar el PDF, poder elegir si incluir o no el comentario sin cambiar el layout de impresión.
+
+**Decisiones:**
+1. Default del toggle: **incluir**.
+2. Sin comentario → imprimir **directo** (sin modal).
+
+**Implementado:** `#modal-pdf-comentario-despacho` + `solicitarDescargaDetalleDespachoPDF` / flag `incluirComentario` en `renderCuerpoImpresion`. Documentado en §12.7.
+
