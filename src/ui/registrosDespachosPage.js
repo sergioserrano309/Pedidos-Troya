@@ -147,7 +147,9 @@ function renderDespachos(despachos) {
               title="${tituloRevisado(d, puedeRevisar)}" aria-label="Revisado por el Validador">
           </div>
           <div class="regd-col-comentario">
-            ${comentario ? `<button type="button" class="btn-comentario-registro" data-comentario="${escapeHtml(comentario)}" title="Ver comentario" aria-label="Ver comentario" aria-expanded="false">${ICONO_COMENTARIO}</button>` : ''}
+            ${comentario
+              ? `<button type="button" class="btn-comentario-registro con-comentario" data-comentario="${escapeHtml(comentario)}" title="Ver comentario" aria-label="Ver comentario" aria-expanded="false">${ICONO_COMENTARIO}</button>`
+              : `<button type="button" class="btn-comentario-registro sin-comentario" aria-disabled="true" aria-label="Sin comentario">${ICONO_COMENTARIO}</button>`}
           </div>
           <div class="regd-col-descarga">
             ${puedeDescargar ? `<button class="btn-descargar-registro" data-descargar="${escapeHtml(d.id)}" title="Descargar el despacho en PDF" aria-label="Descargar el despacho en PDF">${ICONO_DESCARGA}</button>` : ''}
@@ -178,7 +180,11 @@ function renderDespachos(despachos) {
   contenedor.querySelectorAll('.btn-comentario-registro').forEach((btn) => {
     btn.addEventListener('click', (event) => {
       // La fila entera abre el detalle; el popover es solo lectura aquí.
+      // Sin comentario: el botón se ve apagado y no debe abrir nada ni
+      // disparar el detalle (aria-disabled, no disabled nativo: ese a
+      // veces deja pasar el clic a la fila).
       event.stopPropagation();
+      if (btn.classList.contains('sin-comentario') || btn.getAttribute('aria-disabled') === 'true') return;
       alternarPopoverComentario(btn);
     });
   });

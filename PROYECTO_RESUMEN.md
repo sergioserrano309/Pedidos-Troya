@@ -55,8 +55,8 @@ Refilado → (Acabado O Mateado, nunca ambos) → Empaque → Completado
   - Solo si es el movimiento MÁS RECIENTE de esa talla
 
 ### 5b. **Despachos → Despachado: indicador de comentario**
-- Icono de bocadillo **solo** en filas con `despachos.comentario` no vacío
-- Clic abre popover de **solo lectura** (estilo nota Excel); no abre el detalle
+- Icono de bocadillo en **todas** las filas: ámbar si hay comentario, gris opaco (no clickeable, sin tooltip) si no
+- Con comentario: clic abre popover de **solo lectura** (estilo nota Excel); no abre el detalle
 - Visible para todos los roles con acceso a Despachos (incluye Propuesta)
 - Dato expuesto en `vw_despachos_registro` vía SQL `064` (una sola query; no fetch aparte)
 - Edición del comentario sigue en el modal de detalle (Validador, SQL `063`)
