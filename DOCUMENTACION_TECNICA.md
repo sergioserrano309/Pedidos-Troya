@@ -706,35 +706,28 @@ async function bootstrap() {
 | Pedidos del despacho | Suela · material · color; procesos (VIRA, ACABADO, ESTERILLA, MARQUILLA) **solo si aplican**, y **solo el nombre** (sin `: Sí` / `: No`) |
 | Bultos | Hasta **4 columnas** fijas con cabecera **Bulto \| Peso (kg)** en cada una; separador vertical entre columnas; solo nº + peso (sin pedidos). Relleno **fila a fila, izquierda → derecha** (1,2,3,4 luego 5,6,7,8…). Celdas vacías si no hay dato. Peso con el mismo redondeo que en pantalla (`formatearKilos`) |
 | Unidades por pedido y talla | Una sola matriz: Pedido \| tallas \| **Und** \| **Bultos**. No hay sección “Resumen por pedido” ni columna **Desp.** en el PDF |
-| Hoja (caso normal) | **Dos copias idénticas** en **una** hoja A4, con la **línea de corte en la mitad física** del área útil, no según la altura del contenido. Cada copia ocupa su franja del 50 %; el contenido va **arriba** y el vacío queda debajo dentro de esa franja. Sin textos “copia fábrica / copia cliente”. Altura de hoja: `calc(297mm - 22mm)` (márgenes `@page` 8 mm × 2 + ~6 mm de holgura para no generar página 2 fantasma). |
-| Margen bajo el corte | La 1.ª copia recibe el margen superior de `@page` (8 mm). La 2.ª no (el margen de página solo aplica al borde de la hoja). Se replica con `padding-top: 8mm` en `.despacho-print-copia:last-child` del modo `--mitad`, **sin mover el corte** (padding interno de la franja). |
-| Hoja (desborde) | Si las **dos copias juntas** no caben en una sola hoja (equivalente a que una copia no cabe en media hoja), se generan **dos páginas**: una copia por página, **sin** línea de corte. Si caben, debe salir **una sola página** (sin hoja 2 en blanco). |
+| Hoja (caso normal) | **Dos copias** en **una** página; cada franja = **50 % del papel elegido** (no del alto del contenido). Corte punteado en el **centro físico**. Contenido arriba; vacío debajo dentro de cada franja. |
+| Preview vs print | **Pantalla:** simula A4 (`calc(297mm - 22mm)`). **Impresión:** `height: 100%` de la página del diálogo (`@page { size: auto; margin: 8mm }` → A4, Carta, etc.). Las “cajas” se adaptan al papel; el corte sigue al medio. |
+| Línea de corte | Entre las dos franjas `flex: 1`, con `flex: 0` y margen vertical (~2 mm). No se mueve con el contenido. En `--dos-paginas` se oculta. |
+| Margen bajo el corte | 1.ª copia: margen `@page` (8 mm). 2.ª: `padding-top: 8mm` en la última copia (`--mitad`). |
+| Hoja (desborde) | Medición en **preview A4**: si alguna copia no cabe en media franja → `--dos-paginas` (una copia por página, sin corte). Si cabe → una sola página. |
 
-**Decisión de layout (mitad física vs flujo de contenido):**
+**Decisión de layout (mitad del papel, no del contenido):**
 
-- Antes el corte iba justo debajo de la primera copia (flujo de bloque). Con despachos chicos las dos “mitades” quedaban amontonadas arriba y el resto de la hoja en blanco.
-- Ahora `.despacho-print-hoja--mitad` usa **flex column** (`flex: 1` / corte / `flex: 1`) con altura fija `calc(297mm - 22mm)`, de modo que el corte cae en el centro literal del papel. Se prefirió flex a CSS grid por mejor comportamiento al imprimir/guardar PDF en Chromium.
-- El umbral de desborde lo calcula `aplicarLayoutHojaImpresion` en `despachoDetalleModal.js`: aplica primero `--mitad` y, si **alguna** copia tiene `scrollHeight > clientHeight` (incluye la 2.ª, que tiene menos área útil por el `padding-top` de 8 mm), cambia a `--dos-paginas`. Criterio de negocio: pasar a dos hojas solo cuando las dos juntas no caben en una (no cuando “sobra espacio vacío” en la mitad).
-- La vista previa del modal (`maqueta-pdf-despacho`) usa la misma tipografía compacta y el mismo layout, para que lo que se ve antes de imprimir coincida con el PDF.
+- Cajas al alto del contenido → el corte no queda en el centro cuando el despacho es chico (problema original).
+- Cajas fijas en mm de A4 → el corte sí queda al centro en A4, pero al elegir otro papel (o por redondeo) la caja puede superar el área útil → **página 2 en blanco**.
+- Cajas = **50 % / 50 % de la página elegida** (`height: 100%` + flex) → centro físico correcto **y** adaptable al papel. El contenido sigue siendo “variable” (solo usa lo que necesita, arriba).
+- `aplicarLayoutHojaImpresion` mide solo en la preview A4. **No** se remide en `beforeprint`: un intento anterior midió con `clientHeight` aún inestable y pasó a `--dos-paginas` por error (cada mitad en su hoja). Eso se evita a propósito.
+- Al imprimir: `html`/`body.imprimiendo-despacho` con `height: 100%` y `min-height: 0`; hoja `--mitad` con `overflow: hidden` (absorbe 1 px vacío, no crea página fantasma).
 
-**Trampas de impresión corregidas:**
+**Trampas de impresión (historial):**
 
-1. **2.ª mitad vacía en página 1 (contenido en página 2)**  
-   - Sintoma: despacho corto (p. ej. D1004) con corte al centro pero mitad inferior en blanco y la 2.ª copia en otra página.  
-   - Causa: `break-inside: avoid` en **cada** `.despacho-print-copia` a altura de media página.  
-   - Arreglo: en `--mitad`, las copias usan `break-inside: auto`. En `--dos-paginas` se mantiene `page-break-after` entre copias.
+1. `break-inside: avoid` en cada copia → 2.ª mitad saltaba de página → `break-inside: auto` en `--mitad`.
+2. Altura fija `297mm` + márgenes → página 2 en blanco → altura print = `100%` de la página elegida.
+3. Margen asimétrico bajo el corte → `padding-top: 8mm` en la 2.ª copia.
+4. Remedir en `beforeprint` hacia `--dos-paginas` → mitades en hojas distintas → **no remedir** en print.
 
-2. **Página 2 en blanco (ambas copias ya en la 1)**  
-   - Sintoma: PDF de una sola factura doble (p. ej. D1005) con página 2 vacía.  
-   - Causa: `break-inside: avoid` en la **hoja entera** con altura casi igual al área útil; el motor redondea/márgenes y emite una página fantasma.  
-   - Arreglo: `break-inside: auto` en la hoja; `break-after: avoid-page` para no forzar página extra; holgura de altura a `297mm - 22mm`.
-
-3. **Margen asimétrico bajo el corte**  
-   - Sintoma: entre borde superior y “Suelas.” de la 1.ª copia hay ~8 mm; entre la línea de corte y “Suelas.” de la 2.ª casi no hay espacio.  
-   - Causa: el margen `@page` no se aplica debajo del corte.  
-   - Arreglo: `padding-top: 8mm` solo en la 2.ª copia del modo `--mitad`. Riesgo acotado: en despachos que casi llenan media hoja reduce un poco el área útil de esa franja (`overflow: hidden`); el corte no se desplaza.
-
-**Archivos:** `src/ui/despachoDetalleModal.js` (maqueta + `aplicarLayoutHojaImpresion`), `src/ui/registrosDespachosPage.js` (botón ↓), estilos de pantalla e impresión en `index.html` (clases `despacho-print-hoja--mitad` / `despacho-print-hoja--dos-paginas`).
+**Archivos:** `src/ui/despachoDetalleModal.js`, `src/ui/registrosDespachosPage.js`, estilos en `index.html`.
 
 ---
 
@@ -806,7 +799,7 @@ El documento de especificaciones (`Contexto Cursor pedidos.md`) dejaba varios pu
 - **La búsqueda del dashboard/historial es por coincidencia de texto simple** (`ilike`), no hay filtros avanzados (por fecha, por material, etc.) — la sección 17 del documento original solo pedía "Search" genérico.
 - **No hay soporte offline ni cacheo agresivo** de las consultas (más allá de lo que el propio navegador haga); la sección 20 del documento sugiere "cache Supabase queries" como optimización futura, no implementada aún.
 - **Escalabilidad futura** (sección 21 del documento: KPIs, códigos de barras, múltiples fábricas, etc.) no está implementada, pero la arquitectura de vistas + RLS + tablas append-only está pensada para poder agregarse sin romper lo existente (por ejemplo, una nueva vista `vw_kpis_produccion` se podría construir sobre las mismas tablas base).
-- **PDF de despacho en media hoja:** la maqueta usa corte en la **mitad física** de la hoja A4 (véase §12.7). Si las dos copias no caben juntas en una hoja, el layout pasa a **dos páginas** (una copia por página, sin corte); si caben, debe ser **una sola página** (sin hoja 2 en blanco). Evitar `break-inside: avoid` tanto en cada copia como en la hoja entera del modo mitad (provoca salto de la 2.ª copia o página fantasma). El `padding-top: 8mm` de la 2.ª copia equilibra el margen `@page` bajo el corte. Compactar tipografía/padding sigue siendo posible solo en CSS/HTML de impresión, sin tocar la lógica de despachos.
+- **PDF de despacho en media hoja:** preview A4; en print cada mitad = **50 % del papel elegido** (`@page size: auto`), con corte al centro (véase §12.7). No usar altura fija en mm de A4 en print ni remedir a `--dos-paginas` en `beforeprint`. Si caben → una página; si no → dos con contenido.
 
 ---
 

@@ -21,11 +21,9 @@ import { mostrarToast } from './toast.js';
  *   (e) Unidades por pedido y talla
  *   (f) Resumen por pedido (incluye Desp. y Comp.)
  *
- * La descarga PDF (descargarDetalleDespachoPDF) usa una maqueta de
- * impresión distinta — no altera esta vista ni la lógica de despachos.
- * La hoja parte en la mitad física (A4): dos copias con corte al centro;
- * si las dos juntas no caben, una copia por página sin corte.
- * Ver DOCUMENTACION_TECNICA.md §12.7.
+ * La descarga PDF (descargarDetalleDespachoPDF) usa una maqueta distinta.
+ * Preview A4; en print cada mitad = 50% del papel elegido, corte al centro;
+ * si no caben, una copia por página sin corte. Ver §12.7.
  */
 
 export function inicializarModalDetalleDespacho() {
@@ -536,28 +534,20 @@ function compararTallas(a, b) {
 }
 
 /**
- * Elige layout de hoja tras pintar la maqueta:
- *   - mitad: las dos copias caben → corte en el centro físico de la hoja
- *   - dos-paginas: juntas no caben → una copia por página, sin corte
+ * Elige layout de hoja tras pintar la maqueta (medición sobre preview A4):
+ *   - mitad: caben → 50% / corte / 50% (en print = página elegida)
+ *   - dos-paginas: no caben → una copia por página, sin corte
  *
- * Criterio: se aplica primero el layout 50/50 (flex); si el contenido de
- * una copia desborda su franja (scrollHeight > clientHeight), las dos
- * juntas tampoco cabrían en una sola hoja (2 × media hoja = hoja).
- * En print (modo mitad): sin break-inside:avoid en copias ni en la hoja
- * (evita 2.ª copia en otra página / página 2 en blanco); la 2.ª copia
- * lleva padding-top 8mm para igualar el margen @page bajo el corte.
- * Ver DOCUMENTACION_TECNICA.md §12.7.
+ * No se remide en beforeprint: con height aún no estable el motor
+ * marcaba desborde falso y cada mitad iba a su hoja. Ver §12.7.
  */
 function aplicarLayoutHojaImpresion(hoja) {
   if (!hoja) return;
   hoja.classList.remove('despacho-print-hoja--mitad', 'despacho-print-hoja--dos-paginas');
   hoja.classList.add('despacho-print-hoja--mitad');
 
-  // Forzar reflow para medir contra la franja ya dimensionada.
   void hoja.offsetHeight;
 
-  // Revisar todas las copias: la última tiene padding-top 8mm (margen bajo
-  // el corte) y menos área útil; medir solo la primera subestimaría.
   const copias = hoja.querySelectorAll('.despacho-print-copia');
   if (copias.length === 0) return;
 
@@ -570,10 +560,8 @@ function aplicarLayoutHojaImpresion(hoja) {
 
 /**
  * Descarga el despacho en PDF. Mecanismo: window.print → "Guardar como PDF".
- * La maqueta de impresión es independiente del modal en pantalla (cliente
- * + totales en una línea, etapas solo si aplican, bultos en 4 columnas,
- * matriz unificada sin Desp., dos copias con corte en la mitad física de
- * la hoja; si no caben juntas, una copia por página sin corte).
+ * Preview = A4. Print modo --mitad = dos franjas al 50% del papel elegido
+ * (@page size: auto) con corte en el centro; si no caben, --dos-paginas.
  *
  * document.title = consecutivo (nombre sugerido del archivo).
  */
@@ -627,16 +615,18 @@ export async function descargarDetalleDespachoPDF(despachoId, consecutivo) {
   const tituloOriginal = document.title;
   document.title = consecutivoReal;
 
+  document.documentElement.classList.add('imprimiendo-despacho');
   document.body.classList.add('imprimiendo-despacho');
 
-  const restaurarTitulo = () => {
-    window.removeEventListener('afterprint', restaurarTitulo);
+  const restaurarTrasImprimir = () => {
+    window.removeEventListener('afterprint', restaurarTrasImprimir);
+    document.documentElement.classList.remove('imprimiendo-despacho');
     document.body.classList.remove('imprimiendo-despacho');
     setTimeout(() => {
       document.title = tituloOriginal;
     }, 2000);
   };
-  window.addEventListener('afterprint', restaurarTitulo);
+  window.addEventListener('afterprint', restaurarTrasImprimir);
 
   setTimeout(() => window.print(), 200);
 }

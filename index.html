@@ -2490,10 +2490,8 @@
       max-width: 900px;
     }
 
-    /* Mitad física: flex (más fiable que grid en print) con dos franjas
-       iguales y corte al centro. Contenido arriba; vacío debajo.
-       Altura = área útil A4 menos holgura (~6mm) para evitar página 2
-       fantasma por redondeos/márgenes del motor. */
+    /* Preview en pantalla: simula A4. En @media print la misma hoja
+       usa height:100% de la página elegida en el diálogo (ver abajo). */
     #modal-detalle-despacho.maqueta-pdf-despacho .despacho-print-hoja--mitad {
       display: flex;
       flex-direction: column;
@@ -4584,8 +4582,19 @@
         display: none !important;
       }
 
+      /* 1 página = papel del diálogo (@page size: auto). Sin min-height:100vh. */
+      html.imprimiendo-despacho,
+      body.imprimiendo-despacho {
+        height: 100% !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #fff !important;
+      }
+
       body.imprimiendo-despacho #modal-detalle-despacho.open {
         position: static;
+        height: 100%;
       }
 
       #modal-detalle-despacho.open {
@@ -4596,6 +4605,11 @@
         width: 100%;
         height: auto;
         background: none;
+      }
+
+      body.imprimiendo-despacho #modal-detalle-despacho.open .modal-content,
+      body.imprimiendo-despacho #detalle-despacho-contenido {
+        height: 100%;
       }
 
       #modal-detalle-despacho.open .modal-content {
@@ -4711,17 +4725,19 @@
         padding: 2px 3px;
       }
 
-      /* Mitad física (A4 − márgenes − holgura): corte al centro.
-         - NO break-inside:avoid en cada copia (manda la 2.ª a otra página).
-         - NO break-inside:avoid en la hoja entera si la altura es ~página:
-           provoca página 2 en blanco aunque el contenido quepa en una.
-         Holgura 22mm = 8+8 de @page + ~6mm de seguridad del motor. */
+      /* Mitad física = 50% / corte / 50% de LA PÁGINA ELEGIDA (no mm A4).
+         height:100% hereda el área útil del @page (A4, Carta, …).
+         overflow:hidden evita página 2 fantasma por 1px vacío.
+         NO remedir en beforeprint hacia --dos-paginas: midiendo con
+         clientHeight aún no listo, cada copia acababa en su propia hoja.
+         Línea de corte: flex:0 entre dos flex:1 → centro físico. */
       #modal-detalle-despacho.open .despacho-print-hoja--mitad {
         display: flex;
         flex-direction: column;
-        height: calc(297mm - 22mm);
-        max-height: calc(297mm - 22mm);
+        height: 100%;
+        max-height: 100%;
         box-sizing: border-box;
+        overflow: hidden;
         page-break-inside: auto;
         break-inside: auto;
         page-break-after: avoid;
@@ -4745,8 +4761,9 @@
 
       #modal-detalle-despacho.open .despacho-print-hoja--mitad .despacho-print-corte {
         flex: 0 0 auto;
+        align-self: stretch;
         border-top: 1px dashed #333;
-        margin: 1.5mm 0;
+        margin: 2mm 0;
         height: 0;
       }
 
