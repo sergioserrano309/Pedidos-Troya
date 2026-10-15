@@ -247,6 +247,16 @@ function escapeHtml(value) {
   }[c]));
 }
 
+/**
+ * Badge de avance de un proceso: "pares | %". Los pares son los que ya
+ * salieron de ese proceso (procesado_*, el mismo numerador del %). El % de
+ * la vista llega topado en 100 pero los pares no, así que si un proceso
+ * registró de más se ve el número real (ej. "105 | 100%").
+ */
+function badgeAvance(pares, porcentaje, bg, color) {
+  return `<span style="background: ${bg}; color: ${color}; padding: 2px 6px; border-radius: 3px; white-space: nowrap;">${pares || 0} | ${porcentaje || 0}%</span>`;
+}
+
 /** Solo se usa para fecha_pedido (fecha de calendario a medianoche UTC): ver lib/fechas.js. */
 function formatearFecha(fecha) {
   return formatearFechaPedido(fecha);
@@ -278,10 +288,11 @@ function renderTablaValidador(ordenes, mapaUltimaFecha) {
           <th style="padding: 8px; text-align: left;">Material</th>
           <th style="padding: 8px; text-align: left;">Color</th>
           <th style="padding: 8px; text-align: left;">Fecha Pedido</th>
-          <th style="padding: 8px; text-align: center;" title="Refilado %">R%</th>
-          <th style="padding: 8px; text-align: center;" title="Acabado %">A%</th>
-          <th style="padding: 8px; text-align: center;" title="Mateado %">M%</th>
-          <th style="padding: 8px; text-align: center;" title="Empaque %">E%</th>
+          <th style="padding: 8px; text-align: center;" title="Unidades (pares) totales del pedido">UNDS.</th>
+          <th style="padding: 8px; text-align: center;" title="Refilado: pares procesados | % de avance">R%</th>
+          <th style="padding: 8px; text-align: center;" title="Acabado: pares procesados | % de avance">A%</th>
+          <th style="padding: 8px; text-align: center;" title="Mateado: pares procesados | % de avance">M%</th>
+          <th style="padding: 8px; text-align: center;" title="Empaque: pares procesados | % de avance">E%</th>
           <th style="padding: 8px; text-align: center;" title="Días Refilado">D.R</th>
           <th style="padding: 8px; text-align: center;" title="Días Acabado">D.A</th>
           <th style="padding: 8px; text-align: center;" title="Días Mateado">D.M</th>
@@ -302,26 +313,11 @@ function renderTablaValidador(ordenes, mapaUltimaFecha) {
             <td style="padding: 8px;">${o.material || '—'}</td>
             <td style="padding: 8px;">${o.color || '—'}</td>
             <td style="padding: 8px;">${formatearFecha(o.fecha_pedido)}</td>
-            <td style="padding: 8px; text-align: center;">
-              <span style="background: var(--blue-bg); color: var(--blue); padding: 2px 6px; border-radius: 3px;">
-                ${o.porcentaje_refilado || 0}%
-              </span>
-            </td>
-            <td style="padding: 8px; text-align: center;">
-              <span style="background: var(--green-bg); color: var(--green-text); padding: 2px 6px; border-radius: 3px;">
-                ${o.porcentaje_acabado || 0}%
-              </span>
-            </td>
-            <td style="padding: 8px; text-align: center;">
-              <span style="background: var(--purple-bg); color: var(--purple-text); padding: 2px 6px; border-radius: 3px;">
-                ${o.porcentaje_mateado || 0}%
-              </span>
-            </td>
-            <td style="padding: 8px; text-align: center;">
-              <span style="background: var(--amber-bg); color: var(--amber-text); padding: 2px 6px; border-radius: 3px;">
-                ${o.porcentaje_empaque || 0}%
-              </span>
-            </td>
+            <td style="padding: 8px; text-align: center;"><strong>${o.total_solicitado ?? 0}</strong></td>
+            <td style="padding: 8px; text-align: center;">${badgeAvance(o.procesado_refilado, o.porcentaje_refilado, 'var(--blue-bg)', 'var(--blue)')}</td>
+            <td style="padding: 8px; text-align: center;">${badgeAvance(o.procesado_acabado, o.porcentaje_acabado, 'var(--green-bg)', 'var(--green-text)')}</td>
+            <td style="padding: 8px; text-align: center;">${badgeAvance(o.procesado_mateado, o.porcentaje_mateado, 'var(--purple-bg)', 'var(--purple-text)')}</td>
+            <td style="padding: 8px; text-align: center;">${badgeAvance(o.procesado_empaque, o.porcentaje_empaque, 'var(--amber-bg)', 'var(--amber-text)')}</td>
             <td style="padding: 8px; text-align: center;">${celdaDias(dias.dRefilado)}</td>
             <td style="padding: 8px; text-align: center;">${celdaDias(dias.dAcabado)}</td>
             <td style="padding: 8px; text-align: center;">${celdaDias(dias.dMateado)}</td>
