@@ -2484,17 +2484,122 @@
     }
 
     /* Vista previa en pantalla cuando se descarga el PDF (maqueta distinta
-       al detalle de solo lectura). */
+       al detalle de solo lectura). La hoja simula el área útil A4
+       (297mm − 8mm×2) para que el corte se vea en la mitad física. */
     #modal-detalle-despacho.maqueta-pdf-despacho .modal-content {
       max-width: 900px;
+    }
+
+    /* Preview en pantalla: simula A4. En @media print la misma hoja
+       usa height:100% de la página elegida en el diálogo (ver abajo). */
+    #modal-detalle-despacho.maqueta-pdf-despacho .despacho-print-hoja--mitad {
+      display: flex;
+      flex-direction: column;
+      height: calc(297mm - 22mm);
+      box-sizing: border-box;
+    }
+
+    #modal-detalle-despacho.maqueta-pdf-despacho .despacho-print-hoja--mitad .despacho-print-copia {
+      flex: 1 1 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    /* Misma holgura que el margen superior de página (@page 8mm): la 1.ª
+       copia la recibe del borde de hoja; la 2.ª la simula bajo el corte.
+       No mueve el corte (padding interno de la franja). */
+    #modal-detalle-despacho.maqueta-pdf-despacho .despacho-print-hoja--mitad .despacho-print-copia:last-child {
+      padding-top: 8mm;
+      box-sizing: border-box;
+    }
+
+    #modal-detalle-despacho.maqueta-pdf-despacho .despacho-print-hoja--mitad .despacho-print-corte {
+      flex: 0 0 auto;
+      margin: 1.5mm 0;
+      width: 100%;
+    }
+
+    /* Desborde: las dos copias juntas no caben en una hoja → una copia
+       por página, sin línea de corte. */
+    #modal-detalle-despacho.maqueta-pdf-despacho .despacho-print-hoja--dos-paginas .despacho-print-corte {
+      display: none;
+    }
+
+    #modal-detalle-despacho.maqueta-pdf-despacho .despacho-print-hoja--dos-paginas .despacho-print-copia + .despacho-print-copia {
+      margin-top: 1.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px dashed var(--border2);
+    }
+
+    /* Tipografía compacta en la maqueta (igual que @media print) para
+       que la medición de desborde coincida con el PDF real. */
+    #modal-detalle-despacho.maqueta-pdf-despacho .despacho-print-brand {
+      font-size: 14px;
+    }
+
+    #modal-detalle-despacho.maqueta-pdf-despacho .despacho-print-fecha {
+      font-size: 10px;
+    }
+
+    #modal-detalle-despacho.maqueta-pdf-despacho .despacho-print-titulo {
+      font-size: 13px;
+    }
+
+    #modal-detalle-despacho.maqueta-pdf-despacho .despacho-print-fecha-creacion > label {
+      font-size: 9px;
+    }
+
+    #modal-detalle-despacho.maqueta-pdf-despacho .despacho-print-fecha-creacion > div {
+      font-size: 11px;
+    }
+
+    #modal-detalle-despacho.maqueta-pdf-despacho .detalle-despacho-print-cliente {
+      font-size: 12px;
+    }
+
+    #modal-detalle-despacho.maqueta-pdf-despacho .detalle-despacho-print-totales {
+      font-size: 11px;
+      gap: 8px 12px;
+    }
+
+    #modal-detalle-despacho.maqueta-pdf-despacho .detalle-despacho-ficha {
+      font-size: 11px;
+      padding: 1px 0;
+    }
+
+    #modal-detalle-despacho.maqueta-pdf-despacho .detalle-despacho-comentario {
+      font-size: 11px;
+    }
+
+    #modal-detalle-despacho.maqueta-pdf-despacho .form-group-print {
+      margin-bottom: 0.4rem;
+    }
+
+    #modal-detalle-despacho.maqueta-pdf-despacho .form-group-print > label {
+      font-size: 10px;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      margin-bottom: 0.25rem;
+    }
+
+    #modal-detalle-despacho.maqueta-pdf-despacho .despacho-print-bultos-col .regd-detalle-tabla,
+    #modal-detalle-despacho.maqueta-pdf-despacho .detalle-despacho-matriz-print .regd-detalle-tabla {
+      font-size: 10px;
+    }
+
+    #modal-detalle-despacho.maqueta-pdf-despacho .despacho-print-bultos-col .regd-detalle-tabla th,
+    #modal-detalle-despacho.maqueta-pdf-despacho .despacho-print-bultos-col .regd-detalle-tabla td,
+    #modal-detalle-despacho.maqueta-pdf-despacho .detalle-despacho-matriz-print .regd-detalle-tabla th,
+    #modal-detalle-despacho.maqueta-pdf-despacho .detalle-despacho-matriz-print .regd-detalle-tabla td {
+      padding: 2px 3px;
     }
 
     #modal-detalle-despacho.maqueta-pdf-despacho .despacho-print-header-en-copia {
       display: flex;
       justify-content: space-between;
       align-items: baseline;
-      margin-bottom: 0.45rem;
-      padding-bottom: 0.35rem;
+      margin-bottom: 0.35rem;
+      padding-bottom: 0.3rem;
       border-bottom: 2px solid var(--text);
     }
 
@@ -2615,6 +2720,9 @@
       padding: 3px 4px;
     }
 
+    /* En modo --mitad el margen lo fijan las reglas de la grilla
+       (corte al centro físico). Este valor aplica al flujo libre /
+       medición previa. */
     .despacho-print-corte {
       border-top: 1px dashed var(--text2);
       margin: 14px 0;
@@ -4474,8 +4582,19 @@
         display: none !important;
       }
 
+      /* 1 página = papel del diálogo (@page size: auto). Sin min-height:100vh. */
+      html.imprimiendo-despacho,
+      body.imprimiendo-despacho {
+        height: 100% !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #fff !important;
+      }
+
       body.imprimiendo-despacho #modal-detalle-despacho.open {
         position: static;
+        height: 100%;
       }
 
       #modal-detalle-despacho.open {
@@ -4486,6 +4605,11 @@
         width: 100%;
         height: auto;
         background: none;
+      }
+
+      body.imprimiendo-despacho #modal-detalle-despacho.open .modal-content,
+      body.imprimiendo-despacho #detalle-despacho-contenido {
+        height: 100%;
       }
 
       #modal-detalle-despacho.open .modal-content {
@@ -4601,16 +4725,63 @@
         padding: 2px 3px;
       }
 
-      /* Dos copias idénticas en una hoja; línea de corte entre ellas.
-         La densidad con muchos bultos (>20) queda sujeta a validación
-         en fábrica (puede compactarse más tras prueba real). */
-      #modal-detalle-despacho.open .despacho-print-corte {
-        border-top: 1px dashed #333;
-        margin: 3mm 0;
+      /* Mitad física = 50% / corte / 50% de LA PÁGINA ELEGIDA (no mm A4).
+         height:100% hereda el área útil del @page (A4, Carta, …).
+         overflow:hidden evita página 2 fantasma por 1px vacío.
+         NO remedir en beforeprint hacia --dos-paginas: midiendo con
+         clientHeight aún no listo, cada copia acababa en su propia hoja.
+         Línea de corte: flex:0 entre dos flex:1 → centro físico. */
+      #modal-detalle-despacho.open .despacho-print-hoja--mitad {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        max-height: 100%;
+        box-sizing: border-box;
+        overflow: hidden;
+        page-break-inside: auto;
+        break-inside: auto;
+        page-break-after: avoid;
+        break-after: avoid-page;
       }
 
-      #modal-detalle-despacho.open .despacho-print-copia {
+      #modal-detalle-despacho.open .despacho-print-hoja--mitad .despacho-print-copia {
+        flex: 1 1 0;
+        min-height: 0;
+        overflow: hidden;
+        page-break-inside: auto;
+        break-inside: auto;
+        page-break-after: auto;
+        break-after: auto;
+      }
+
+      #modal-detalle-despacho.open .despacho-print-hoja--mitad .despacho-print-copia:last-child {
+        padding-top: 8mm;
+        box-sizing: border-box;
+      }
+
+      #modal-detalle-despacho.open .despacho-print-hoja--mitad .despacho-print-corte {
+        flex: 0 0 auto;
+        align-self: stretch;
+        border-top: 1px dashed #333;
+        margin: 2mm 0;
+        height: 0;
+      }
+
+      /* Desborde: una copia por hoja, sin línea de corte. */
+      #modal-detalle-despacho.open .despacho-print-hoja--dos-paginas .despacho-print-corte {
+        display: none !important;
+      }
+
+      #modal-detalle-despacho.open .despacho-print-hoja--dos-paginas .despacho-print-copia {
         page-break-inside: avoid;
+        break-inside: avoid;
+        page-break-after: always;
+        break-after: page;
+      }
+
+      #modal-detalle-despacho.open .despacho-print-hoja--dos-paginas .despacho-print-copia:last-child {
+        page-break-after: auto;
+        break-after: auto;
       }
 
       .propuesta-print-header {

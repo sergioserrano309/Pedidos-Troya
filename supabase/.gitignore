@@ -9,3 +9,9 @@
 config.toml
 
 /snippets
+
+##Archivos de local
+fix_login_mock.sql
+schema.sql
+seed.sql
+unseed.sql

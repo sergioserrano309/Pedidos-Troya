@@ -706,11 +706,28 @@ async function bootstrap() {
 | Pedidos del despacho | Suela · material · color; procesos (VIRA, ACABADO, ESTERILLA, MARQUILLA) **solo si aplican**, y **solo el nombre** (sin `: Sí` / `: No`) |
 | Bultos | Hasta **4 columnas** fijas con cabecera **Bulto \| Peso (kg)** en cada una; separador vertical entre columnas; solo nº + peso (sin pedidos). Relleno **fila a fila, izquierda → derecha** (1,2,3,4 luego 5,6,7,8…). Celdas vacías si no hay dato. Peso con el mismo redondeo que en pantalla (`formatearKilos`) |
 | Unidades por pedido y talla | Una sola matriz: Pedido \| tallas \| **Und** \| **Bultos**. No hay sección “Resumen por pedido” ni columna **Desp.** en el PDF |
-| Hoja | **Dos copias idénticas** en la misma hoja, separadas por una **línea de corte** punteada (sin textos “copia fábrica / copia cliente”). Márgenes de impresión sin cambio (~8 mm) |
+| Hoja (caso normal) | **Dos copias** en **una** página; cada franja = **50 % del papel elegido** (no del alto del contenido). Corte punteado en el **centro físico**. Contenido arriba; vacío debajo dentro de cada franja. |
+| Preview vs print | **Pantalla:** simula A4 (`calc(297mm - 22mm)`). **Impresión:** `height: 100%` de la página del diálogo (`@page { size: auto; margin: 8mm }` → A4, Carta, etc.). Las “cajas” se adaptan al papel; el corte sigue al medio. |
+| Línea de corte | Entre las dos franjas `flex: 1`, con `flex: 0` y margen vertical (~2 mm). No se mueve con el contenido. En `--dos-paginas` se oculta. |
+| Margen bajo el corte | 1.ª copia: margen `@page` (8 mm). 2.ª: `padding-top: 8mm` en la última copia (`--mitad`). |
+| Hoja (desborde) | Medición en **preview A4**: si alguna copia no cabe en media franja → `--dos-paginas` (una copia por página, sin corte). Si cabe → una sola página. |
 
-**Validación pendiente:** la densidad con muchos bultos (**>20**) y que cada copia quepa cómoda en media hoja A4 queda **sujeta a revisión** tras prueba real en fábrica; se puede compactar tipografía/padding sin tocar datos ni lógica.
+**Decisión de layout (mitad del papel, no del contenido):**
 
-**Archivos:** `src/ui/despachoDetalleModal.js` (maqueta), `src/ui/registrosDespachosPage.js` (botón ↓), estilos de impresión en `index.html`.
+- Cajas al alto del contenido → el corte no queda en el centro cuando el despacho es chico (problema original).
+- Cajas fijas en mm de A4 → el corte sí queda al centro en A4, pero al elegir otro papel (o por redondeo) la caja puede superar el área útil → **página 2 en blanco**.
+- Cajas = **50 % / 50 % de la página elegida** (`height: 100%` + flex) → centro físico correcto **y** adaptable al papel. El contenido sigue siendo “variable” (solo usa lo que necesita, arriba).
+- `aplicarLayoutHojaImpresion` mide solo en la preview A4. **No** se remide en `beforeprint`: un intento anterior midió con `clientHeight` aún inestable y pasó a `--dos-paginas` por error (cada mitad en su hoja). Eso se evita a propósito.
+- Al imprimir: `html`/`body.imprimiendo-despacho` con `height: 100%` y `min-height: 0`; hoja `--mitad` con `overflow: hidden` (absorbe 1 px vacío, no crea página fantasma).
+
+**Trampas de impresión (historial):**
+
+1. `break-inside: avoid` en cada copia → 2.ª mitad saltaba de página → `break-inside: auto` en `--mitad`.
+2. Altura fija `297mm` + márgenes → página 2 en blanco → altura print = `100%` de la página elegida.
+3. Margen asimétrico bajo el corte → `padding-top: 8mm` en la 2.ª copia.
+4. Remedir en `beforeprint` hacia `--dos-paginas` → mitades en hojas distintas → **no remedir** en print.
+
+**Archivos:** `src/ui/despachoDetalleModal.js`, `src/ui/registrosDespachosPage.js`, estilos en `index.html`.
 
 ---
 
@@ -782,7 +799,7 @@ El documento de especificaciones (`Contexto Cursor pedidos.md`) dejaba varios pu
 - **La búsqueda del dashboard/historial es por coincidencia de texto simple** (`ilike`), no hay filtros avanzados (por fecha, por material, etc.) — la sección 17 del documento original solo pedía "Search" genérico.
 - **No hay soporte offline ni cacheo agresivo** de las consultas (más allá de lo que el propio navegador haga); la sección 20 del documento sugiere "cache Supabase queries" como optimización futura, no implementada aún.
 - **Escalabilidad futura** (sección 21 del documento: KPIs, códigos de barras, múltiples fábricas, etc.) no está implementada, pero la arquitectura de vistas + RLS + tablas append-only está pensada para poder agregarse sin romper lo existente (por ejemplo, una nueva vista `vw_kpis_produccion` se podría construir sobre las mismas tablas base).
-- **PDF de despacho en media hoja:** la maqueta compacta y la doble copia (véase §12.7) están pensadas para que fábrica y cliente usen una sola hoja A4. Con despachos de muchos bultos (**>20**) o muchas tallas, el alto real puede superar media hoja según impresora/márgenes; esa densidad queda **sujeta a validación en fábrica** y puede ajustarse solo en CSS/HTML de impresión sin tocar la lógica de despachos.
+- **PDF de despacho en media hoja:** preview A4; en print cada mitad = **50 % del papel elegido** (`@page size: auto`), con corte al centro (véase §12.7). No usar altura fija en mm de A4 en print ni remedir a `--dos-paginas` en `beforeprint`. Si caben → una página; si no → dos con contenido.
 
 ---
 
