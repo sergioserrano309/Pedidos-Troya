@@ -1702,7 +1702,8 @@
     .regd-encabezado,
     .regd-fila {
       display: grid;
-      grid-template-columns: 90px 100px minmax(0, 2fr) 70px 70px 80px 100px 70px 32px 36px;
+      /* Revisado | Comentario | Descarga | × */
+      grid-template-columns: 90px 100px minmax(0, 2fr) 70px 70px 80px 100px 70px 32px 32px 36px;
       column-gap: 14px;
       align-items: center;
     }
@@ -1881,15 +1882,14 @@
       opacity: .8;
     }
 
-    /* Descargar el despacho en PDF. Va a la izquierda del ×: las dos
-       acciones de la tarjeta quedan juntas, y la destructiva de última.
-       Discreto (gris, contorno) para que el rojo siga siendo el único
-       botón que pesa visualmente. */
-    .regd-col-descarga {
+    /* Comentario de la salida (064): solo se pinta el botón si hay texto.
+       Va entre Revisado y Descarga. */
+    .regd-col-comentario {
       display: flex;
-      justify-content: flex-end;
+      justify-content: center;
     }
 
+    .btn-comentario-registro,
     .btn-descargar-registro {
       background: var(--bg);
       border: 1px solid var(--border2);
@@ -1906,9 +1906,57 @@
       flex-shrink: 0;
     }
 
+    .btn-comentario-registro svg,
     .btn-descargar-registro svg {
       width: 15px;
       height: 15px;
+    }
+
+    .btn-comentario-registro:hover,
+    .btn-comentario-registro[aria-expanded="true"] {
+      border-color: var(--amber);
+      color: var(--amber-text);
+      background: var(--amber-bg);
+    }
+
+    /* Popover estilo nota Excel: flotante, solo lectura, anclado al icono. */
+    .regd-comentario-popover {
+      position: fixed;
+      z-index: 1200;
+      max-width: 280px;
+      min-width: 180px;
+      padding: 10px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: var(--r);
+      box-shadow: var(--shadow-md);
+      pointer-events: auto;
+    }
+
+    .regd-comentario-popover-titulo {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--text3);
+      margin-bottom: 6px;
+    }
+
+    .regd-comentario-popover-texto {
+      font-size: 13px;
+      line-height: 1.4;
+      color: var(--text);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* Descargar el despacho en PDF. Va a la izquierda del ×: las dos
+       acciones de la tarjeta quedan juntas, y la destructiva de última.
+       Discreto (gris, contorno) para que el rojo siga siendo el único
+       botón que pesa visualmente. */
+    .regd-col-descarga {
+      display: flex;
+      justify-content: flex-end;
     }
 
     .btn-descargar-registro:hover {
@@ -2066,14 +2114,14 @@
       }
 
       /* Dos filas:
-           [ID Despacho] .................. [Fecha] [✓] [↓]
+           [ID Despacho] ............ [Fecha] [✓] [💬?] [↓]
            [Pedidos][Bultos][Kilos][Unidades][Completos] ..... [x]
          Cada dato lleva su etiqueta pequeña ENCIMA del valor, igual que
          Total/Proc./Pend./Días en la tarjeta de órdenes.
-         La descarga va arriba y no en la fila de datos: ahí sobra
-         espacio, y abajo cada columna ya está al límite en un 375px. */
+         Comentario y descarga van arriba: ahí sobra espacio, y abajo
+         cada columna ya está al límite en un 375px. */
       .regd-fila {
-        grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)) minmax(0, 1.25fr) 28px;
+        grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)) minmax(0, 1.1fr) 28px 28px;
         column-gap: 5px;
         row-gap: 8px;
         padding: 10px 12px;
@@ -2091,16 +2139,21 @@
         align-self: center;
       }
 
-      /* El visto bueno también arriba, junto a la descarga: la fila de
-         datos no tiene un píxel de sobra en un celular de 375px. */
+      /* Visto bueno, comentario y descarga arriba: la fila de datos no
+         tiene un píxel de sobra en un celular de 375px. */
       .regd-col-revisado {
         grid-column: 5;
         grid-row: 1;
         justify-self: end;
       }
 
-      .regd-col-descarga {
+      .regd-col-comentario {
         grid-column: 6;
+        grid-row: 1;
+      }
+
+      .regd-col-descarga {
+        grid-column: 7;
         grid-row: 1;
       }
 
@@ -2110,6 +2163,7 @@
         grid-row: 2;
       }
 
+      .btn-comentario-registro,
       .btn-descargar-registro {
         width: 26px;
         height: 26px;
@@ -2120,7 +2174,7 @@
       .regd-col-num[data-lbl="Kilos"] { grid-column: 3; }
       .regd-col-num[data-lbl="Unidades"] { grid-column: 4; }
       .regd-col-num[data-lbl="Completos"] { grid-column: 5; }
-      .regd-col-accion { grid-column: 6; align-self: center; }
+      .regd-col-accion { grid-column: 6 / 8; align-self: center; justify-self: end; }
 
       .regd-col-ordenes,
       .regd-col-num {
@@ -4463,6 +4517,30 @@
       transform: translateX(16px);
     }
 
+    /* Toggle previo al PDF de despacho (incluir comentario o no). */
+    .pdf-comentario-toggle-fila {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      background: var(--bg);
+    }
+
+    .pdf-comentario-toggle-titulo {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .pdf-comentario-toggle-ayuda {
+      font-size: 12px;
+      color: var(--text3);
+      margin-top: 2px;
+    }
+
     .propuesta-descuentos-tabla-wrap {
       display: flex;
       justify-content: center;
@@ -5325,6 +5403,7 @@
                 <div class="regd-col-num">Revisado</div>
                 <div></div>
                 <div></div>
+                <div></div>
               </div>
               <div id="regd-lista"></div>
               <div id="regd-paginacion" class="pagination"></div>
@@ -5763,6 +5842,36 @@
       <div id="detalle-despacho-contenido"></div>
       <div class="detalle-despacho-pie" style="margin-top: 1.5rem; display: flex; gap: 0.75rem;">
         <button class="btn btn-secondary" id="btn-cerrar-detalle-despacho-2">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: ¿Incluir comentario en el PDF del despacho? (solo si hay comentario) -->
+  <div id="modal-pdf-comentario-despacho" class="modal">
+    <div class="modal-content" style="max-width: 420px;">
+      <div class="modal-header">
+        <div class="modal-title">Descargar PDF</div>
+        <button class="modal-close" id="btn-cerrar-pdf-comentario" type="button">×</button>
+      </div>
+
+      <p style="font-size: 14px; color: var(--text2); margin-bottom: 1rem;">
+        Este despacho tiene un comentario. Elige si quieres incluirlo en el PDF.
+      </p>
+
+      <div class="pdf-comentario-toggle-fila">
+        <div>
+          <div class="pdf-comentario-toggle-titulo">Incluir comentarios en el PDF</div>
+          <div class="pdf-comentario-toggle-ayuda">Por defecto se incluyen, como hasta ahora.</div>
+        </div>
+        <label class="propuesta-switch" title="Incluir comentarios en el PDF">
+          <input type="checkbox" id="pdf-despacho-incluir-comentario" checked>
+          <span class="propuesta-switch-slider"></span>
+        </label>
+      </div>
+
+      <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem;">
+        <button class="btn btn-secondary" id="btn-cancelar-pdf-comentario" type="button">Cancelar</button>
+        <button class="btn btn-primary" id="btn-confirmar-pdf-comentario" type="button">Descargar PDF</button>
       </div>
     </div>
   </div>
