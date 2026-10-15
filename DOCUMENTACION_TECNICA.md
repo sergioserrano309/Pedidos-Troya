@@ -751,17 +751,20 @@ async function bootstrap() {
 |---|---|---|
 | Contenido del popover | El comentario **actual** (un texto) | Es el modelo que ya existe; no hay historial de comentarios |
 | Interacción | **Solo lectura** en el listado | La edición sigue en el modal de detalle (Validador, `063`) |
-| Cuándo mostrar el icono | **Solo** si `comentario` no está vacío | Estilo Excel: sin nota, sin marca |
+| Cuándo mostrar el icono | **Siempre** en todas las filas | Evitar huecos visuales entre filas con/sin comentario |
+| Estilo con comentario | Fondo ámbar suave, click abre popover | Distinción clara de “hay nota” |
+| Estilo sin comentario | Gris opaco, no clickeable, sin tooltip | Misma huella visual, sin acción |
 | Quién lo ve | **Todos** los roles con acceso a Despachos (incluye Propuesta) | Distinto del PDF/×, que Propuesta no ve |
 | Cómo llegar el dato al listado | Columna `comentario` en `vw_despachos_registro` (SQL `064`) | Una sola consulta; más rápido que un segundo `select` a `despachos` por página |
 | Alternativa descartada | Fetch aparte desde el frontend sin tocar la vista | Evita migración, pero suma un round-trip HTTP en cada carga del listado |
 
 **Comportamiento UI** (`src/ui/registrosDespachosPage.js`):
 
-- Columna entre Revisado y Descarga (`.regd-col-comentario`).
-- Clic en el icono: `stopPropagation` (no abre el modal de detalle) + popover flotante con título “Comentario” y el texto (`white-space: pre-wrap`).
-- Cierre: Escape, clic fuera, abrir otro comentario, clic en la fila / PDF / ×, o al re-renderizar la lista.
-- Tras guardar o quitar el comentario en el detalle, el icono se actualiza al **refrescar** el listado (misma fuente: la vista).
+- Columna entre Revisado y Descarga (`.regd-col-comentario`): el botón se pinta en **todas** las filas.
+- Con comentario (`.con-comentario`): fondo ámbar; clic = `stopPropagation` + popover flotante con título “Comentario” y el texto (`white-space: pre-wrap`).
+- Sin comentario (`.sin-comentario`): gris opaco, `aria-disabled`, sin tooltip; el clic se traga (no abre popover ni el detalle).
+- Cierre del popover: Escape, clic fuera, abrir otro comentario, clic en la fila / PDF / ×, o al re-renderizar la lista.
+- Tras guardar o quitar el comentario en el detalle, el estilo del icono se actualiza al **refrescar** el listado (misma fuente: la vista).
 
 **SQL a ejecutar en Supabase:** [`supabase/sql/064_despachos_registro_comentario.sql`](supabase/sql/064_despachos_registro_comentario.sql) (requiere `062` ya aplicado). No hay script de revertir para este cambio.
 
@@ -838,7 +841,7 @@ El documento de especificaciones (`Contexto Cursor pedidos.md`) dejaba varios pu
 - **No hay soporte offline ni cacheo agresivo** de las consultas (más allá de lo que el propio navegador haga); la sección 20 del documento sugiere "cache Supabase queries" como optimización futura, no implementada aún.
 - **Escalabilidad futura** (sección 21 del documento: KPIs, códigos de barras, múltiples fábricas, etc.) no está implementada, pero la arquitectura de vistas + RLS + tablas append-only está pensada para poder agregarse sin romper lo existente (por ejemplo, una nueva vista `vw_kpis_produccion` se podría construir sobre las mismas tablas base).
 - **PDF de despacho en media hoja:** preview A4; en print cada mitad = **50 % del papel elegido** (`@page size: auto`), con corte al centro (véase §12.7). No usar altura fija en mm de A4 en print ni remedir a `--dos-paginas` en `beforeprint`. Si caben → una página; si no → dos con contenido. Si hay comentario → modal con toggle (default incluir); sin comentario → imprimir directo.
-- **Indicador de comentario en Despachado:** icono solo si hay texto; popover de solo lectura; dato vía `vw_despachos_registro.comentario` (SQL `064`). No inventar hilo de comentarios ni editar desde el listado (véase §12.8).
+- **Indicador de comentario en Despachado:** icono en todas las filas (ámbar si hay texto, gris opaco si no); popover de solo lectura; dato vía `vw_despachos_registro.comentario` (SQL `064`). No inventar hilo de comentarios ni editar desde el listado (véase §12.8).
 
 ---
 

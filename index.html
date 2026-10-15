@@ -1882,8 +1882,9 @@
       opacity: .8;
     }
 
-    /* Comentario de la salida (064): solo se pinta el botón si hay texto.
-       Va entre Revisado y Descarga. */
+    /* Comentario de la salida (064): el icono va en TODAS las filas
+       (alineación estable). Con texto = ámbar activo; sin texto = gris
+       opaco y no clickeable. Va entre Revisado y Descarga. */
     .regd-col-comentario {
       display: flex;
       justify-content: center;
@@ -1912,11 +1913,32 @@
       height: 15px;
     }
 
-    .btn-comentario-registro:hover,
-    .btn-comentario-registro[aria-expanded="true"] {
+    .btn-comentario-registro.con-comentario {
       border-color: var(--amber);
       color: var(--amber-text);
       background: var(--amber-bg);
+    }
+
+    .btn-comentario-registro.con-comentario:hover,
+    .btn-comentario-registro.con-comentario[aria-expanded="true"] {
+      border-color: var(--amber);
+      color: var(--amber-text);
+      background: #fef3c7;
+    }
+
+    .btn-comentario-registro.sin-comentario {
+      opacity: 0.7;
+      cursor: default;
+      color: var(--text3);
+      background: var(--bg);
+      border-color: var(--border);
+    }
+
+    .btn-comentario-registro.sin-comentario:hover {
+      opacity: 0.7;
+      color: var(--text3);
+      background: var(--bg);
+      border-color: var(--border);
     }
 
     /* Popover estilo nota Excel: flotante, solo lectura, anclado al icono. */
