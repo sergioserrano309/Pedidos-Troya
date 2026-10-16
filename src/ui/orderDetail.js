@@ -372,7 +372,22 @@ function renderDetalleItems(items, movimientos) {
           ? null
           : estadoPorPorcentaje(Math.round((procesadoEnMiProceso / entradaEnMiProceso) * 100));
       } else {
-        estado = estadoPorPorcentaje(item.porcentaje_completado || 0);
+        // Vista maestra (Validador), Propuesta y Comercial: "Procesado" es
+        // lo que salió de Empaque, el mismo criterio del pedido
+        // (vw_pedido_progreso.out_empaque). item.cantidad_procesada de la
+        // vista SUMA los movimientos de TODOS los procesos y mostraba el
+        // doble (o el triple) de lo real, junto con un Pendiente en 0 y un
+        // "Completado" apenas terminaba la primera etapa. Los movimientos
+        // ya vienen cargados; no hay consulta nueva.
+        const solicitado = Number(item.cantidad_solicitada || 0);
+        const empacado = calcularProcesadoPorProceso(item, movimientos, 'Empaque');
+        const porcentajeEmpacado = solicitado > 0
+          ? Math.min(100, Math.round((empacado / solicitado) * 100))
+          : 0;
+
+        procesadoMostrado = empacado;
+        pendienteMostrado = Math.max(solicitado - empacado, 0);
+        estado = estadoPorPorcentaje(porcentajeEmpacado);
       }
 
       const completado = estado === 'completado' || sinEnviar;
