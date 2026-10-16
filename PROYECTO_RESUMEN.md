@@ -63,6 +63,13 @@ Refilado → (Acabado O Mateado, nunca ambos) → Empaque → Completado
 - Detalle técnico y decisiones: `DOCUMENTACION_TECNICA.md` §12.8
 - **Log inmutable** en `log_eliminaciones` (fecha, usuario, motivo, snapshot completo)
 
+### 5c. **Despachos → Despachado: carga y filtro rápidos**
+- **Problema:** al filtrar por orden (o quitar el filtro) aparecía “Cargando…” → “No hay despachos” → segundos después las filas. Dos causas: peticiones que se pisaban en el navegador, y una vista que recalculaba todos los despachos (y casi toda la producción) antes del `LIMIT 30`.
+- **Ajuste 1 (UI):** contador de carga; se descartan respuestas viejas; overlay si ya hay filas; vacío solo si la petición vigente volvió en cero.
+- **Ajuste 2 (SQL `065`):** RPC `listar_despachos_registro` recorta `despacho_id` (índice por orden) y recién ahí agrega bultos/kilos/unidades/completos de esa página. Si el RPC no está aplicado, el servicio cae a la vista.
+- **Pendiente operativo:** ejecutar `065_listar_despachos_registro.sql` en el SQL Editor de Supabase.
+- Detalle, decisiones y ajustes posteriores: `DOCUMENTACION_TECNICA.md` §12.9
+
 ### 6. **Gestión de Reglas de Enrutamiento**
 - CRUD completo (Crear, Leer, Actualizar, Eliminar)
 - **Eliminar regla** con modal de confirmación (sin motivo)
@@ -287,6 +294,7 @@ supabase/sql/
 ├── 062_despacho_comentario.sql      → Columna comentario al crear salida
 ├── 063_editar_comentario_despacho.sql → Edición Validador
 ├── 064_despachos_registro_comentario.sql → comentario en vw_despachos_registro (listado)
+├── 065_listar_despachos_registro.sql → RPC listado Despachado (filtra ids antes de agregar)
 └── FASE_11_SUPABASE_MIGRATION.sql   → Optimizaciones finales vw_pedido_progreso
 
 index.html                   → HTML estructura + CSS

@@ -27,6 +27,13 @@ let pagina = 0;
 let hayPaginaSiguiente = false;
 let filtros = { fecha: '', consecutivo: '', orden: '' };
 let despachoAEliminar = null;
+// Cada llamada a cargarRegistrosDespachos incrementa esto. Si una
+// petición anterior termina después, su resultado se descarta: si no,
+// un filtro a medias (344) pinta "no hay despachos" encima de 3449.
+let cargaSeq = 0;
+
+const HTML_CARGANDO = '<div class="loading"><div class="spinner"></div> Cargando despachos...</div>';
+const HTML_OVERLAY_CARGA = '<div class="regd-lista-overlay" aria-live="polite"><div class="spinner"></div> Cargando despachos...</div>';
 
 /**
  * Se dispara en document al eliminar un despacho: sus pedidos vuelven a
@@ -69,17 +76,40 @@ export async function cargarRegistrosDespachos() {
 
   const contenedor = document.getElementById('regd-lista');
   if (!contenedor) return;
-  contenedor.innerHTML = '<div class="loading"><div class="spinner"></div> Cargando despachos...</div>';
+
+  const seq = ++cargaSeq;
+  pintarEstadoCarga(contenedor);
 
   try {
     const { despachos, hayMas } = await fetchRegistrosDespachos({ page: pagina, filters: filtros });
+    if (seq !== cargaSeq) return;
     hayPaginaSiguiente = hayMas;
     renderDespachos(despachos);
     renderPaginacion();
   } catch (err) {
+    if (seq !== cargaSeq) return;
+    contenedor.classList.remove('regd-lista-cargando');
     contenedor.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
     mostrarToast(err.message, 'error');
   }
+}
+
+/**
+ * Si ya hay filas, no las borra: overlay encima. Vacío / primer load:
+ * spinner a pantalla completa. "No hay despachos" solo lo pinta
+ * renderDespachos cuando ESTA petición (seq vigente) volvió en cero.
+ */
+function pintarEstadoCarga(contenedor) {
+  const tieneFilas = !!contenedor.querySelector('.regd-fila');
+  if (tieneFilas) {
+    contenedor.classList.add('regd-lista-cargando');
+    if (!contenedor.querySelector('.regd-lista-overlay')) {
+      contenedor.insertAdjacentHTML('beforeend', HTML_OVERLAY_CARGA);
+    }
+    return;
+  }
+  contenedor.classList.remove('regd-lista-cargando');
+  contenedor.innerHTML = HTML_CARGANDO;
 }
 
 /**
@@ -109,6 +139,7 @@ function contadorCompletos(completos, total) {
 
 function renderDespachos(despachos) {
   const contenedor = document.getElementById('regd-lista');
+  contenedor.classList.remove('regd-lista-cargando');
   cerrarPopoverComentario();
 
   if (despachos.length === 0) {

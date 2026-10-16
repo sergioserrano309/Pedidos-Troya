@@ -20,6 +20,7 @@
 12. [Frontend: estructura y funcionamiento de cada módulo](#12-frontend-estructura-y-funcionamiento-de-cada-módulo)
     - [12.7 PDF de detalle de despacho (solo impresión)](#127-pdf-de-detalle-de-despacho-solo-impresión)
     - [12.8 Indicador de comentario en Despachado](#128-indicador-de-comentario-en-despachado)
+    - [12.9 Carga y filtro de Despachado (lentitud y vacío intermedio)](#129-carga-y-filtro-de-despachado-lentitud-y-vacío-intermedio)
 13. [Estado de la aplicación (appState)](#13-estado-de-la-aplicación-appstate)
 14. [Tiempo real (Realtime)](#14-tiempo-real-realtime)
 15. [Variables de entorno](#15-variables-de-entorno)
@@ -654,6 +655,7 @@ Cada archivo expone funciones `async` que devuelven datos ya listos para pintar,
 - **`movementsService.js`**: `registrarMovimiento(...)` valida en el cliente (cantidad > 0, no exceder el pendiente, destino permitido para el rol) **antes** de insertar — esto es solo para dar feedback rápido al usuario; la validación real e infranqueable sigue siendo la de RLS/CHECK en la base de datos.
 - **`returnsService.js`**: `registrarDevolucion(...)`, misma idea, validando también que solo Comercial pueda invocarlo.
 - **`historyService.js`**: `fetchHistory(user, opciones)` consulta `vw_historial`; si el rol no es `comercial`, agrega `.eq('user_id', user.id)` (cada quien ve solo su propio historial de movimientos; ver también la sección 10 sobre por qué las devoluciones ya vienen filtradas automáticamente por RLS dentro de la vista).
+- **`despachosService.js`**: `fetchRegistrosDespachos` usa el RPC `listar_despachos_registro` (SQL `065`) para el acordeón Despachado; si el RPC aún no existe en la base, cae a `vw_despachos_registro`. Ver §12.9.
 
 ### 12.4 Visibilidad de pedidos por rol (`ordersService.js`)
 
@@ -770,6 +772,105 @@ async function bootstrap() {
 
 **Archivos:** `supabase/sql/064_despachos_registro_comentario.sql`, `src/ui/registrosDespachosPage.js`, estilos `.regd-col-comentario` / `.regd-comentario-popover` en `index.html`.
 
+### 12.9 Carga y filtro de Despachado (lentitud y vacío intermedio)
+
+**Entrada:** Órdenes → Despachos → acordeón **Despachado** → filtros Fecha / No. Orden / No. Despacho.
+
+**Síntoma que se veía:** al filtrar por un número de orden (y al quitar el filtro) la lista decía “Cargando despachos…”, luego **“No hay despachos para mostrar”**, y varios segundos después aparecían las filas correctas. La pestaña en general también tardaba en cargar.
+
+Eso no era un solo bug: eran **dos fallos distintos** que se veían como uno. El ajuste 1 arregla **qué se pinta y cuándo**. El ajuste 2 arregla **cuánto trabajo hace la base**. Uno no sustituye al otro.
+
+#### El problema, desarmado
+
+1. **La pantalla se equivocaba un rato.** “Cargando” → “no hay despachos” → las filas. Eso es concurrencia en el navegador, no Postgres.
+2. **Cada búsqueda tardaba varios segundos** aunque el resultado fueran 2 o 3 despachos. Eso es cómo se consultaba la vista.
+
+Si solo se hiciera el 1: dejaría de mentir el vacío, pero se seguiría esperando.  
+Si solo se hiciera el 2: la búsqueda sería rápida, pero al escribir `344` y luego `3449` todavía podrían cruzarse dos respuestas.
+
+#### Ajuste 1 — No pintar respuestas viejas (UI)
+
+**Qué hacía la pantalla.** Cada cambio de filtro (debounce 350 ms en orden/consecutivo):
+
+1. Borraba la lista.
+2. Ponía “Cargando despachos…”.
+3. Lanzaba una petición a Supabase **sin cancelar la anterior**.
+4. Cuando **cualquier** petición terminaba, pintaba. No preguntaba si seguía siendo la búsqueda vigente.
+
+El filtro de orden era (y sigue siendo) **exacto**: el número completo como elemento del arreglo de órdenes. `344` no es `3449`, así que esa query devuelve **cero filas** (correcto para esa petición; incorrecto para lo que el usuario está a punto de terminar de escribir).
+
+**La carrera.** Al escribir `3449`:
+
+| Momento | Qué ocurría |
+|---|---|
+| Teclas `344`, pausa ~350 ms | Petición **A**: “órdenes incluye exactamente `344`” |
+| Se escribe el `9` | Petición **B**: exactamente `3449`. Lista en “Cargando…” |
+| **A** termina (vacío) | Pinta “No hay despachos…”. **B sigue en el aire**; no vuelve a poner el spinner |
+| **B** termina unos segundos después | Recién ahí aparecen las filas |
+
+La petición A **ya no servía**, pero ganaba el derecho a pintar porque llegó primero. Al quitar el filtro: una petición con el último dígito y otra sin filtro (la lenta). No había un reintento mágico de la base: eran **dos respuestas de dos búsquedas distintas** fuera de orden.
+
+**Qué se cambió** (`src/ui/registrosDespachosPage.js`):
+
+- Contador `cargaSeq`: cada carga incrementa; si llega un resultado con `seq` viejo, se descarta (incluido el empty y el error/toast).
+- Si ya hay filas, **no se vacía** la lista: overlay “Cargando despachos…” (`.regd-lista-overlay`).
+- “No hay despachos para mostrar” solo se pinta cuando la petición **vigente** volvió en cero.
+
+Esto quita el vacío mentiroso. **No** acorta los varios segundos: eso es el ajuste 2.
+
+#### Ajuste 2 — Filtrar y agregar solo lo de la página (SQL)
+
+**Qué hacía la base.** El listado no leía “los despachos que coinciden con 3449”. Leía `vw_despachos_registro` y **después** aplicaba el filtro. Esa vista, en cada llamada (con o sin filtro, página 1 o 8):
+
+1. Juntaba **todas** las órdenes de **todos** los despachos y armaba `order_numbers`.
+2. Para el badge “N de M completos” calculaba si **cada pedido** ya estaba 100 % despachado, arrastrando `vw_pedido_despacho_estado` → `vw_item_despacho_saldo` → `vw_item_progreso` / `vw_item_stage` / `production_movements`.
+3. Sumaba **todos** los bultos y **todas** las unidades.
+4. Recién al final: `order_numbers @> {3449}` y `LIMIT 30`.
+
+El `LIMIT 30` llegaba **tarde**. Paginar no reducía el trabajo. Filtrar por orden iba sobre el arreglo agregado, así que **no se usaba** `idx_despacho_ordenes_order_number`. Quitar el filtro era igual de caro (o más).
+
+Mismo patrón que ya se corrigió en el dashboard al materializar `item_id` (SQL `016`): vista en tiempo real que recorre demasiado en cada lectura.
+
+**Qué se cambió.** RPC `listar_despachos_registro` (SQL `065`), `SECURITY INVOKER` (mismas RLS que la vista: Empaque / Validador / Propuesta):
+
+1. **Primero** elige `despacho_id` baratos: orden exacta en `despacho_ordenes`, fecha por rango de `created_at`, consecutivo con `ILIKE` sobre `D1021` (mismo UX que antes). `ORDER BY created_at DESC LIMIT/OFFSET` en un CTE **`MATERIALIZED`** para que el recorte no se inlinee.
+2. **Después**, solo para esos ids (~31 de la página): bultos, kilos, unidades, lista de órdenes, nombres de perfiles.
+3. `pedido_completo` **solo para los pedidos de esa página**: `p_pedidosh` (no cancelados) vs suma de `despacho_orden_items` por `item_id`. No pasa por `vw_item_progreso`.
+
+El cliente pide `PAGE_SIZE + 1` filas (30 + 1) para saber si hay página siguiente, igual que el resto de listados.
+
+Si el RPC aún no está aplicado, `fetchRegistrosDespachos` cae a la vista (PGRST202 / 42883) para no romper el deploy antes de correr el SQL.
+
+#### Decisiones tomadas
+
+| Decisión | Elección | Por qué |
+|---|---|---|
+| Dos ajustes juntos | UI (1) + RPC (2) | El vacío y la espera son causas distintas |
+| Ignorar respuestas viejas | Contador `cargaSeq`, no AbortController | Suficiente; el cliente de Supabase no expone abort en este código |
+| Lista previa | Overlay, no wipe | Evita el flash vacío cuando ya había filas |
+| Filtro de orden | Sigue **exacto** (`order_number = '3449'`) | Mismo comportamiento; ahora usa el índice |
+| Filtro de consecutivo | Sigue `ILIKE '%1021%'` sobre `consecutivo` | No cambiar UX (`102` sigue encontrando `D1021`); el scan de `despachos` es barato una vez recortada la agregación |
+| Filtro de fecha | Día calendario `created_at >= fecha` y `< fecha+1` (timestamp naive, TZ de la sesión / UTC en Supabase) | Equivalente práctico al `T00:00:00`–`T23:59:59.999` de PostgREST |
+| Forma de la fila | Mismas columnas que `vw_despachos_registro` | El render no cambia |
+| Lectura | RPC `SECURITY INVOKER`, no definer | No se saltan RLS; Propuesta sigue viendo (061) |
+| Vista 064 | **No se borra** | Fallback y otros consumidores; el listado deja de usarla cuando existe el RPC |
+| Materializar columnas en `despachos` | **No** en este cambio | Es el ajuste posterior 4; más escritura, lecturas aún más baratas |
+
+**SQL a ejecutar en Supabase:** [`supabase/sql/065_listar_despachos_registro.sql`](supabase/sql/065_listar_despachos_registro.sql) (requiere `016`, `053` y `062`). Reversa: [`supabase/sql/065_revertir_listar_despachos_registro.sql`](supabase/sql/065_revertir_listar_despachos_registro.sql). Si tras ejecutarlo la consola del navegador avisa que el RPC no existe, esperar a que PostgREST recargue el esquema (segundos) o recargar el API en el dashboard.
+
+**Archivos:** `supabase/sql/065_listar_despachos_registro.sql`, `065_revertir_listar_despachos_registro.sql`, `src/services/despachosService.js`, `src/ui/registrosDespachosPage.js`, estilos `#regd-lista` / `.regd-lista-overlay` en `index.html`.
+
+#### Ajustes posteriores (no implementados)
+
+Solo se desarrollaron 1 y 2. Para seguir bajando tiempo de carga/búsqueda:
+
+1. **Lazy load de acordeones.** Al entrar a Despachos hoy se disparan en paralelo A Despachar (`vw_pedidos_por_despachar`), facetas (lotes de 1000) y Despachado. Cargar Despachado solo al abrir su `<details>` (y lo mismo al revés) evita pegarle a la base por una sección cerrada.
+2. **No recargar Despachado en cada Realtime de `production_movements`.** `main.js` llama `cargarDespachosTab()` ante cualquier movimiento; el listado de salidas casi no cambia por eso. Refrescar solo A Despachar, o ignorar esos eventos si solo está abierto Despachado.
+3. **Consecutivo por igualdad.** El campo es dígitos (`1021` → `D1021`). `numero_despacho = 1021` usaría el unique; el `ILIKE '%1021%'` actual también mata `D11021`. Cambio de UX: hay que acordarlo.
+4. **Materializar agregados en `despachos`** (o tabla de resumen) con trigger al crear/borrar: `order_numbers`, `peso_total`, `total_unidades`, `pedidos_completos`. El listado leería una tabla indexada. Misma lección que `016_item_id_materializado.sql`.
+5. **No buscar hasta 4+ dígitos** (o debounce un poco más largo) en No. Orden, si el número típico es tipo `3449`.
+6. **Facets de A Despachar:** no bajar todos los pedidos con saldo en el primer pintado; calcular opciones con una query más chica o al abrir ese acordeón.
+
 ---
 
 ## 13. Estado de la aplicación (appState)
@@ -842,6 +943,7 @@ El documento de especificaciones (`Contexto Cursor pedidos.md`) dejaba varios pu
 - **Escalabilidad futura** (sección 21 del documento: KPIs, códigos de barras, múltiples fábricas, etc.) no está implementada, pero la arquitectura de vistas + RLS + tablas append-only está pensada para poder agregarse sin romper lo existente (por ejemplo, una nueva vista `vw_kpis_produccion` se podría construir sobre las mismas tablas base).
 - **PDF de despacho en media hoja:** preview A4; en print cada mitad = **50 % del papel elegido** (`@page size: auto`), con corte al centro (véase §12.7). No usar altura fija en mm de A4 en print ni remedir a `--dos-paginas` en `beforeprint`. Si caben → una página; si no → dos con contenido. Si hay comentario → modal con toggle (default incluir); sin comentario → imprimir directo.
 - **Indicador de comentario en Despachado:** icono en todas las filas (ámbar si hay texto, gris opaco si no); popover de solo lectura; dato vía `vw_despachos_registro.comentario` (SQL `064`). No inventar hilo de comentarios ni editar desde el listado (véase §12.8).
+- **Listado Despachado (065):** el RPC recorta `despacho_id` antes de agregar; la UI ignora respuestas viejas. Queda por hacer: lazy load de acordeones, no refrescar Despachado en cada Realtime de movimientos, materializar agregados en `despachos`, igualdad en consecutivo. Véase §12.9.
 
 ---
 

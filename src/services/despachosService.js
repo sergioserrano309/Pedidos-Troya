@@ -368,11 +368,56 @@ export async function fetchAsignacionesDespacho(despachoId) {
 
 /**
  * Acordeón Despachos > Despachado: una fila por despacho con sus agregados (bultos,
- * kilos, unidades, órdenes, comentario desde 064). Ver vw_despachos_registro
- * (039 → 046 → 053 → 064).
+ * kilos, unidades, órdenes, comentario desde 064).
+ *
+ * Camino rápido (SQL 065): RPC listar_despachos_registro recorta los
+ * despacho_id ANTES de agregar. Camino lento: vw_despachos_registro, solo
+ * si el RPC aún no está aplicado en Supabase (PGRST202 / 42883).
+ *
  * @param {{ page?: number, filters?: { fecha?: string, consecutivo?: string, orden?: string } }} options
  */
 export async function fetchRegistrosDespachos(options = {}) {
+  const { page = 0, filters = {} } = options;
+  const { fecha = '', consecutivo = '', orden = '' } = filters;
+  const offset = page * PAGE_SIZE;
+  const limit = PAGE_SIZE + 1;
+
+  const { data, error } = await supabase.rpc('listar_despachos_registro', {
+    p_orden: orden.trim(),
+    p_fecha: fecha.trim(),
+    p_consecutivo: consecutivo.trim(),
+    p_offset: offset,
+    p_limit: limit
+  });
+
+  if (!error) {
+    const hayMas = (data || []).length > PAGE_SIZE;
+    return { despachos: (data || []).slice(0, PAGE_SIZE), hayMas };
+  }
+
+  if (!esRpcListadoAusente(error)) {
+    console.error('[despachosService] Error obteniendo registros de despachos:', error);
+    throw new Error('No se pudieron cargar los registros de despachos.');
+  }
+
+  console.warn('[despachosService] RPC listar_despachos_registro no está aplicado; usando vw_despachos_registro.');
+  return fetchRegistrosDespachosVista({ page, filters });
+}
+
+/** PostgREST / Postgres cuando la función 065 todavía no existe. */
+function esRpcListadoAusente(error) {
+  const code = String(error?.code || '');
+  const msg = String(error?.message || '').toLowerCase();
+  return (
+    code === 'PGRST202' ||
+    code === '42883' ||
+    msg.includes('could not find the function') ||
+    (msg.includes('listar_despachos_registro') && msg.includes('does not exist'))
+  );
+}
+
+/** Fallback: misma query de antes de 065 (vista completa + filtro al final). */
+async function fetchRegistrosDespachosVista(options = {}) {
   const { page = 0, filters = {} } = options;
   const { fecha = '', consecutivo = '', orden = '' } = filters;
 
@@ -391,7 +436,7 @@ export async function fetchRegistrosDespachos(options = {}) {
   const { data, error } = await query;
 
   if (error) {
-    console.error('[despachosService] Error obteniendo registros de despachos:', error);
+    console.error('[despachosService] Error obteniendo registros de despachos (vista):', error);
     throw new Error('No se pudieron cargar los registros de despachos.');
   }
 
