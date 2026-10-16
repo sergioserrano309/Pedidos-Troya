@@ -2053,6 +2053,55 @@
       margin-top: 0;
     }
 
+    /* Registros: el botón "Eliminar n registros" acompaña al usuario al
+       desplazarse (se queda bajo el header, a la derecha) para no tener que
+       volver arriba después de marcar un registro lejos.
+       Es "fixed" y no "sticky" a propósito: .content tiene overflow-y:auto
+       y eso impide que un sticky se pegue al desplazar la ventana.
+       Sin left/right, un fixed conserva su posición HORIZONTAL natural: la
+       barra (en flujo, alineada a la derecha) lo deja en el borde derecho
+       del contenido de la tarjeta, respetando sus márgenes. Sin JavaScript. */
+    .eliminar-multiples-barra {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 0.75rem;
+    }
+
+    .eliminar-multiples-flotante {
+      /* Se corre a la izquierda de la columna [×] para que nunca quede
+         encima del × de una fila (ahí se confundía con "eliminar ese
+         registro"): su borde derecho cae junto al de la columna Usuario,
+         con 12px de aire extra para que un dedo no alcance a los dos.
+         44px = ancho de la columna de acción (th width:44px en
+         historyPage.js, renderHistorialSimple). */
+      --ancho-columna-accion: 44px;
+      --aire-columna-accion: 12px;
+      margin-right: calc(var(--ancho-columna-accion) + var(--aire-columna-accion));
+      position: fixed;
+      top: calc(52px + 12px); /* alto del header + aire */
+      z-index: 90;            /* sobre la tabla, bajo el header (100) y los modales */
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      /* El borde derecho de la caja queda a 45px del borde de la pantalla
+         (padding de .content + padding y borde de .card); 3.6rem deja ~12px
+         de aire a la izquierda en pantallas angostas. */
+      max-width: min(420px, calc(100vw - 3.6rem - var(--ancho-columna-accion) - var(--aire-columna-accion)));
+    }
+
+    .eliminar-multiples-flotante .btn {
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+    }
+
+    .eliminar-multiples-flotante #eliminar-multiples-aviso {
+      text-align: right;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 8px 10px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+    }
+
     .crear-despacho-contador {
       margin-top: 4px;
       font-size: 11px;
@@ -5207,12 +5256,14 @@
             </div>
 
             <div class="card">
-              <div style="margin-bottom:0.75rem;">
-                <button id="btn-eliminar-multiples-registros" class="btn btn-danger btn-sm" style="display:none;">Eliminar seleccionados</button>
-                <!-- Aviso cuando la selección abarca más de un pedido: el
-                     borrado múltiple queda bloqueado para evitar arrasar
-                     con una selección hecha tras un filtro mal puesto. -->
-                <div id="eliminar-multiples-aviso" style="display:none; margin-top:8px; font-size:12px; color:var(--red-text);"></div>
+              <div id="eliminar-multiples-barra" class="eliminar-multiples-barra">
+                <div class="eliminar-multiples-flotante">
+                  <button id="btn-eliminar-multiples-registros" class="btn btn-danger btn-sm" style="display:none;">Eliminar seleccionados</button>
+                  <!-- Aviso cuando la selección abarca más de un pedido: el
+                       borrado múltiple queda bloqueado para evitar arrasar
+                       con una selección hecha tras un filtro mal puesto. -->
+                  <div id="eliminar-multiples-aviso" style="display:none; margin-top:8px; font-size:12px; color:var(--red-text);"></div>
+                </div>
               </div>
               <div id="registros-wrapper" style="display:flex; width:100%; max-width:100%; overflow:hidden;">
                 <!-- Columnas fijas -->
