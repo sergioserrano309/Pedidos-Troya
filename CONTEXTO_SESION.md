@@ -186,6 +186,25 @@ El usuario (Sergio) solicitó las siguientes mejoras a la aplicación de gestió
 
 ---
 
+## Sesión — Carga y filtro de Despachado (2026-10-15)
+
+**Pedido:** al filtrar (o quitar filtro) en Despachos > Despachado: “Cargando despachos…” → “No hay despachos para mostrar” → varios segundos después las filas. Analizar, luego implementar ajustes 1 y 2; documentar problema, decisiones y mejoras posteriores. No implementar 3+.
+
+**El problema (dos causas):**
+1. **UI:** cada tecla (debounce 350 ms) lanza una query sin cancelar la anterior. El filtro de orden es exacto (`344` ≠ `3449` → 0 filas). La petición vieja pintaba el vacío encima de la vigente, que aún corría.
+2. **SQL:** `vw_despachos_registro` agregaba TODOS los despachos y, para el badge “N de M”, `vw_pedido_despacho_estado` → producción completa. El `LIMIT 30` y el `order_numbers @>` llegaban tarde; el índice de `despacho_ordenes.order_number` no se usaba.
+
+**Implementado (solo 1 y 2):**
+- Ajuste 1: `cargaSeq` + overlay si ya hay filas (`registrosDespachosPage.js`, CSS en `index.html`).
+- Ajuste 2: RPC `listar_despachos_registro` (`065_listar_despachos_registro.sql`); el servicio lo llama y cae a la vista si el RPC no existe.
+- Documentado en `DOCUMENTACION_TECNICA.md` §12.9 (problema, decisiones, ajustes posteriores) y `PROYECTO_RESUMEN.md` §5c.
+
+**Pendiente operativo:** ejecutar `065_listar_despachos_registro.sql` en el SQL Editor de Supabase. Sin eso, el flash vacío sí se corrige (ajuste 1) pero la espera sigue (fallback a la vista).
+
+**No implementado a propósito (véase §12.9):** lazy load de acordeones, no refrescar Despachado en Realtime de movimientos, igualdad en consecutivo, materializar agregados en `despachos`, mínimo de dígitos antes de buscar.
+
+---
+
 ## Sesión — Toggle comentario en PDF de despacho (2026-10-15)
 
 **Pedido:** al descargar el PDF, poder elegir si incluir o no el comentario sin cambiar el layout de impresión.

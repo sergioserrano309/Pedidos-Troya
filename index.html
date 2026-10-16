@@ -1972,6 +1972,31 @@
       word-break: break-word;
     }
 
+    /* Carga del listado Despachado (065): si ya hay filas, no se vacían.
+       Overlay encima para que una petición vieja no pinte "no hay nada". */
+    #regd-lista {
+      position: relative;
+      min-height: 4rem;
+    }
+
+    #regd-lista.regd-lista-cargando {
+      pointer-events: none;
+    }
+
+    .regd-lista-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      background: rgba(255, 255, 255, 0.78);
+      color: var(--text2);
+      font-size: 14px;
+      border-radius: var(--r);
+    }
+
     /* Descargar el despacho en PDF. Va a la izquierda del ×: las dos
        acciones de la tarjeta quedan juntas, y la destructiva de última.
        Discreto (gris, contorno) para que el rojo siga siendo el único
