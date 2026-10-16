@@ -158,7 +158,7 @@ function mensajeEnTablas(texto) {
   const simple = document.getElementById('registros-simple-body');
   if (fixed) fixed.innerHTML = `<tr><td colspan="6" class="empty">${seguro}</td></tr>`;
   if (scroll) scroll.innerHTML = `<tr><td colspan="13" class="empty">${seguro}</td></tr>`;
-  if (simple) simple.innerHTML = `<tr><td colspan="9" class="empty">${seguro}</td></tr>`;
+  if (simple) simple.innerHTML = `<tr><td colspan="11" class="empty">${seguro}</td></tr>`;
 }
 
 /**
@@ -263,15 +263,20 @@ function metaFila(row) {
  * dos se generen de aquí, es imposible que la tabla quede corrida.
  */
 function columnasSimples(verDespacho) {
+  // Orden de lectura pensado para quien opera: qué pedido y qué talla,
+  // cuánto, cuándo, a dónde fue y quién lo hizo.
   const cols = [
     { th: 'Orden', td: (r) => escapeHtml(r.order_number) },
+    // Solo el número de talla, sin la palabra "Talla" delante.
+    { th: 'Talla', td: (r) => escapeHtml(r.size ?? '—'), centro: true },
+    { th: 'Q', td: (r) => r.quantity, centro: true },
+    { th: 'Fecha', td: (r) => formatearFechaCorta(new Date(r.created_at)) },
     // En Empaque "Envío" siempre dice E (Completado): en celular no aporta
     // y se oculta. En los demás roles indica el destino y se deja.
     { th: 'Envío', td: (r) => letraProceso(r.to_process), ocultaMovil: verDespacho },
-    { th: 'Q', td: (r) => r.quantity, centro: true },
-    { th: 'Fecha', td: (r) => formatearFechaCorta(new Date(r.created_at)) },
-    // Solo el número de talla, sin la palabra "Talla" delante.
-    { th: 'Talla', td: (r) => escapeHtml(r.size ?? '—'), centro: true }
+    // Quién hizo el registro: cada usuario ve los de TODOS los de su
+    // proceso, y necesita distinguir lo suyo de lo ajeno para coordinarse.
+    { th: 'Usuario', td: (r) => celdaUsuario(r) }
   ];
 
   if (verDespacho) {
@@ -299,6 +304,26 @@ function columnasSimples(verDespacho) {
   }
 
   return cols;
+}
+
+/**
+ * Nombre de quien hizo el registro. Lo propio va en negrita con "(tú)";
+ * si lo hizo el Validador (p. ej. actuando como este proceso) se indica.
+ * El nombre largo se recorta con puntos suspensivos y el completo queda en
+ * el tooltip.
+ */
+function celdaUsuario(row) {
+  const { user } = getState();
+  const esPropio = !!user && row.user_id === user.id;
+  const base = row.user_name || '—';
+  const nombre = row.user_role === 'validador' && !esPropio ? `${base} (Validador)` : base;
+  const texto = escapeHtml(nombre);
+  const recorte = 'display:inline-block; max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom;';
+
+  if (esPropio) {
+    return `<span style="${recorte} font-weight:600;" title="${texto}">${texto}</span> <span style="color:var(--text3); font-size:11px;">(tú)</span>`;
+  }
+  return `<span style="${recorte}" title="${texto}">${texto}</span>`;
 }
 
 /** Nombre completo en PC; el corto (si lo hay) en celular. */

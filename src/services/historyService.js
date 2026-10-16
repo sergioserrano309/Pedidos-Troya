@@ -1,12 +1,17 @@
 import { supabase } from '../config/supabaseClient.js';
+import { esRolDeProceso, nombreProcesoDeRol } from '../lib/roles.js';
 
 /**
  * Servicio de historial (sección 12 + 15 del documento).
  *
- * - Comercial: ve todo el historial, sin filtros (movimientos + devoluciones).
- * - Otros roles: solo ven su propio historial (filtro por user_id), y las
- *   filas de tipo "devolucion" quedan automáticamente ocultas para ellos
- *   por la RLS de la tabla `returns` (ver vw_historial).
+ * - Comercial y Validador: ven todo el historial (movimientos + devoluciones).
+ * - Refilado, Acabado, Mateado y Empaque: ven los registros de TODOS los
+ *   usuarios de SU proceso (para coordinarse y no pisarse el trabajo), y
+ *   nada de los otros procesos. Es solo consulta: eliminar sigue siendo
+ *   únicamente de quien creó el registro (ver historyPage.js y
+ *   fn_eliminar_movimiento_validado). Las filas de tipo "devolucion"
+ *   quedan ocultas para ellos por la RLS de la tabla `returns`.
+ * - Cualquier otro rol: solo su propio historial (filtro por user_id).
  *
  * El historial es inmutable: este servicio solo hace SELECT.
  */
@@ -26,7 +31,15 @@ export async function fetchHistory(user, options = {}) {
     .order('created_at', { ascending: false })
     .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
 
-  if (user.role !== 'comercial' && user.role !== 'validador') {
+  // Rol de proceso: todo lo de SU proceso, de cualquier usuario. Se excluyen
+  // los movimientos automáticos por regla de enrutamiento (013): los crea
+  // el sistema con user_id null, no son trabajo de nadie y de Refilado
+  // serían miles de filas (una por talla de cada pedido enrutado).
+  const procesoDelRol = esRolDeProceso(user.role) ? nombreProcesoDeRol(user.role) : null;
+
+  if (procesoDelRol) {
+    query = query.eq('from_process', procesoDelRol).not('user_id', 'is', null);
+  } else if (user.role !== 'comercial' && user.role !== 'validador') {
     query = query.eq('user_id', user.id);
   }
 
@@ -49,7 +62,9 @@ export async function fetchHistory(user, options = {}) {
 
   // Filtro por proceso (solo relevante para comercial/validador, que ven
   // registros de TODOS los procesos a la vez).
-  if (proceso.trim()) {
+  // (Un rol de proceso ya quedó acotado a su proceso arriba: este filtro
+  // manual no aplica, y un valor viejo de otra sesión vaciaría la lista.)
+  if (proceso.trim() && !procesoDelRol) {
     query = query.eq('from_process', proceso.trim());
   }
 
