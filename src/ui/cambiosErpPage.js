@@ -1,14 +1,20 @@
-import { fetchCambiosPanel, fetchEstadoDetector } from '../services/cambiosErpService.js';
 import {
-  ETIQUETA_TIPO, ETIQUETA_ESTADO, descripcionCambio, contadoresPanel, estadoDetector, formatearValor
+  fetchCambiosPanel, fetchEstadoDetector, fetchCamposAplicables, revertirCambioErp
+} from '../services/cambiosErpService.js';
+import {
+  ETIQUETA_TIPO, ETIQUETA_ESTADO, descripcionCambio, contadoresPanel, estadoDetector, formatearValor,
+  formatearDia, puedeDeshacer, textoCamposEncendidos
 } from '../lib/cambiosErp.js';
 import { abrirDetalleOrden } from './orderDetail.js';
 import { esValidador } from '../services/validatorService.js';
+import { mostrarToast } from './toast.js';
 
 /**
- * Pestaña "Cambios ERP" (solo Validador, Fase 1): lista las diferencias que el
- * detector encontró entre Access y el programa. Solo lectura: en esta fase no
- * hay botones para aplicar nada, y ningún pedido se modifica.
+ * Pestaña "Cambios ERP" (solo Validador): lista las diferencias que el
+ * detector encontró entre Access y el programa. Fase 1: solo se muestran.
+ * Fase 2: los campos de TEXTO cuyo interruptor esté encendido (Supabase,
+ * erp_cambios_estado.aplicar_campos) se aplican solos y aquí se pueden
+ * DESHACER; los demás tipos siguen sin aplicarse.
  */
 
 const ESTILO_INPUT = 'padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;';
@@ -18,6 +24,7 @@ let todos = [];
 let filtros = { estado: 'pendiente', tipo: '', orden: '' };
 let pagina = 0;
 let estado = null;
+let camposAplicables = null; // campos encendidos; [] = todo apagado; null = no se pudo leer
 let cargaActual = 0;
 
 function escapeHtml(value) {
@@ -46,8 +53,9 @@ export async function cargarCambiosErpPage() {
         <button id="btn-refrescar-cambios-erp" class="btn btn-secondary btn-sm">🔄 Refrescar</button>
       </div>
       <div style="font-size:12px; color:var(--text2); margin-bottom:0.5rem;">
-        Aquí se listan los datos que en Access cambiaron después de cargar el pedido. <strong>Por ahora solo se muestran:
-        ningún pedido se modifica automáticamente.</strong>
+        Aquí se listan los datos que en Access cambiaron después de cargar el pedido. <strong>Los datos de texto cuyo campo
+        esté encendido (ver abajo) se aplican solos cuando se ven iguales en 2 revisiones seguidas y se pueden deshacer aquí.
+        Todo lo demás, por ahora, solo se muestra: no se modifica ningún pedido.</strong>
       </div>
       <div id="cambios-erp-estado" style="font-size:12px; margin-bottom:0.75rem;"></div>
       <div id="cambios-erp-contadores" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:0.75rem;"></div>
@@ -55,6 +63,8 @@ export async function cargarCambiosErpPage() {
         <input type="text" id="cambios-erp-filtro-orden" placeholder="No. Orden" maxlength="4" style="${ESTILO_INPUT}">
         <select id="cambios-erp-filtro-estado" style="${ESTILO_INPUT}">
           <option value="pendiente">Pendientes</option>
+          <option value="aplicado">Aplicados</option>
+          <option value="rechazado">Deshechos</option>
           <option value="resuelto">Resueltos (historial)</option>
           <option value="">Todos</option>
         </select>
@@ -92,7 +102,12 @@ export async function cargarCambiosErpPage() {
   document.getElementById('cambios-erp-next')?.addEventListener('click', () => {
     pagina += 1; pintar();
   });
-  document.getElementById('cambios-erp-tabla')?.addEventListener('click', (e) => {
+  document.getElementById('cambios-erp-tabla')?.addEventListener('click', async (e) => {
+    const deshacer = e.target.closest('[data-deshacer]');
+    if (deshacer) {
+      await deshacerCambio(deshacer);
+      return;
+    }
     const enlace = e.target.closest('[data-abrir-orden]');
     if (!enlace) return;
     e.preventDefault();
@@ -106,11 +121,36 @@ async function recargar() {
   const miCarga = ++cargaActual;
   const tabla = document.getElementById('cambios-erp-tabla');
   if (tabla) tabla.innerHTML = '<div class="loading"><div class="spinner"></div> Cargando...</div>';
-  const [filas, est] = await Promise.all([fetchCambiosPanel(), fetchEstadoDetector()]);
+  const [filas, est, campos] = await Promise.all([
+    fetchCambiosPanel(), fetchEstadoDetector(), fetchCamposAplicables()
+  ]);
   if (miCarga !== cargaActual) return; // llegó una respuesta vieja
   todos = filas || [];
   estado = est;
+  camposAplicables = campos;
   pintar(filas === null);
+}
+
+/** Botón "Deshacer": pide confirmación y restaura el cliente anterior. */
+async function deshacerCambio(boton) {
+  const id = Number(boton.dataset.deshacer);
+  const pedido = boton.dataset.pedido;
+  if (!Number.isFinite(id)) return;
+  const ok = window.confirm(
+    `¿Deshacer este cambio del pedido ${pedido}?\n\n`
+    + 'Se restaura el valor anterior y el programa no lo volverá a cambiar '
+    + 'mientras Access no lo modifique otra vez.'
+  );
+  if (!ok) return;
+  boton.disabled = true;
+  try {
+    await revertirCambioErp(id);
+    mostrarToast(`Cambio del pedido ${pedido} deshecho.`, 'ok');
+    await recargar();
+  } catch (err) {
+    boton.disabled = false;
+    mostrarToast(err.message || 'No se pudo deshacer el cambio.', 'error');
+  }
 }
 
 function pintarEstado() {
@@ -118,13 +158,17 @@ function pintarEstado() {
   if (!el) return;
   const info = estadoDetector(estado);
   const base = 'Detector de cambios: ';
+  const encendidos = textoCamposEncendidos(camposAplicables);
+  const interruptor = encendidos === null
+    ? ''
+    : ` · Aplicación automática de: <strong>${encendidos === 'ninguno' ? 'APAGADA (ningún campo)' : escapeHtml(encendidos)}</strong>`;
   if (info.nivel === 'ok') {
     el.style.cssText = 'font-size:12px; margin-bottom:0.75rem; color:var(--text3);';
-    el.innerHTML = `${base}<strong style="color:var(--green-text);">${escapeHtml(info.texto)}</strong>`;
+    el.innerHTML = `${base}<strong style="color:var(--green-text);">${escapeHtml(info.texto)}</strong>${interruptor}`;
   } else {
     const alerta = info.nivel === 'alerta';
     el.style.cssText = `font-size:12px; margin-bottom:0.75rem; padding:6px 10px; border-radius:var(--r); background:var(--${alerta ? 'red' : 'amber'}-bg); color:var(--${alerta ? 'red' : 'amber'}-text);`;
-    el.innerHTML = `${alerta ? '⚠ ' : ''}${base}<strong>${escapeHtml(info.texto)}</strong>`;
+    el.innerHTML = `${alerta ? '⚠ ' : ''}${base}<strong>${escapeHtml(info.texto)}</strong>${interruptor}`;
   }
 }
 
@@ -136,6 +180,7 @@ function pintarContadores() {
   const partes = [
     chip(`${c.pendientes} pendiente${c.pendientes === 1 ? '' : 's'} en ${c.pedidos} pedido${c.pedidos === 1 ? '' : 's'}`, true),
     ...Object.entries(c.porTipo).map(([t, n]) => chip(`${escapeHtml(ETIQUETA_TIPO[t] || t)}: ${n}`)),
+    chip(`${c.aplicados} aplicado${c.aplicados === 1 ? '' : 's'}`),
     chip(`${c.resueltos} resuelto${c.resueltos === 1 ? '' : 's'}`)
   ];
   el.innerHTML = partes.join('');
@@ -188,6 +233,7 @@ function pintar(errorDeCarga = false) {
           <th style="padding:8px; text-align:left;">Estado</th>
           <th style="padding:8px; text-align:left;">Detectado</th>
           <th style="padding:8px; text-align:center;" title="Revisiones seguidas en que la diferencia se vio igual">Rev.</th>
+          <th style="padding:8px; text-align:center;"></th>
         </tr>
       </thead>
       <tbody>
@@ -207,9 +253,10 @@ function pintar(errorDeCarga = false) {
             <td style="padding:8px;">${escapeHtml(enPrograma)}</td>
             <td style="padding:8px; text-align:center;">${Number(c.contexto?.movimientos || 0)}</td>
             <td style="padding:8px; text-align:center;">${Number(c.contexto?.despachos || 0)}</td>
-            <td style="padding:8px;">${escapeHtml(ETIQUETA_ESTADO[c.estado] || c.estado)}</td>
+            <td style="padding:8px;">${escapeHtml(ETIQUETA_ESTADO[c.estado] || c.estado)}${c.estado === 'aplicado' ? `<div style="font-size:11px; color:var(--text3);">el ${escapeHtml(formatearDia(c.aplicado_at))}</div>` : ''}</td>
             <td style="padding:8px; white-space:nowrap;">${escapeHtml(fechaHora(c.detectado_at))}</td>
             <td style="padding:8px; text-align:center;">${Number(c.revisiones_consecutivas || 0)}</td>
+            <td style="padding:8px; text-align:center;">${puedeDeshacer(c) ? `<button class="btn btn-secondary btn-sm" data-deshacer="${Number(c.id)}" data-pedido="${escapeHtml(c.pedido)}" title="Restaura el valor anterior">Deshacer</button>` : ''}</td>
           </tr>`;
         }).join('')}
       </tbody>

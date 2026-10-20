@@ -110,15 +110,30 @@ function renderNotaCambiosErp(cambios) {
       el.innerHTML = '';
       return;
     }
-    const lineas = nota.lineas.map((l) => `<li>${escapeHtml(l)}</li>`).join('');
-    const extra = nota.extra > 0 ? `<li>… y ${nota.extra} más (ver pestaña Cambios ERP)</li>` : '';
-    el.innerHTML = `
+    const pendientes = nota.lineas.length === 0 ? '' : (() => {
+      const lineas = nota.lineas.map((l) => `<li>${escapeHtml(l)}</li>`).join('');
+      const extra = nota.extra > 0 ? `<li>… y ${nota.extra} más (ver pestaña Cambios ERP)</li>` : '';
+      return `
       <div class="nota-cambios-erp" style="margin:0 0 12px; padding:8px 12px; border-radius:var(--r); background:var(--amber-bg); color:var(--amber-text); font-size:13px;">
         <strong>⚠ Cambios hechos en Access después de cargar este pedido (aún no aplicados)</strong>
         ${nota.mensaje ? `<div style="margin-top:2px;"><strong>${escapeHtml(nota.mensaje)}</strong></div>` : ''}
         <ul style="margin:4px 0 0 18px; padding:0;">${lineas}${extra}</ul>
         ${nota.hayAmbiguos ? '<div style="margin-top:4px; font-size:12px;">Algunas líneas no se pudieron emparejar con certeza; las revisa el Validador.</div>' : ''}
       </div>`;
+    })();
+
+    // Historial permanente (gris): cambios ya aplicados desde Access y los que el Validador deshizo.
+    const historial = nota.historial.length === 0 ? '' : (() => {
+      const lineas = nota.historial.map((l) => `<li>${escapeHtml(l)}</li>`).join('');
+      const extra = nota.historialExtra > 0 ? `<li>… y ${nota.historialExtra} más (ver pestaña Cambios ERP)</li>` : '';
+      return `
+      <div class="nota-cambios-erp-historial" style="margin:0 0 12px; padding:8px 12px; border-radius:var(--r); background:var(--bg); border:1px solid var(--border2); color:var(--text2); font-size:13px;">
+        <strong>Historial de cambios desde Access</strong>
+        <ul style="margin:4px 0 0 18px; padding:0;">${lineas}${extra}</ul>
+      </div>`;
+    })();
+
+    el.innerHTML = pendientes + historial;
   } catch (err) {
     // Informativo: nunca debe impedir abrir el pedido.
     console.error('[orderDetail] No se pudo pintar la nota de Cambios ERP:', err);

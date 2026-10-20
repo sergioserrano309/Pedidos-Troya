@@ -40,9 +40,55 @@ export const ETIQUETA_TIPO = {
 export const ETIQUETA_ESTADO = {
   pendiente: 'Pendiente',
   aplicado: 'Aplicado',
-  rechazado: 'Rechazado',
+  rechazado: 'Deshecho',
   resuelto: 'Resuelto'
 };
+
+/** dd/mm/aaaa en hora local; «—» si no hay fecha válida. */
+export function formatearDia(valor) {
+  if (!valor) return '—';
+  const d = new Date(valor);
+  return Number.isNaN(d.getTime())
+    ? '—'
+    : d.toLocaleDateString('es', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+/** Campos de texto que el programa puede aplicar solo (lista cerrada, igual que SQL 071). */
+export const CAMPOS_APLICABLES = [
+  'Cliente', 'Vira', 'DetalleVira', 'Acabado', 'DetalleAcab',
+  'Esterilla', 'DetalleEsterilla', 'Marquilla', 'NombreR'
+];
+
+/** Solo un cambio de texto ya aplicado se puede deshacer (SQL 071). */
+export function puedeDeshacer(cambio) {
+  return cambio?.estado === 'aplicado' && cambio?.tipo === 'texto'
+    && CAMPOS_APLICABLES.includes(cambio?.campo);
+}
+
+/** Texto de los campos encendidos para el panel: «Cliente, Vira» o «ninguno». */
+export function textoCamposEncendidos(campos) {
+  if (!Array.isArray(campos)) return null;
+  const nombres = campos.filter((c) => CAMPOS_APLICABLES.includes(c)).map((c) => ETIQUETA_CAMPO[c] || c);
+  return nombres.length ? nombres.join(', ') : 'ninguno';
+}
+
+/**
+ * Frase del historial de un cambio ya aplicado o deshecho (nota gris del
+ * pedido). null si el estado no es de historial.
+ */
+export function descripcionHistorial(c) {
+  const etiqueta = ETIQUETA_CAMPO[c.campo] || c.campo || 'Dato';
+  const antes = formatearValor(c.campo, c.valor_programa);
+  const ahora = formatearValor(c.campo, c.valor_access);
+  const talla = c.talla ? `Talla ${c.talla}: ` : '';
+  if (c.estado === 'aplicado') {
+    return `${talla}${etiqueta} cambiado el ${formatearDia(c.aplicado_at)} desde Access: ${antes} → ${ahora}`;
+  }
+  if (c.estado === 'rechazado') {
+    return `${talla}Access tiene ${etiqueta} ${ahora}, pero el Validador mantuvo ${antes}`;
+  }
+  return null;
+}
 
 const CAMPOS_SI_NO = new Set(['Vira', 'Acabado', 'Esterilla', 'Marquilla', 'Cancelado']);
 
@@ -112,7 +158,13 @@ export function mensajeUnidades(cambios) {
  */
 export function resumenNota(cambios, maxLineas = 6) {
   const pendientes = cambiosPendientes(cambios);
-  if (pendientes.length === 0) return null;
+  // Historial permanente (nota gris): lo ya aplicado y lo que el Validador deshizo.
+  const historial = (cambios || [])
+    .filter((c) => c.estado === 'aplicado' || c.estado === 'rechazado')
+    .sort((a, b) => new Date(b.aplicado_at || b.ultima_revision_at || 0) - new Date(a.aplicado_at || a.ultima_revision_at || 0))
+    .map(descripcionHistorial)
+    .filter(Boolean);
+  if (pendientes.length === 0 && historial.length === 0) return null;
   const orden = { cancelado: 0, cancelado_parcial: 1, cantidad: 2, linea_nueva: 3, linea_sobrante: 4, identidad: 5, texto: 6 };
   const ordenadas = [...pendientes].sort((a, b) =>
     (orden[a.tipo] ?? 9) - (orden[b.tipo] ?? 9)
@@ -121,7 +173,9 @@ export function resumenNota(cambios, maxLineas = 6) {
     lineas: ordenadas.slice(0, maxLineas).map(descripcionCambio),
     extra: Math.max(0, ordenadas.length - maxLineas),
     mensaje: mensajeUnidades(pendientes),
-    hayAmbiguos: ordenadas.some((c) => c.ambiguo)
+    hayAmbiguos: ordenadas.some((c) => c.ambiguo),
+    historial: historial.slice(0, maxLineas),
+    historialExtra: Math.max(0, historial.length - maxLineas)
   };
 }
 
@@ -137,7 +191,7 @@ export function contarPendientesPorPedido(cambios) {
 
 /** Contadores del panel: pendientes, resueltas y por tipo (solo pendientes). */
 export function contadoresPanel(cambios) {
-  const r = { pendientes: 0, resueltos: 0, pedidos: 0, porTipo: {} };
+  const r = { pendientes: 0, resueltos: 0, aplicados: 0, pedidos: 0, porTipo: {} };
   const pedidos = new Set();
   (cambios || []).forEach((c) => {
     if (c.estado === 'pendiente') {
@@ -146,6 +200,8 @@ export function contadoresPanel(cambios) {
       r.porTipo[c.tipo] = (r.porTipo[c.tipo] || 0) + 1;
     } else if (c.estado === 'resuelto') {
       r.resueltos += 1;
+    } else if (c.estado === 'aplicado') {
+      r.aplicados += 1;
     }
   });
   r.pedidos = pedidos.size;
@@ -186,6 +242,8 @@ export function filasCambiosERP(cambios) {
         'Última revisión': aFechaExcel(c.ultima_revision_at),
         'Revisiones iguales seguidas': c.revisiones_consecutivas ?? 0,
         'Resuelto': aFechaExcel(c.resuelto_at),
+        'Aplicado': aFechaExcel(c.aplicado_at),
+        'Aplicado por': c.aplicado_por || '—',
         'Movimientos de personas': movimientos,
         'Despachos': Number(c.contexto?.despachos || 0),
         'Pedido completo': c.contexto?.completo ? 'Sí' : 'No',
