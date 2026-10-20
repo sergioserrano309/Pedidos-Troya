@@ -335,15 +335,30 @@ export async function fetchDetalleDespacho(despachoId) {
     throw new Error('No se pudo cargar el detalle del despacho.');
   }
 
-  // Comentario de la salida (062). Consulta aparte y tolerante: si la
-  // columna aún no existe en la base, el detalle se muestra igual, sin él.
-  const { data: extra } = await supabase
+  // Comentario (062) y factura (068). Consulta aparte y tolerante: si
+  // 068 aún no está, se intenta solo comentario para no romper el detalle.
+  let extra = null;
+  const conFactura = await supabase
     .from('despachos')
-    .select('comentario')
+    .select('comentario, numero_factura')
     .eq('id', despachoId)
     .maybeSingle();
+  if (!conFactura.error) {
+    extra = conFactura.data;
+  } else {
+    const soloComentario = await supabase
+      .from('despachos')
+      .select('comentario')
+      .eq('id', despachoId)
+      .maybeSingle();
+    extra = soloComentario.data;
+  }
 
-  return { ...data, comentario: extra?.comentario || '' };
+  return {
+    ...data,
+    comentario: extra?.comentario || '',
+    numero_factura: extra?.numero_factura || ''
+  };
 }
 
 /**
@@ -367,18 +382,46 @@ export async function fetchAsignacionesDespacho(despachoId) {
 }
 
 /**
+ * Clientes que ya tienen al menos un despacho (vw_clientes_despachados,
+ * SQL 067). No es la lista de todos los clientes del ERP.
+ */
+export async function fetchClientesDespachados() {
+  const LOTE = 1000;
+  const clientes = [];
+
+  for (let desde = 0; ; desde += LOTE) {
+    const { data, error } = await supabase
+      .from('vw_clientes_despachados')
+      .select('cliente')
+      .order('cliente')
+      .range(desde, desde + LOTE - 1);
+
+    if (error) {
+      console.warn('[despachosService] vw_clientes_despachados no disponible:', error);
+      return [];
+    }
+
+    clientes.push(...(data || []).map((r) => r.cliente).filter(Boolean));
+    if (!data || data.length < LOTE) break;
+  }
+
+  return [...new Set(clientes)];
+}
+
+/**
  * Acordeón Despachos > Despachado: una fila por despacho con sus agregados (bultos,
  * kilos, unidades, órdenes, comentario desde 064).
  *
- * Camino rápido (SQL 065): RPC listar_despachos_registro recorta los
- * despacho_id ANTES de agregar. Camino lento: vw_despachos_registro, solo
- * si el RPC aún no está aplicado en Supabase (PGRST202 / 42883).
+ * Camino rápido (SQL 068): RPC listar_despachos_registro recorta los
+ * despacho_id ANTES de agregar, incluido cliente y factura exacta.
+ * Camino lento: vw_despachos_registro, solo si el RPC aún no está
+ * aplicado (PGRST202 / 42883) y no hay filtro de cliente ni factura.
  *
- * @param {{ page?: number, filters?: { fecha?: string, consecutivo?: string, orden?: string } }} options
+ * @param {{ page?: number, filters?: { fecha?: string, consecutivo?: string, orden?: string, cliente?: string, factura?: string } }} options
  */
 export async function fetchRegistrosDespachos(options = {}) {
   const { page = 0, filters = {} } = options;
-  const { fecha = '', consecutivo = '', orden = '' } = filters;
+  const { fecha = '', consecutivo = '', orden = '', cliente = '', factura = '' } = filters;
   const offset = page * PAGE_SIZE;
   const limit = PAGE_SIZE + 1;
 
@@ -386,6 +429,8 @@ export async function fetchRegistrosDespachos(options = {}) {
     p_orden: orden.trim(),
     p_fecha: fecha.trim(),
     p_consecutivo: consecutivo.trim(),
+    p_cliente: cliente,
+    p_factura: factura.trim(),
     p_offset: offset,
     p_limit: limit
   });
@@ -398,6 +443,16 @@ export async function fetchRegistrosDespachos(options = {}) {
   if (!esRpcListadoAusente(error)) {
     console.error('[despachosService] Error obteniendo registros de despachos:', error);
     throw new Error('No se pudieron cargar los registros de despachos.');
+  }
+
+  if (factura.trim()) {
+    console.warn('[despachosService] listar_despachos_registro no acepta p_factura; falta el SQL 068.');
+    throw new Error('El filtro de factura aún no está disponible. Hay que aplicar el SQL 068 en Supabase.');
+  }
+
+  if (cliente.trim()) {
+    console.warn('[despachosService] listar_despachos_registro no acepta p_cliente; falta el SQL 067.');
+    throw new Error('El filtro de cliente aún no está disponible. Hay que aplicar el SQL 067 en Supabase.');
   }
 
   console.warn('[despachosService] RPC listar_despachos_registro no está aplicado; usando vw_despachos_registro.');
@@ -419,7 +474,7 @@ function esRpcListadoAusente(error) {
 /** Fallback: misma query de antes de 065 (vista completa + filtro al final). */
 async function fetchRegistrosDespachosVista(options = {}) {
   const { page = 0, filters = {} } = options;
-  const { fecha = '', consecutivo = '', orden = '' } = filters;
+  const { fecha = '', consecutivo = '', orden = '', factura = '' } = filters;
 
   let query = supabase.from('vw_despachos_registro').select('*');
 
@@ -428,6 +483,7 @@ async function fetchRegistrosDespachosVista(options = {}) {
   }
   if (consecutivo.trim()) query = query.ilike('consecutivo', `%${consecutivo.trim()}%`);
   if (orden.trim()) query = query.contains('order_numbers', [orden.trim()]);
+  if (factura.trim()) query = query.eq('numero_factura', factura.trim());
 
   query = query
     .order('created_at', { ascending: false })
@@ -516,6 +572,25 @@ export async function editarComentarioDespacho(despachoId, comentario) {
   if (error) {
     console.error('[despachosService] Error editando el comentario del despacho:', error);
     throw new Error(error.message || 'No se pudo guardar el comentario del despacho.');
+  }
+}
+
+/**
+ * Edita, agrega o quita el número de factura de un despacho ya creado (068).
+ * Empaque / Validador / Propuesta. Vacío = quitar. Solo dígitos, máx. 5.
+ *
+ * @param {string} despachoId
+ * @param {string} numeroFactura
+ */
+export async function editarFacturaDespacho(despachoId, numeroFactura) {
+  const { error } = await supabase.rpc('editar_factura_despacho', {
+    p_despacho_id: despachoId,
+    p_numero_factura: String(numeroFactura ?? '').trim()
+  });
+
+  if (error) {
+    console.error('[despachosService] Error editando la factura del despacho:', error);
+    throw new Error(error.message || 'No se pudo guardar el número de factura.');
   }
 }
 

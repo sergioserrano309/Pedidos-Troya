@@ -1571,6 +1571,11 @@
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 0.5rem;
       }
+
+      /* Despachado tiene cuatro (fecha, cliente, orden, despacho): 2×2. */
+      #regd-filtros {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
     }
 
     /* ====================================================================
@@ -1703,7 +1708,10 @@
     .regd-fila {
       display: grid;
       /* Revisado | Comentario | Descarga | × */
-      grid-template-columns: 90px 100px minmax(0, 2fr) 70px 70px 80px 100px 70px 32px 32px 36px;
+      /* La hora entra sin robarle el ancho a Órdenes: las columnas fijas
+         ceden un poco y Órdenes no baja de 88px (si no, el título se
+         pinta encima de Bultos cuando la ventana es justa). */
+      grid-template-columns: 76px 88px 48px minmax(88px, 2fr) 58px 58px 68px 92px 72px 32px 32px 36px;
       column-gap: 14px;
       align-items: center;
     }
@@ -1717,6 +1725,13 @@
       letter-spacing: .05em;
       border-bottom: 1px solid var(--border);
       margin-bottom: 8px;
+    }
+
+    .regd-encabezado > div {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
     }
 
     .regd-fila {
@@ -1740,9 +1755,11 @@
       color: var(--blue);
     }
 
-    .regd-col-fecha {
+    .regd-col-fecha,
+    .regd-col-hora {
       font-size: 13px;
       color: var(--text3);
+      font-variant-numeric: tabular-nums;
     }
 
     .regd-col-ordenes {
@@ -1888,10 +1905,12 @@
     .regd-col-comentario {
       display: flex;
       justify-content: center;
+      overflow: visible;
     }
 
     .btn-comentario-registro,
     .btn-descargar-registro {
+      position: relative;
       background: var(--bg);
       border: 1px solid var(--border2);
       color: var(--text2);
@@ -1924,6 +1943,27 @@
       border-color: var(--amber);
       color: var(--amber-text);
       background: #fef3c7;
+    }
+
+    /* Badge C / F / C/F: tipo de nota sin quitar el bocadillo. */
+    .btn-comentario-badge {
+      position: absolute;
+      top: -6px;
+      right: -7px;
+      min-width: 14px;
+      height: 14px;
+      padding: 0 3px;
+      border-radius: 7px;
+      border: 1px solid var(--amber-text);
+      background: color-mix(in srgb, var(--amber-bg) 95%, transparent);
+      color: var(--amber-text);
+      font-size: 8px;
+      font-weight: 700;
+      line-height: 14px;
+      letter-spacing: -0.02em;
+      text-align: center;
+      pointer-events: none;
+      box-sizing: border-box;
     }
 
     .btn-comentario-registro.sin-comentario {
@@ -1970,6 +2010,10 @@
       color: var(--text);
       white-space: pre-wrap;
       word-break: break-word;
+    }
+
+    .regd-comentario-popover-texto + .regd-comentario-popover-titulo {
+      margin-top: 10px;
     }
 
     /* Carga del listado Despachado (065): si ya hay filas, no se vacían.
@@ -2210,14 +2254,14 @@
       }
 
       /* Dos filas:
-           [ID Despacho] ............ [Fecha] [✓] [💬?] [↓]
+           [ID Despacho] ...... [Fecha] [Hora] [✓] [💬?] [↓]
            [Pedidos][Bultos][Kilos][Unidades][Completos] ..... [x]
-         Cada dato lleva su etiqueta pequeña ENCIMA del valor, igual que
-         Total/Proc./Pend./Días en la tarjeta de órdenes.
+         La hora ocupa una pista de 44px entre la fecha y el visto bueno.
+         "Completos" la absorbe en la fila de abajo para que no quede un hueco.
          Comentario y descarga van arriba: ahí sobra espacio, y abajo
          cada columna ya está al límite en un 375px. */
       .regd-fila {
-        grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)) minmax(0, 1.1fr) 28px 28px;
+        grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)) 44px minmax(0, 1.1fr) 26px 26px;
         column-gap: 5px;
         row-gap: 8px;
         padding: 10px 12px;
@@ -2235,21 +2279,30 @@
         align-self: center;
       }
 
+      .regd-col-hora {
+        grid-column: 5;
+        grid-row: 1;
+        justify-self: end;
+        align-self: center;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
       /* Visto bueno, comentario y descarga arriba: la fila de datos no
          tiene un píxel de sobra en un celular de 375px. */
       .regd-col-revisado {
-        grid-column: 5;
+        grid-column: 6;
         grid-row: 1;
         justify-self: end;
       }
 
       .regd-col-comentario {
-        grid-column: 6;
+        grid-column: 7;
         grid-row: 1;
       }
 
       .regd-col-descarga {
-        grid-column: 7;
+        grid-column: 8;
         grid-row: 1;
       }
 
@@ -2265,12 +2318,15 @@
         height: 26px;
       }
 
-      .regd-col-ordenes { grid-column: 1; }
-      .regd-col-num[data-lbl="Bultos"] { grid-column: 2; }
-      .regd-col-num[data-lbl="Kilos"] { grid-column: 3; }
-      .regd-col-num[data-lbl="Unidades"] { grid-column: 4; }
+      /* Pedidos ocupa las dos primeras pistas: si no, "MOCK-2004" queda en "MO"
+         porque la pista de la hora achica el resto. Completos va en la pista
+         de 44px (el badge cabe); Unidades, en la angosta de al lado. */
+      .regd-col-ordenes { grid-column: 1 / 3; }
+      .regd-col-num[data-lbl="Bultos"] { grid-column: 3; }
+      .regd-col-num[data-lbl="Kilos"] { grid-column: 4; }
+      .regd-col-num[data-lbl="Unidades"] { grid-column: 6; }
       .regd-col-num[data-lbl="Completos"] { grid-column: 5; }
-      .regd-col-accion { grid-column: 6 / 8; align-self: center; justify-self: end; }
+      .regd-col-accion { grid-column: 7 / 9; align-self: center; justify-self: end; }
 
       .regd-col-ordenes,
       .regd-col-num {
@@ -2301,10 +2357,10 @@
         content: "Und.";
       }
 
-      /* El contador "1 de 1" debe caber en su columna. */
+      /* El contador "1 de 1" debe caber en la pista de 44px de la hora. */
       .regd-col-num[data-lbl="Completos"] > span {
-        padding: 1px 6px !important;
-        font-size: 11px !important;
+        padding: 1px 4px !important;
+        font-size: 10px !important;
       }
     }
 
@@ -5482,6 +5538,19 @@
                   <input type="date" id="regd-filtro-fecha" style="min-width:0;width:100%;box-sizing:border-box;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
                 </label>
                 <label class="filtro-campo">
+                  <span class="filtro-campo-lbl">Cliente</span>
+                  <div class="filtro-custom-select" data-filtro-select="regd-filtro-cliente" data-buscable="1">
+                    <select id="regd-filtro-cliente" style="display:none;">
+                      <option value="">Cliente...</option>
+                    </select>
+                    <button type="button" class="filtro-custom-btn">
+                      <span class="filtro-custom-label">Cliente...</span>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <div class="filtro-custom-dropdown"></div>
+                  </div>
+                </label>
+                <label class="filtro-campo">
                   <span class="filtro-campo-lbl">No. Orden</span>
                   <input type="text" id="regd-filtro-orden" placeholder="Ej. 3449" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-solo-digitos style="min-width:0;width:100%;box-sizing:border-box;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
                 </label>
@@ -5489,11 +5558,16 @@
                   <span class="filtro-campo-lbl">No. Despacho</span>
                   <input type="text" id="regd-filtro-consecutivo" placeholder="Ej. 1021" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-solo-digitos style="min-width:0;width:100%;box-sizing:border-box;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
                 </label>
+                <label class="filtro-campo">
+                  <span class="filtro-campo-lbl">Factura</span>
+                  <input type="text" id="regd-filtro-factura" placeholder="Ej. 12345" maxlength="5" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-solo-digitos style="min-width:0;width:100%;box-sizing:border-box;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+                </label>
               </div>
 
               <div class="regd-encabezado" style="margin-top:1rem;">
                 <div>Despacho</div>
                 <div>Fecha</div>
+                <div>Hora</div>
                 <div>Órdenes</div>
                 <div class="regd-col-num">Bultos</div>
                 <div class="regd-col-num">Kilos</div>

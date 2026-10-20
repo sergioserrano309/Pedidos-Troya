@@ -215,3 +215,27 @@ El usuario (Sergio) solicitó las siguientes mejoras a la aplicación de gestió
 
 **Implementado:** `#modal-pdf-comentario-despacho` + `solicitarDescargaDetalleDespachoPDF` / flag `incluirComentario` en `renderCuerpoImpresion`. Documentado en §12.7.
 
+---
+
+## Sesión — Filtro de cliente y hora en Despachado (2026-10-20)
+
+**Pedido:** en Órdenes → Despachos → Despachado, filtrar por cliente los despachos ya hechos, y ver la hora exacta (hora y minuto) en esos registros.
+
+**Decisiones cerradas con el usuario:**
+1. Desplegable y texto juntos: el mismo control con búsqueda de A Despachar. Escribir busca en la lista; el filtro se aplica al elegir.
+2. El desplegable solo lista clientes con al menos un despacho.
+3. Un despacho con varios clientes se ve al filtrar por cualquiera de ellos.
+4. El resultado son los despachos de ese cliente (la paginación de 30 se mantiene).
+5. La hora va en una columna aparte, al lado de Fecha.
+6. Solo hora y minuto, en 24 h.
+7. Solo en la grilla del listado. Ni PDF, ni detalle, ni ningún otro lado.
+
+**Dato:** `despachos` no tiene cliente. Se resuelve por `despacho_ordenes` → `p_pedidosh."Cliente"`. La hora ya estaba en `created_at`; el listado solo pintaba el día.
+
+**Implementado:**
+- `supabase/sql/067_despachado_filtro_cliente.sql` — `p_cliente` en `listar_despachos_registro` y vista `vw_clientes_despachados`. Reversa: `067_revertir_despachado_filtro_cliente.sql`.
+- `src/services/despachosService.js`, `src/ui/registrosDespachosPage.js`, `src/ui/despachosPage.js`, grilla y filtro en `index.html`.
+- Documentado en `DOCUMENTACION_TECNICA.md` §12.10 y `PROYECTO_RESUMEN.md` §5d.
+
+**Pendiente operativo:** ejecutar `067_despachado_filtro_cliente.sql` en el SQL Editor de Supabase. Sin eso el desplegable queda vacío y filtrar por cliente avisa que falta el script.
+
