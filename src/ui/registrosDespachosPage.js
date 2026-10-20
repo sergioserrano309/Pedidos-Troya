@@ -28,7 +28,7 @@ import { mostrarToast } from './toast.js';
 
 let pagina = 0;
 let hayPaginaSiguiente = false;
-let filtros = { fecha: '', consecutivo: '', orden: '', cliente: '' };
+let filtros = { fecha: '', consecutivo: '', orden: '', cliente: '', factura: '' };
 // Firma de la última lista de clientes pintada. Si un refresco trae la
 // misma, no se reconstruye el <select>: eso borraría lo que se está escribiendo.
 let firmaClientes = null;
@@ -71,6 +71,7 @@ export function inicializarPaginaRegistrosDespachos() {
   };
   conDebounce('regd-filtro-consecutivo', 'consecutivo');
   conDebounce('regd-filtro-orden', 'orden');
+  conDebounce('regd-filtro-factura', 'factura');
 
   // El texto del desplegable solo acorta la lista; el filtro se aplica
   // al elegir (el <select> dispara change). "Todos" manda valor vacío.
@@ -191,6 +192,14 @@ function renderDespachos(despachos) {
     .map((d) => {
       const listaOrdenes = (d.order_numbers || []).join(', ');
       const comentario = String(d.comentario ?? '').trim();
+      const factura = String(d.numero_factura ?? '').trim();
+      const tieneNota = Boolean(comentario || factura);
+      const badgeNota = comentario && factura ? 'C/F' : comentario ? 'C' : 'F';
+      const tituloNota = comentario && factura
+        ? 'Ver comentario y factura'
+        : comentario
+          ? 'Ver comentario'
+          : 'Ver factura';
       // El × se apaga con el visto bueno puesto, salvo para el propio
       // Validador — que de todos modos puede quitarlo. Es el mismo
       // criterio de Registros: no ofrecer lo que el servidor rechazaría.
@@ -211,9 +220,9 @@ function renderDespachos(despachos) {
               title="${tituloRevisado(d, puedeRevisar)}" aria-label="Revisado por el Validador">
           </div>
           <div class="regd-col-comentario">
-            ${comentario
-              ? `<button type="button" class="btn-comentario-registro con-comentario" data-comentario="${escapeHtml(comentario)}" title="Ver comentario" aria-label="Ver comentario" aria-expanded="false">${ICONO_COMENTARIO}</button>`
-              : `<button type="button" class="btn-comentario-registro sin-comentario" aria-disabled="true" aria-label="Sin comentario">${ICONO_COMENTARIO}</button>`}
+            ${tieneNota
+              ? `<button type="button" class="btn-comentario-registro con-comentario" data-comentario="${escapeHtml(comentario)}" data-factura="${escapeHtml(factura)}" title="${tituloNota}" aria-label="${tituloNota}" aria-expanded="false">${ICONO_COMENTARIO}<span class="btn-comentario-badge" aria-hidden="true">${badgeNota}</span></button>`
+              : `<button type="button" class="btn-comentario-registro sin-comentario" aria-disabled="true" aria-label="Sin comentario ni factura">${ICONO_COMENTARIO}</button>`}
           </div>
           <div class="regd-col-descarga">
             ${puedeDescargar ? `<button class="btn-descargar-registro" data-descargar="${escapeHtml(d.id)}" title="Descargar el despacho en PDF" aria-label="Descargar el despacho en PDF">${ICONO_DESCARGA}</button>` : ''}
@@ -307,14 +316,26 @@ function alternarPopoverComentario(boton) {
   cerrarPopoverComentario();
 
   const texto = boton.dataset.comentario || '';
+  const factura = boton.dataset.factura || '';
+  const bloques = [];
+  if (texto) {
+    bloques.push(`
+      <div class="regd-comentario-popover-titulo">Comentario</div>
+      <div class="regd-comentario-popover-texto">${escapeHtml(texto)}</div>
+    `);
+  }
+  if (factura) {
+    bloques.push(`
+      <div class="regd-comentario-popover-titulo">Factura</div>
+      <div class="regd-comentario-popover-texto">${escapeHtml(factura)}</div>
+    `);
+  }
+
   const pop = document.createElement('div');
   pop.className = 'regd-comentario-popover';
   pop.setAttribute('role', 'dialog');
-  pop.setAttribute('aria-label', 'Comentario del despacho');
-  pop.innerHTML = `
-    <div class="regd-comentario-popover-titulo">Comentario</div>
-    <div class="regd-comentario-popover-texto">${escapeHtml(texto)}</div>
-  `;
+  pop.setAttribute('aria-label', 'Comentario y factura del despacho');
+  pop.innerHTML = bloques.join('');
   document.body.appendChild(pop);
 
   const rect = boton.getBoundingClientRect();

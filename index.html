@@ -1905,10 +1905,12 @@
     .regd-col-comentario {
       display: flex;
       justify-content: center;
+      overflow: visible;
     }
 
     .btn-comentario-registro,
     .btn-descargar-registro {
+      position: relative;
       background: var(--bg);
       border: 1px solid var(--border2);
       color: var(--text2);
@@ -1941,6 +1943,27 @@
       border-color: var(--amber);
       color: var(--amber-text);
       background: #fef3c7;
+    }
+
+    /* Badge C / F / C/F: tipo de nota sin quitar el bocadillo. */
+    .btn-comentario-badge {
+      position: absolute;
+      top: -6px;
+      right: -7px;
+      min-width: 14px;
+      height: 14px;
+      padding: 0 3px;
+      border-radius: 7px;
+      border: 1px solid var(--amber-text);
+      background: color-mix(in srgb, var(--amber-bg) 95%, transparent);
+      color: var(--amber-text);
+      font-size: 8px;
+      font-weight: 700;
+      line-height: 14px;
+      letter-spacing: -0.02em;
+      text-align: center;
+      pointer-events: none;
+      box-sizing: border-box;
     }
 
     .btn-comentario-registro.sin-comentario {
@@ -1987,6 +2010,10 @@
       color: var(--text);
       white-space: pre-wrap;
       word-break: break-word;
+    }
+
+    .regd-comentario-popover-texto + .regd-comentario-popover-titulo {
+      margin-top: 10px;
     }
 
     /* Carga del listado Despachado (065): si ya hay filas, no se vacían.
@@ -5529,6 +5556,10 @@
                 <label class="filtro-campo">
                   <span class="filtro-campo-lbl">No. Despacho</span>
                   <input type="text" id="regd-filtro-consecutivo" placeholder="Ej. 1021" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-solo-digitos style="min-width:0;width:100%;box-sizing:border-box;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+                </label>
+                <label class="filtro-campo">
+                  <span class="filtro-campo-lbl">Factura</span>
+                  <input type="text" id="regd-filtro-factura" placeholder="Ej. 12345" maxlength="5" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-solo-digitos style="min-width:0;width:100%;box-sizing:border-box;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
                 </label>
               </div>
 

@@ -124,6 +124,30 @@ async function fetchComentariosDespachos() {
 }
 
 /**
+ * Número de factura de cada salida (068), por despacho_id. Si falla
+ * (SQL 068 aún no aplicado), la hoja sale con FV vacía.
+ */
+async function fetchFacturasDespachos() {
+  const mapa = new Map();
+  let page = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from('despachos')
+      .select('id, numero_factura')
+      .not('numero_factura', 'is', null)
+      .order('id', { ascending: true })
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+    if (error) return mapa;
+    if (!data || data.length === 0) break;
+    data.forEach((f) => {
+      if (f.numero_factura) mapa.set(f.id, f.numero_factura);
+    });
+    page++;
+  }
+  return mapa;
+}
+
+/**
  * Unidades por despacho x orden x talla. Es lo que se pivota en las
  * columnas de talla de la hoja "Despachos".
  */
@@ -262,6 +286,7 @@ export async function generarExcel() {
   const detalleDespachos = await fetchTodoElDetalleDespachos();
   const itemsDespachados = await fetchTodosLosItemsDespachados();
   const comentariosDespachos = await fetchComentariosDespachos();
+  const facturasDespachos = await fetchFacturasDespachos();
   const tallas = await fetchTodasLasTallas();
   const lineasInyeccionERP = await fetchLineasInyeccionERP();
   const estadoSincronizacionERP = await fetchEstadoSincronizacion();
@@ -464,6 +489,8 @@ export async function generarExcel() {
     // Comentario de la salida (062), repetido en cada fila del mismo
     // despacho como los totales del despacho. Vacío si no tiene.
     fila['Comentario'] = comentariosDespachos.get(d.despacho_id) || '';
+    // Número de factura (068), misma repetición por filas del despacho.
+    fila['FV'] = facturasDespachos.get(d.despacho_id) || '';
 
     // Las tallas van de últimas: son muchas columnas y dejaban los datos
     // del despacho fuera de la pantalla. La suma de estas columnas es
