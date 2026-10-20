@@ -2,17 +2,18 @@ import { supabase } from '../config/supabaseClient.js';
 
 /**
  * Lectura de erp_cambios (Fase 1): diferencias entre Access y el programa que
- * registra el detector. SOLO LECTURA: ninguna función escribe, y nada de esto
- * entra en producción, porcentajes ni despachos.
+ * registra el detector. Las funciones de lectura NO escriben, y nada de esto
+ * entra en producción, porcentajes ni despachos. La única escritura es
+ * revertirCambioErp (Fase 2, botón "Deshacer" del Validador).
  *
- * Toda función tolera errores (devuelve null o []): la nota, la insignia y el
+ * Toda lectura tolera errores (devuelve null o []): la nota, la insignia y el
  * panel son informativos y nunca deben impedir abrir un pedido.
  */
 
 const LOTE = 1000; // tope de filas por consulta de Supabase
 
 const COLUMNAS = 'id, pedido, talla, tipo, campo, clave_linea, valor_access, valor_programa, ambiguo, estado, '
-  + 'detectado_at, ultima_revision_at, revisiones_consecutivas, resuelto_at, contexto';
+  + 'detectado_at, ultima_revision_at, revisiones_consecutivas, resuelto_at, aplicado_at, aplicado_por, contexto';
 
 async function leerTodo(construirConsulta) {
   const filas = [];
@@ -98,6 +99,39 @@ export async function fetchCambiosPanel() {
 export async function fetchTodosLosCambiosERP() {
   const filas = await fetchCambiosPanel();
   return filas || [];
+}
+
+/**
+ * Deshace un cambio de texto ya aplicado (función erp_revertir_cambio, SQL
+ * 070/071; solo el Validador). Restaura el valor anterior y deja el cambio
+ * como "deshecho" para que el detector no lo vuelva a aplicar. Lanza el
+ * mensaje de la base si no se puede (p. ej. el dato cambió después).
+ */
+export async function revertirCambioErp(idCambio) {
+  const { data, error } = await supabase.rpc('erp_revertir_cambio', { p_id: idCambio });
+  if (error) throw new Error(error.message || 'No se pudo deshacer el cambio.');
+  return data;
+}
+
+/**
+ * Campos de texto cuya aplicación automática está encendida
+ * (erp_cambios_estado.aplicar_campos). Consulta aparte y tolerante: si la
+ * columna aún no existe (SQL 071 sin ejecutar) o falla, devuelve null.
+ * @returns {Promise<string[]|null>} [] = todo apagado.
+ */
+export async function fetchCamposAplicables() {
+  try {
+    const { data, error } = await supabase
+      .from('erp_cambios_estado')
+      .select('aplicar_campos')
+      .eq('id', 1)
+      .maybeSingle();
+    if (error) throw error;
+    return data && Array.isArray(data.aplicar_campos) ? data.aplicar_campos : null;
+  } catch (err) {
+    console.error('[cambiosErpService] Error leyendo los interruptores de campos:', err);
+    return null;
+  }
 }
 
 /**
