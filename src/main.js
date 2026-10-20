@@ -115,7 +115,7 @@ async function iniciarApp(user) {
     if (currentTab === 'registros') await cargarHistorial();
     else if (currentTab === 'validador') await refrescarValidadorSiVisible();
     else if (currentTab === 'despachos') await cargarDespachosTab();
-    else if (!['audit', 'reglas', 'eliminaciones'].includes(currentTab)) {
+    else if (!['audit', 'reglas', 'eliminaciones', 'cambios-erp'].includes(currentTab)) {
       await cargarOrdenes();
       // Pedidos nuevos o que cambiaron de pestaña: las listas se actualizan.
       cargarFacetasOrdenes({ forzar: true });

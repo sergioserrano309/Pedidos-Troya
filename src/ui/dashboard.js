@@ -10,6 +10,8 @@ import { cargarReglas } from './reglasPage.js';
 import { generarExcel } from '../services/excelService.js';
 import { esValidador, esVistaMaestra, obtenerRolActivo, establecerRolActivo, usuarioEfectivo, rolEfectivo } from '../services/validatorService.js';
 import { cargarValidadorPage } from './validatorPage.js';
+import { cargarCambiosErpPage } from './cambiosErpPage.js';
+import { fetchPendientesPorPedidos } from '../services/cambiosErpService.js';
 import { cargarAuditPage } from './auditPage.js';
 import { cargarDespachosTab, configurarUIDespachos } from './despachosPage.js';
 import { cargarEliminaciones } from './eliminacionesPage.js';
@@ -82,6 +84,7 @@ export function configurarUIValidador() {
     document.getElementById('tab-btn-validador').style.display = verControlCentral ? 'inline-block' : 'none';
     document.getElementById('tab-btn-audit').style.display = 'none';
     document.getElementById('tab-btn-eliminaciones').style.display = 'none';
+    document.getElementById('tab-btn-cambios-erp').style.display = 'none';
     // Sin "Rol Activo": es exclusivo del Validador.
     document.getElementById('rol-selector-container').style.display = 'none';
     return;
@@ -89,6 +92,7 @@ export function configurarUIValidador() {
 
   document.getElementById('tab-btn-reglas').style.display = 'inline-block';
   document.getElementById('tab-btn-validador').style.display = 'inline-block';
+  document.getElementById('tab-btn-cambios-erp').style.display = 'inline-block';
   document.getElementById('tab-btn-audit').style.display = 'inline-block';
   document.getElementById('tab-btn-eliminaciones').style.display = 'inline-block';
   document.getElementById('rol-selector-container').style.display = 'grid';
@@ -148,7 +152,7 @@ export function configurarUIValidador() {
         await cargarHistorial();
       } else if (currentTab === 'despachos') {
         await cargarDespachosTab();
-      } else if (!['validador', 'audit', 'reglas', 'eliminaciones'].includes(currentTab)) {
+      } else if (!['validador', 'cambios-erp', 'audit', 'reglas', 'eliminaciones'].includes(currentTab)) {
         await cargarOrdenes();
         await cargarFacetasOrdenes();
       }
@@ -170,7 +174,8 @@ export function inicializarPaginaOrdenes() {
       const esAudit = tab === 'audit';
       const esDespachos = tab === 'despachos';
       const esEliminaciones = tab === 'eliminaciones';
-      const esOrdenes = !esRegistros && !esReglas && !esPestanaValidador && !esAudit && !esDespachos && !esEliminaciones;
+      const esCambiosErp = tab === 'cambios-erp';
+      const esOrdenes = !esRegistros && !esReglas && !esPestanaValidador && !esAudit && !esDespachos && !esEliminaciones && !esCambiosErp;
 
       // La barra "Filtros (n) / Limpiar" de celular solo sirve en Activas
       // y Completadas. Al salir se cierra también el panel: su regla de
@@ -189,6 +194,7 @@ export function inicializarPaginaOrdenes() {
       document.getElementById('registros-seccion').style.display = esRegistros ? 'block' : 'none';
       document.getElementById('reglas-seccion').style.display = esReglas ? 'block' : 'none';
       document.getElementById('page-validador').style.display = esPestanaValidador ? 'block' : 'none';
+      document.getElementById('page-cambios-erp').style.display = esCambiosErp ? 'block' : 'none';
       document.getElementById('page-audit').style.display = esAudit ? 'block' : 'none';
       document.getElementById('despachos-seccion').style.display = esDespachos ? 'block' : 'none';
       document.getElementById('eliminaciones-seccion').style.display = esEliminaciones ? 'block' : 'none';
@@ -199,6 +205,8 @@ export function inicializarPaginaOrdenes() {
         cargarReglas();
       } else if (esPestanaValidador) {
         cargarValidadorPage();
+      } else if (esCambiosErp) {
+        cargarCambiosErpPage();
       } else if (esAudit) {
         cargarAuditPage();
       } else if (esDespachos) {
@@ -388,10 +396,37 @@ export async function cargarOrdenes() {
     setState({ orders });
     renderOrdenes(orders);
     renderPaginacion();
+    marcarCambiosErp(orders, miSolicitud);
   } catch (err) {
     if (miSolicitud !== solicitudActual) return;
     contenedor.innerHTML = `<div class="card"><div class="empty">${err.message}</div></div>`;
     mostrarToast(err.message, 'error');
+  }
+}
+
+/**
+ * Insignia ⚠ en los pedidos de la página con cambios de Access pendientes
+ * (Fase 1 de Cambios ERP; solo informa). Se consulta DESPUÉS de pintar el
+ * listado y no lo bloquea: si falla o llega tarde (otra carga más reciente),
+ * simplemente no se muestra.
+ */
+async function marcarCambiosErp(orders, miSolicitud) {
+  try {
+    const pendientes = await fetchPendientesPorPedidos(orders.map((o) => o.order_number));
+    if (miSolicitud !== solicitudActual || pendientes.size === 0) return;
+    document.querySelectorAll('#ordenes-lista .orden-fila').forEach((fila) => {
+      const n = pendientes.get(String(fila.dataset.order));
+      const celda = fila.querySelector('.col-numero');
+      if (!n || !celda || celda.querySelector('.badge-cambios-erp')) return;
+      const marca = document.createElement('span');
+      marca.className = 'badge-cambios-erp';
+      marca.textContent = ' ⚠';
+      marca.title = `Access tiene ${n} cambio${n === 1 ? '' : 's'} que el programa aún no aplica. Ábrala para verlos.`;
+      marca.style.cssText = 'color:var(--amber-text); font-weight:700;';
+      celda.appendChild(marca);
+    });
+  } catch (err) {
+    console.error('[dashboard] No se pudo marcar los cambios de Access:', err);
   }
 }
 

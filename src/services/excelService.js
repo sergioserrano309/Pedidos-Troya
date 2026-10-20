@@ -4,6 +4,8 @@ import { serialExcelDeDia, diaPedidoLocal } from '../lib/fechas.js';
 import { soloFecha, construirMapaUltimaFechaPorProceso, fechaFinProceso, calcularDiasPorProceso } from '../lib/procesoDias.js';
 import { fetchLineasInyeccionERP, fetchEstadoSincronizacion } from './inyeccionService.js';
 import { filasInyeccionERP } from '../lib/inyeccion.js';
+import { fetchTodosLosCambiosERP } from './cambiosErpService.js';
+import { filasCambiosERP } from '../lib/cambiosErp.js';
 
 const PAGE_SIZE = 1000;
 
@@ -265,6 +267,7 @@ export async function generarExcel() {
   const tallas = await fetchTodasLasTallas();
   const lineasInyeccionERP = await fetchLineasInyeccionERP();
   const estadoSincronizacionERP = await fetchEstadoSincronizacion();
+  const cambiosERP = await fetchTodosLosCambiosERP();
 
   const mapaOrdenes = {};
   ordenes.forEach((o) => {
@@ -423,6 +426,16 @@ export async function generarExcel() {
   formatearColumnasFecha(wsInyeccionERP, ['Fecha Pedido']);
   formatearColumnaFechaHora(wsInyeccionERP, 'Actualizado');
   XLSX.utils.book_append_sheet(libro, wsInyeccionERP, 'Inyección ERP');
+
+  // === HOJA CAMBIOS ERP ===
+  // Diferencias que el detector encontró entre Access y el programa (Fase 1:
+  // solo se registran, ningún pedido se modifica). Incluye las ya resueltas
+  // como historial. Si no se pudo leer, la hoja sale vacía.
+  const wsCambiosERP = XLSX.utils.json_to_sheet(filasCambiosERP(cambiosERP));
+  formatearColumnaFechaHora(wsCambiosERP, 'Detectado');
+  formatearColumnaFechaHora(wsCambiosERP, 'Última revisión');
+  formatearColumnaFechaHora(wsCambiosERP, 'Resuelto');
+  XLSX.utils.book_append_sheet(libro, wsCambiosERP, 'Cambios ERP');
 
   // === HOJA DESPACHOS ===
   // Una fila por despacho x orden. Las columnas de talla se arman aquí
