@@ -3,6 +3,15 @@ import { formatearFechaPedido } from '../lib/fechas.js';
 import { mostrarToast } from './toast.js';
 import { fetchOpcionesCliente, fetchOpcionesNombreSuela, fetchOpcionesMaterial, fetchOpcionesColor } from '../services/ordersService.js';
 import { construirMapaUltimaFechaPorProceso, calcularDiasPorProceso } from '../lib/procesoDias.js';
+import { esValidador } from '../services/validatorService.js';
+import { fetchInyectadoPorPedidos, fetchEstadoSincronizacion } from '../services/inyeccionService.js';
+import { aplicaInyeccion, porcentajeInyectado, estadoSincronizacion } from '../lib/inyeccion.js';
+
+// Estado de la sincronización del Total Inyectado (solo Validador). Se refresca
+// con cada carga de la tabla y, mientras la pantalla esté abierta, cada minuto.
+let estadoInyeccion = null;
+let temporizadorInyeccion = null;
+const MS_REFRESCO_ESTADO = 60 * 1000;
 
 let paginaActual = 0;
 const PAGE_SIZE = 50;
@@ -38,6 +47,8 @@ export async function cargarValidadorPage() {
         </select>
         <input type="date" id="validador-filtro-fecha" style="${ESTILO_INPUT}">
       </div>
+
+      ${esValidador() ? '<div id="validador-nota-inyeccion" style="font-size:11px; color:var(--text3); margin:-0.25rem 0 0.5rem;">I% = Inyección (ERP): pares inyectados | % de lo solicitado. Verificando actualización…</div>' : ''}
 
       <div style="overflow-x: auto;">
         <div id="validador-tabla"></div>
@@ -99,7 +110,66 @@ export async function cargarValidadorPage() {
   });
 
   poblarFiltrosDropdown();
+  iniciarTemporizadorInyeccion();
   await cargarValidador();
+}
+
+/**
+ * Pinta el rótulo de Inyección según el estado de la sincronización: al día
+ * ("Actualizado hace 3 min"), en falla (pausada, detenida o sin actualizar
+ * hace más de 15 min) o "no se pudo verificar". No hace nada si la nota no
+ * está en pantalla (cualquier usuario que no sea Validador).
+ */
+function pintarNotaInyeccion() {
+  const nota = document.getElementById('validador-nota-inyeccion');
+  if (!nota) return false;
+
+  const info = estadoSincronizacion(estadoInyeccion);
+  const base = 'I% = Inyección (ERP): pares inyectados | % de lo solicitado.';
+
+  if (info.nivel === 'ok') {
+    nota.style.cssText = 'font-size:11px; color:var(--text3); margin:-0.25rem 0 0.5rem;';
+    nota.innerHTML = `${base} <strong style="color:var(--green-text);">${escapeHtml(info.texto)}</strong>`;
+  } else {
+    const alerta = info.nivel === 'alerta';
+    nota.style.cssText = [
+      'font-size:12px', 'margin:0 0 0.75rem', 'padding:6px 10px', 'border-radius:var(--r)',
+      `background:var(--${alerta ? 'red' : 'amber'}-bg)`,
+      `color:var(--${alerta ? 'red' : 'amber'}-text)`
+    ].join('; ') + ';';
+    nota.innerHTML = `${alerta ? '⚠ ' : ''}${base} <strong>${escapeHtml(info.texto)}</strong>`;
+  }
+  return true;
+}
+
+async function actualizarEstadoInyeccion() {
+  if (!esValidador()) return;
+  estadoInyeccion = await fetchEstadoSincronizacion();
+  pintarNotaInyeccion();
+}
+
+/**
+ * Mantiene el "hace X min" al día mientras la pantalla siga abierta (sin
+ * esto diría "hace 3 min" para siempre). Consulta una sola fila, solo si la
+ * pestaña se está viendo, y se apaga sola cuando la nota deja de existir.
+ */
+function iniciarTemporizadorInyeccion() {
+  if (temporizadorInyeccion) {
+    clearInterval(temporizadorInyeccion);
+    temporizadorInyeccion = null;
+  }
+  if (!esValidador()) return;
+
+  temporizadorInyeccion = setInterval(async () => {
+    const nota = document.getElementById('validador-nota-inyeccion');
+    if (!nota) {
+      clearInterval(temporizadorInyeccion);
+      temporizadorInyeccion = null;
+      return;
+    }
+    if (nota.offsetParent === null) return; // pestaña oculta: no se consulta
+    await actualizarEstadoInyeccion();
+  }, MS_REFRESCO_ESTADO);
 }
 
 /**
@@ -202,7 +272,14 @@ async function cargarValidador() {
     }
   }
 
-  renderTablaValidador(ordenes, mapaUltimaFecha);
+  // Inyección (ERP): dato informativo de Access, solo para el Validador.
+  // undefined = la columna no se muestra; null = la consulta falló ("—").
+  let inyeccion;
+  if (esValidador()) {
+    [inyeccion] = await Promise.all([fetchInyectadoPorPedidos(numerosOrden), actualizarEstadoInyeccion()]);
+  }
+
+  renderTablaValidador(ordenes, mapaUltimaFecha, inyeccion);
   renderPaginacionValidador();
 }
 
@@ -253,8 +330,21 @@ function escapeHtml(value) {
  * la vista llega topado en 100 pero los pares no, así que si un proceso
  * registró de más se ve el número real (ej. "105 | 100%").
  */
-function badgeAvance(pares, porcentaje, bg, color) {
-  return `<span style="background: ${bg}; color: ${color}; padding: 2px 6px; border-radius: 3px; white-space: nowrap;">${pares || 0} | ${porcentaje || 0}%</span>`;
+function badgeAvance(pares, porcentaje, bg, color, estiloExtra = '') {
+  return `<span style="background: ${bg}; color: ${color}; padding: 2px 6px; border-radius: 3px; white-space: nowrap; ${estiloExtra}">${pares || 0} | ${porcentaje || 0}%</span>`;
+}
+
+/**
+ * Celda de Inyección (ERP). Neutra y con borde punteado para que no se
+ * confunda con un proceso de la cadena. "—" si el pedido es anterior al
+ * 3095 o si la consulta falló.
+ */
+function celdaInyeccion(orden, inyeccion) {
+  if (inyeccion === null || !aplicaInyeccion(orden.order_number)) {
+    return '<span style="color: var(--text3);">—</span>';
+  }
+  const pares = inyeccion.get(String(orden.order_number)) ?? 0;
+  return badgeAvance(pares, porcentajeInyectado(pares, orden.total_solicitado), 'var(--bg)', 'var(--text2)', 'border: 1px dashed var(--border2);');
 }
 
 /** Solo se usa para fecha_pedido (fecha de calendario a medianoche UTC): ver lib/fechas.js. */
@@ -270,8 +360,9 @@ function celdaDias(valor) {
   return `<strong>${valor}</strong>`;
 }
 
-function renderTablaValidador(ordenes, mapaUltimaFecha) {
+function renderTablaValidador(ordenes, mapaUltimaFecha, inyeccion) {
   const tabla = document.getElementById('validador-tabla');
+  const verInyeccion = inyeccion !== undefined;
 
   if (ordenes.length === 0) {
     tabla.innerHTML = '<div class="empty">No hay órdenes para mostrar.</div>';
@@ -289,6 +380,7 @@ function renderTablaValidador(ordenes, mapaUltimaFecha) {
           <th style="padding: 8px; text-align: left;">Color</th>
           <th style="padding: 8px; text-align: left;">Fecha Pedido</th>
           <th style="padding: 8px; text-align: center;" title="Unidades (pares) totales del pedido">UNDS.</th>
+          ${verInyeccion ? `<th style="padding: 8px; text-align: center;" title="Inyección (ERP): pares inyectados | % de lo solicitado. ${escapeHtml(estadoSincronizacion(estadoInyeccion).texto)}.">I%</th>` : ''}
           <th style="padding: 8px; text-align: center;" title="Refilado: pares procesados | % de avance">R%</th>
           <th style="padding: 8px; text-align: center;" title="Acabado: pares procesados | % de avance">A%</th>
           <th style="padding: 8px; text-align: center;" title="Mateado: pares procesados | % de avance">M%</th>
@@ -314,6 +406,7 @@ function renderTablaValidador(ordenes, mapaUltimaFecha) {
             <td style="padding: 8px;">${o.color || '—'}</td>
             <td style="padding: 8px;">${formatearFecha(o.fecha_pedido)}</td>
             <td style="padding: 8px; text-align: center;"><strong>${o.total_solicitado ?? 0}</strong></td>
+            ${verInyeccion ? `<td style="padding: 8px; text-align: center;">${celdaInyeccion(o, inyeccion)}</td>` : ''}
             <td style="padding: 8px; text-align: center;">${badgeAvance(o.procesado_refilado, o.porcentaje_refilado, 'var(--blue-bg)', 'var(--blue)')}</td>
             <td style="padding: 8px; text-align: center;">${badgeAvance(o.procesado_acabado, o.porcentaje_acabado, 'var(--green-bg)', 'var(--green-text)')}</td>
             <td style="padding: 8px; text-align: center;">${badgeAvance(o.procesado_mateado, o.porcentaje_mateado, 'var(--purple-bg)', 'var(--purple-text)')}</td>
