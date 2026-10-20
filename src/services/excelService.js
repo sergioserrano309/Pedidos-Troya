@@ -2,6 +2,8 @@ import { supabase } from '../config/supabaseClient.js';
 import * as XLSX from 'xlsx';
 import { serialExcelDeDia, diaPedidoLocal } from '../lib/fechas.js';
 import { soloFecha, construirMapaUltimaFechaPorProceso, fechaFinProceso, calcularDiasPorProceso } from '../lib/procesoDias.js';
+import { fetchLineasInyeccionERP, fetchEstadoSincronizacion } from './inyeccionService.js';
+import { filasInyeccionERP } from '../lib/inyeccion.js';
 
 const PAGE_SIZE = 1000;
 
@@ -234,6 +236,22 @@ function formatearColumnasFecha(ws, encabezados) {
   }
 }
 
+/**
+ * Formato fecha + hora para una columna con hora real (p. ej. "Actualizado").
+ * No es lo mismo que formatearColumnasFecha: esa es solo de día.
+ */
+function formatearColumnaFechaHora(ws, titulo, formato = 'dd/mm/yyyy hh:mm') {
+  if (!ws || !ws['!ref']) return;
+  const rango = XLSX.utils.decode_range(ws['!ref']);
+  for (let c = rango.s.c; c <= rango.e.c; c++) {
+    if (ws[XLSX.utils.encode_cell({ r: rango.s.r, c })]?.v !== titulo) continue;
+    for (let r = rango.s.r + 1; r <= rango.e.r; r++) {
+      const celda = ws[XLSX.utils.encode_cell({ r, c })];
+      if (celda && (celda.t === 'n' || celda.t === 'd')) celda.z = formato;
+    }
+  }
+}
+
 export async function generarExcel() {
   const libro = XLSX.utils.book_new();
   const ordenes = await fetchTodasLasOrdenes();
@@ -245,6 +263,8 @@ export async function generarExcel() {
   const itemsDespachados = await fetchTodosLosItemsDespachados();
   const comentariosDespachos = await fetchComentariosDespachos();
   const tallas = await fetchTodasLasTallas();
+  const lineasInyeccionERP = await fetchLineasInyeccionERP();
+  const estadoSincronizacionERP = await fetchEstadoSincronizacion();
 
   const mapaOrdenes = {};
   ordenes.forEach((o) => {
@@ -391,6 +411,18 @@ export async function generarExcel() {
   const wsInyeccion = XLSX.utils.json_to_sheet(filasInyeccion);
   formatearColumnasFecha(wsInyeccion, ['Fecha']);
   XLSX.utils.book_append_sheet(libro, wsInyeccion, 'Inyección');
+
+  // === HOJA INYECCIÓN ERP ===
+  // Total Inyectado tal como viene de Access (columna Total01Iny), por
+  // pedido y talla, desde el pedido 3095. Es informativo y NO es la hoja
+  // "Inyección" de arriba (esa lista devoluciones cuyo proceso fallido fue
+  // Inyección). Las columnas "Actualizado" y "Estado del dato" dicen cuándo
+  // confirmó el sincronizador por última vez que esto coincidía con Access y
+  // si hay una falla que revisar.
+  const wsInyeccionERP = XLSX.utils.json_to_sheet(filasInyeccionERP(lineasInyeccionERP, estadoSincronizacionERP));
+  formatearColumnasFecha(wsInyeccionERP, ['Fecha Pedido']);
+  formatearColumnaFechaHora(wsInyeccionERP, 'Actualizado');
+  XLSX.utils.book_append_sheet(libro, wsInyeccionERP, 'Inyección ERP');
 
   // === HOJA DESPACHOS ===
   // Una fila por despacho x orden. Las columnas de talla se arman aquí
