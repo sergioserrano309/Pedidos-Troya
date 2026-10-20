@@ -367,18 +367,47 @@ export async function fetchAsignacionesDespacho(despachoId) {
 }
 
 /**
+ * Clientes que ya tienen al menos un despacho (vw_clientes_despachados,
+ * SQL 067). No es la lista de todos los clientes del ERP.
+ */
+export async function fetchClientesDespachados() {
+  const LOTE = 1000;
+  const clientes = [];
+
+  for (let desde = 0; ; desde += LOTE) {
+    const { data, error } = await supabase
+      .from('vw_clientes_despachados')
+      .select('cliente')
+      .order('cliente')
+      .range(desde, desde + LOTE - 1);
+
+    if (error) {
+      console.warn('[despachosService] vw_clientes_despachados no disponible:', error);
+      return [];
+    }
+
+    clientes.push(...(data || []).map((r) => r.cliente).filter(Boolean));
+    if (!data || data.length < LOTE) break;
+  }
+
+  return [...new Set(clientes)];
+}
+
+/**
  * Acordeón Despachos > Despachado: una fila por despacho con sus agregados (bultos,
  * kilos, unidades, órdenes, comentario desde 064).
  *
- * Camino rápido (SQL 065): RPC listar_despachos_registro recorta los
- * despacho_id ANTES de agregar. Camino lento: vw_despachos_registro, solo
- * si el RPC aún no está aplicado en Supabase (PGRST202 / 42883).
+ * Camino rápido (SQL 067): RPC listar_despachos_registro recorta los
+ * despacho_id ANTES de agregar, incluido el cliente. Camino lento:
+ * vw_despachos_registro, solo si el RPC aún no está aplicado
+ * (PGRST202 / 42883) y no hay filtro de cliente — ese filtro no se puede
+ * resolver en la vista sin recorrer todo.
  *
- * @param {{ page?: number, filters?: { fecha?: string, consecutivo?: string, orden?: string } }} options
+ * @param {{ page?: number, filters?: { fecha?: string, consecutivo?: string, orden?: string, cliente?: string } }} options
  */
 export async function fetchRegistrosDespachos(options = {}) {
   const { page = 0, filters = {} } = options;
-  const { fecha = '', consecutivo = '', orden = '' } = filters;
+  const { fecha = '', consecutivo = '', orden = '', cliente = '' } = filters;
   const offset = page * PAGE_SIZE;
   const limit = PAGE_SIZE + 1;
 
@@ -386,6 +415,7 @@ export async function fetchRegistrosDespachos(options = {}) {
     p_orden: orden.trim(),
     p_fecha: fecha.trim(),
     p_consecutivo: consecutivo.trim(),
+    p_cliente: cliente,
     p_offset: offset,
     p_limit: limit
   });
@@ -398,6 +428,11 @@ export async function fetchRegistrosDespachos(options = {}) {
   if (!esRpcListadoAusente(error)) {
     console.error('[despachosService] Error obteniendo registros de despachos:', error);
     throw new Error('No se pudieron cargar los registros de despachos.');
+  }
+
+  if (cliente.trim()) {
+    console.warn('[despachosService] listar_despachos_registro no acepta p_cliente; falta el SQL 067.');
+    throw new Error('El filtro de cliente aún no está disponible. Hay que aplicar el SQL 067 en Supabase.');
   }
 
   console.warn('[despachosService] RPC listar_despachos_registro no está aplicado; usando vw_despachos_registro.');

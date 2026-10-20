@@ -70,6 +70,14 @@ Refilado → (Acabado O Mateado, nunca ambos) → Empaque → Completado
 - **Pendiente operativo:** ejecutar `065_listar_despachos_registro.sql` en el SQL Editor de Supabase.
 - Detalle, decisiones y ajustes posteriores: `DOCUMENTACION_TECNICA.md` §12.9
 
+### 5d. **Despachos → Despachado: filtro de cliente y hora**
+- El despacho no guarda cliente. Se llega por `despacho_ordenes` → `p_pedidosh."Cliente"`. Si un despacho mezcla clientes, aparece al filtrar por cualquiera de ellos, y la fila sigue siendo el despacho completo.
+- Desplegable con búsqueda. Solo clientes que ya tienen al menos un despacho (`vw_clientes_despachados`). Escribir acorta la lista; el filtro se aplica al elegir.
+- Columna **Hora** al lado de Fecha (`09:44`, hora local, sin segundos), tomada de `created_at`. Solo en el listado: detalle, PDF y Excel no cambian.
+- **SQL `067`:** `p_cliente` en `listar_despachos_registro` (reemplaza la firma de `065`) más la vista del desplegable.
+- **Pendiente operativo:** ejecutar `067_despachado_filtro_cliente.sql` en el SQL Editor de Supabase.
+- Detalle y decisiones: `DOCUMENTACION_TECNICA.md` §12.10
+
 ### 6. **Gestión de Reglas de Enrutamiento**
 - CRUD completo (Crear, Leer, Actualizar, Eliminar)
 - **Eliminar regla** con modal de confirmación (sin motivo)
@@ -295,6 +303,7 @@ supabase/sql/
 ├── 063_editar_comentario_despacho.sql → Edición Validador
 ├── 064_despachos_registro_comentario.sql → comentario en vw_despachos_registro (listado)
 ├── 065_listar_despachos_registro.sql → RPC listado Despachado (filtra ids antes de agregar)
+├── 067_despachado_filtro_cliente.sql → filtro de cliente en ese RPC + vw_clientes_despachados
 └── FASE_11_SUPABASE_MIGRATION.sql   → Optimizaciones finales vw_pedido_progreso
 
 index.html                   → HTML estructura + CSS

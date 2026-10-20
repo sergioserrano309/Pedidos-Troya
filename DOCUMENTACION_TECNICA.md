@@ -21,6 +21,7 @@
     - [12.7 PDF de detalle de despacho (solo impresión)](#127-pdf-de-detalle-de-despacho-solo-impresión)
     - [12.8 Indicador de comentario en Despachado](#128-indicador-de-comentario-en-despachado)
     - [12.9 Carga y filtro de Despachado (lentitud y vacío intermedio)](#129-carga-y-filtro-de-despachado-lentitud-y-vacío-intermedio)
+    - [12.10 Filtro de cliente y hora en Despachado](#1210-filtro-de-cliente-y-hora-en-despachado)
 13. [Estado de la aplicación (appState)](#13-estado-de-la-aplicación-appstate)
 14. [Tiempo real (Realtime)](#14-tiempo-real-realtime)
 15. [Variables de entorno](#15-variables-de-entorno)
@@ -655,7 +656,7 @@ Cada archivo expone funciones `async` que devuelven datos ya listos para pintar,
 - **`movementsService.js`**: `registrarMovimiento(...)` valida en el cliente (cantidad > 0, no exceder el pendiente, destino permitido para el rol) **antes** de insertar — esto es solo para dar feedback rápido al usuario; la validación real e infranqueable sigue siendo la de RLS/CHECK en la base de datos.
 - **`returnsService.js`**: `registrarDevolucion(...)`, misma idea, validando también que solo Comercial pueda invocarlo.
 - **`historyService.js`**: `fetchHistory(user, opciones)` consulta `vw_historial`; si el rol no es `comercial`, agrega `.eq('user_id', user.id)` (cada quien ve solo su propio historial de movimientos; ver también la sección 10 sobre por qué las devoluciones ya vienen filtradas automáticamente por RLS dentro de la vista).
-- **`despachosService.js`**: `fetchRegistrosDespachos` usa el RPC `listar_despachos_registro` (SQL `065`) para el acordeón Despachado; si el RPC aún no existe en la base, cae a `vw_despachos_registro`. Ver §12.9.
+- **`despachosService.js`**: `fetchRegistrosDespachos` usa el RPC `listar_despachos_registro` (SQL `067`, firma con `p_cliente`) para el acordeón Despachado; si el RPC aún no existe en la base, cae a `vw_despachos_registro`. El filtro de cliente no tiene ese atajo: sin el `067` avisa y no lista de más. Ver §12.9 y §12.10.
 
 ### 12.4 Visibilidad de pedidos por rol (`ordersService.js`)
 
@@ -774,7 +775,7 @@ async function bootstrap() {
 
 ### 12.9 Carga y filtro de Despachado (lentitud y vacío intermedio)
 
-**Entrada:** Órdenes → Despachos → acordeón **Despachado** → filtros Fecha / No. Orden / No. Despacho.
+**Entrada:** Órdenes → Despachos → acordeón **Despachado** → filtros Fecha / No. Orden / No. Despacho. El filtro de cliente y la columna Hora llegaron después; véase §12.10.
 
 **Síntoma que se veía:** al filtrar por un número de orden (y al quitar el filtro) la lista decía “Cargando despachos…”, luego **“No hay despachos para mostrar”**, y varios segundos después aparecían las filas correctas. La pestaña en general también tardaba en cargar.
 
@@ -871,6 +872,46 @@ Solo se desarrollaron 1 y 2. Para seguir bajando tiempo de carga/búsqueda:
 5. **No buscar hasta 4+ dígitos** (o debounce un poco más largo) en No. Orden, si el número típico es tipo `3449`.
 6. **Facets de A Despachar:** no bajar todos los pedidos con saldo en el primer pintado; calcular opciones con una query más chica o al abrir ese acordeón.
 
+### 12.10 Filtro de cliente y hora en Despachado
+
+**Entrada:** Órdenes → Despachos → acordeón **Despachado**.
+
+**Qué se pidió:**
+1. Filtrar el listado por cliente y ver los despachos que se le hicieron.
+2. Ver la hora (hora y minuto, sin segundos) en una columna aparte, solo en ese listado. Ni el detalle, ni el PDF, ni el Excel.
+
+#### El cliente no está en el despacho
+
+`despachos` no tiene columna de cliente. El nombre vive en el pedido (`p_pedidosh."Cliente"`). El camino es:
+
+`despachos` → `despacho_ordenes.order_number` → `p_pedidosh."PedidoNo"` → `"Cliente"`.
+
+Un despacho puede llevar varios pedidos y, por eso, varios clientes. El detalle ya los junta con ` · `. El filtro no parte la fila: si **alguno** de los pedidos es de ese cliente, sale el despacho completo (órdenes, bultos, kilos, unidades). Se combina con fecha, número de orden y número de despacho. La página sigue siendo de 30.
+
+La lista del desplegable no es `vw_clientes` (todos los del ERP). Es `vw_clientes_despachados`: solo quienes ya tienen al menos un despacho. El control es el mismo desplegable con búsqueda de A Despachar (`data-buscable="1"`): escribir acorta la lista; el filtro se aplica al elegir. "Todos" lo quita. La comparación es exacta, el mismo texto guardado en `"Cliente"`.
+
+En el RPC el recorte sigue siendo **antes** de agregar (igual que `065`). Con cliente, los `despacho_id` salen del índice de `"Cliente"` y de `despacho_ordenes.order_number`, no de recorrer despachos recientes hasta llenar la página.
+
+`created_at` ya es `timestamptz`. La columna **Hora** formatea esa marca en hora local, 24 h, `09:44`. No se agregó columna ni se tocó `confirmed_at`.
+
+#### Decisiones tomadas
+
+| Decisión | Elección | Por qué |
+|---|---|---|
+| Dónde vive el cliente | Join al pedido, sin columna nueva en `despachos` | Ya está en `p_pedidosh`; un despacho puede mezclar clientes |
+| Despacho mixto | Entra si algún pedido es de ese cliente | La fila es el despacho, no un pedido |
+| Quién aparece en el desplegable | Solo clientes con al menos un despacho | `vw_clientes` metería nombres que nunca salieron |
+| Cómo se elige | Desplegable con búsqueda; filtro al elegir, exacto | Mismo control que A Despachar; escribir sin elegir no filtra |
+| Paginación | Sigue en 30 | El filtro recorta el universo; las páginas recorren ese resultado |
+| Hora | Columna aparte, `created_at`, local, sin segundos | El instante ya estaba guardado; el listado solo pintaba el día |
+| Dónde se ve la hora | Solo la grilla de Despachado | El detalle, el PDF y el Excel quedan como estaban |
+| Firma del RPC | Se reemplaza la de 5 argumentos por una de 6 (`p_cliente`) | PostgREST no debe quedar con dos sobrecargas |
+| Sin el SQL 067 | El listado sin cliente cae a la vista; con cliente, error claro | Mostrar todos los despachos cuando se pidió uno solo sería mentira |
+
+**SQL a ejecutar en Supabase:** [`supabase/sql/067_despachado_filtro_cliente.sql`](supabase/sql/067_despachado_filtro_cliente.sql) (requiere `065`). Reversa: [`supabase/sql/067_revertir_despachado_filtro_cliente.sql`](supabase/sql/067_revertir_despachado_filtro_cliente.sql), que devuelve la firma de `065`. Sin el `067`, el desplegable queda vacío y elegir un cliente (si llegara a haber uno) avisa que falta el script.
+
+**Archivos:** `supabase/sql/067_despachado_filtro_cliente.sql`, `067_revertir_despachado_filtro_cliente.sql`, `src/services/despachosService.js`, `src/ui/registrosDespachosPage.js`, `src/ui/despachosPage.js`, filtros y grilla `.regd-*` en `index.html`.
+
 ---
 
 ## 13. Estado de la aplicación (appState)
@@ -943,7 +984,7 @@ El documento de especificaciones (`Contexto Cursor pedidos.md`) dejaba varios pu
 - **Escalabilidad futura** (sección 21 del documento: KPIs, códigos de barras, múltiples fábricas, etc.) no está implementada, pero la arquitectura de vistas + RLS + tablas append-only está pensada para poder agregarse sin romper lo existente (por ejemplo, una nueva vista `vw_kpis_produccion` se podría construir sobre las mismas tablas base).
 - **PDF de despacho en media hoja:** preview A4; en print cada mitad = **50 % del papel elegido** (`@page size: auto`), con corte al centro (véase §12.7). No usar altura fija en mm de A4 en print ni remedir a `--dos-paginas` en `beforeprint`. Si caben → una página; si no → dos con contenido. Si hay comentario → modal con toggle (default incluir); sin comentario → imprimir directo.
 - **Indicador de comentario en Despachado:** icono en todas las filas (ámbar si hay texto, gris opaco si no); popover de solo lectura; dato vía `vw_despachos_registro.comentario` (SQL `064`). No inventar hilo de comentarios ni editar desde el listado (véase §12.8).
-- **Listado Despachado (065):** el RPC recorta `despacho_id` antes de agregar; la UI ignora respuestas viejas. Queda por hacer: lazy load de acordeones, no refrescar Despachado en cada Realtime de movimientos, materializar agregados en `despachos`, igualdad en consecutivo. Véase §12.9.
+- **Listado Despachado (065 / 067):** el RPC recorta `despacho_id` antes de agregar; la UI ignora respuestas viejas. Desde `067` también filtra por cliente (vía el pedido, no por una columna del despacho) y el listado muestra la hora de `created_at`. Queda por hacer: lazy load de acordeones, no refrescar Despachado en cada Realtime de movimientos, materializar agregados en `despachos`, igualdad en consecutivo. Véase §12.9 y §12.10.
 
 ---
 
