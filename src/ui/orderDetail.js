@@ -10,6 +10,8 @@ import { abrirModalDevolucion } from './returnModal.js';
 import { mostrarToast } from './toast.js';
 import { usuarioEfectivo } from '../services/validatorService.js';
 import { fetchCierreForzadoDePedido } from '../services/cierreForzadoService.js';
+import { fetchCambiosDePedido } from '../services/cambiosErpService.js';
+import { resumenNota } from '../lib/cambiosErp.js';
 
 export function inicializarModalDetalle() {
   // Formateo en vivo del campo "Procesar": solo dígitos, máximo 5, con
@@ -37,6 +39,8 @@ export async function abrirDetalleOrden(orderNumber) {
   document.getElementById('detalle-especificaciones').innerHTML = '';
   document.getElementById('detalle-total-pares').innerHTML = '';
   document.getElementById('detalle-destino').innerHTML = '';
+  const notaCambios = document.getElementById('detalle-cambios-erp');
+  if (notaCambios) notaCambios.innerHTML = '';
   contenedor.innerHTML = '<div class="loading"><div class="spinner"></div> Cargando...</div>';
   modal.classList.add('open');
 
@@ -49,11 +53,13 @@ export async function abrirDetalleOrden(orderNumber) {
     // supabase/sql/013_auto_enrutamiento_trigger.sql): Refilado nunca
     // llega a abrir estos pedidos porque ordersService.js ya los oculta
     // de su listado. Aquí solo queda leer lo que ya exista.
-    const [items, movimientos, destino, cierreForzado] = await Promise.all([
+    const [items, movimientos, destino, cierreForzado, cambiosErp] = await Promise.all([
       fetchOrderDetail(orderNumber),
       fetchMovimientosOrden(orderNumber),
       fetchDestinoOrden(orderNumber),
-      fetchCierreForzadoDePedido(orderNumber)
+      fetchCierreForzadoDePedido(orderNumber),
+      // Informativo: si falla devuelve [] y el detalle se abre igual.
+      fetchCambiosDePedido(orderNumber)
     ]);
 
     setState({ selectedOrderItems: items, selectedOrderMovimientos: movimientos, destinoConfirmadoOrden: destino, cierreForzadoOrden: cierreForzado });
@@ -81,11 +87,42 @@ export async function abrirDetalleOrden(orderNumber) {
       renderEspecificaciones(firstItem);
     }
 
+    renderNotaCambiosErp(cambiosErp);
     renderDestinoHeader(orderNumber, destino, movimientos);
     renderProcesarLoteHeader();
     renderDetalleItems(items, movimientos);
   } catch (err) {
     contenedor.innerHTML = `<div class="empty">${err.message}</div>`;
+  }
+}
+
+/**
+ * Nota de "Cambios ERP" (la ven todos los roles, entre el encabezado del
+ * cliente/fecha y los PARES): datos que en Access cambiaron después de cargar
+ * el pedido. En la Fase 1 solo se informa; el pedido no se modifica.
+ */
+function renderNotaCambiosErp(cambios) {
+  const el = document.getElementById('detalle-cambios-erp');
+  if (!el) return;
+  try {
+    const nota = resumenNota(cambios);
+    if (!nota) {
+      el.innerHTML = '';
+      return;
+    }
+    const lineas = nota.lineas.map((l) => `<li>${escapeHtml(l)}</li>`).join('');
+    const extra = nota.extra > 0 ? `<li>… y ${nota.extra} más (ver pestaña Cambios ERP)</li>` : '';
+    el.innerHTML = `
+      <div class="nota-cambios-erp" style="margin:0 0 12px; padding:8px 12px; border-radius:var(--r); background:var(--amber-bg); color:var(--amber-text); font-size:13px;">
+        <strong>⚠ Cambios hechos en Access después de cargar este pedido (aún no aplicados)</strong>
+        ${nota.mensaje ? `<div style="margin-top:2px;"><strong>${escapeHtml(nota.mensaje)}</strong></div>` : ''}
+        <ul style="margin:4px 0 0 18px; padding:0;">${lineas}${extra}</ul>
+        ${nota.hayAmbiguos ? '<div style="margin-top:4px; font-size:12px;">Algunas líneas no se pudieron emparejar con certeza; las revisa el Validador.</div>' : ''}
+      </div>`;
+  } catch (err) {
+    // Informativo: nunca debe impedir abrir el pedido.
+    console.error('[orderDetail] No se pudo pintar la nota de Cambios ERP:', err);
+    el.innerHTML = '';
   }
 }
 

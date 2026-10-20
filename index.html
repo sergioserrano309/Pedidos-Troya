@@ -5213,6 +5213,7 @@
               <button class="tab-btn" data-tab="despachos" id="tab-btn-despachos" style="display:none;">Despachos</button>
               <button class="tab-btn" data-tab="registros"><span class="cart-lbl-full">Registros</span><span class="cart-lbl-short">Reg.</span></button>
               <button class="tab-btn" data-tab="validador" id="tab-btn-validador" style="display:none;">Control Central</button>
+              <button class="tab-btn" data-tab="cambios-erp" id="tab-btn-cambios-erp" style="display:none;">Cambios ERP</button>
               <button class="tab-btn" data-tab="reglas" id="tab-btn-reglas" style="display:none;">Reglas de Enrutamiento</button>
               <button class="tab-btn" data-tab="audit" id="tab-btn-audit" style="display:none;">Auditoría</button>
               <button class="tab-btn" data-tab="eliminaciones" id="tab-btn-eliminaciones" style="display:none;">Eliminaciones</button>
@@ -5626,6 +5627,8 @@
 
           <div id="page-validador" style="display:none;"></div>
 
+          <div id="page-cambios-erp" style="display:none;"></div>
+
           <div id="page-audit" style="display:none;"></div>
         </div>
 
@@ -5822,6 +5825,10 @@
       </div>
 
       <div class="orden-divider" style="margin-top:12px;"></div>
+
+      <!-- Nota de cambios hechos en Access después de cargar el pedido
+           (Fase 1 de "Cambios ERP"; vacía si no hay diferencias). -->
+      <div id="detalle-cambios-erp"></div>
 
       <!-- Total de pares del pedido: el tamaño de la orden de un vistazo,
            antes de entrar al detalle de referencia y tallas. -->
