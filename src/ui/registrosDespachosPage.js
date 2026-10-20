@@ -1,9 +1,12 @@
 import { getState } from '../state/appState.js';
 import {
   fetchRegistrosDespachos,
+  fetchClientesDespachados,
   eliminarDespachoConMotivo,
   marcarDespachoRevisado
 } from '../services/despachosService.js';
+import { reconstruirSelect } from '../lib/facetas.js';
+import { sincronizarEtiquetaFiltro } from './customSelect.js';
 import { esValidador, esPropuesta } from '../services/validatorService.js';
 import { abrirDetalleDespacho, solicitarDescargaDetalleDespachoPDF } from './despachoDetalleModal.js';
 import { mostrarToast } from './toast.js';
@@ -25,7 +28,10 @@ import { mostrarToast } from './toast.js';
 
 let pagina = 0;
 let hayPaginaSiguiente = false;
-let filtros = { fecha: '', consecutivo: '', orden: '' };
+let filtros = { fecha: '', consecutivo: '', orden: '', cliente: '' };
+// Firma de la última lista de clientes pintada. Si un refresco trae la
+// misma, no se reconstruye el <select>: eso borraría lo que se está escribiendo.
+let firmaClientes = null;
 let despachoAEliminar = null;
 // Cada llamada a cargarRegistrosDespachos incrementa esto. Si una
 // petición anterior termina después, su resultado se descarta: si no,
@@ -66,9 +72,35 @@ export function inicializarPaginaRegistrosDespachos() {
   conDebounce('regd-filtro-consecutivo', 'consecutivo');
   conDebounce('regd-filtro-orden', 'orden');
 
+  // El texto del desplegable solo acorta la lista; el filtro se aplica
+  // al elegir (el <select> dispara change). "Todos" manda valor vacío.
+  document.getElementById('regd-filtro-cliente')?.addEventListener('change', (event) => {
+    filtros.cliente = event.target.value;
+    pagina = 0;
+    cargarRegistrosDespachos();
+  });
+
   document.getElementById('btn-cerrar-eliminar-despacho')?.addEventListener('click', cerrarModalEliminar);
   document.getElementById('btn-cancelar-eliminar-despacho')?.addEventListener('click', cerrarModalEliminar);
   document.getElementById('btn-confirmar-eliminar-despacho')?.addEventListener('click', confirmarEliminar);
+}
+
+/**
+ * Llena el desplegable con clientes que ya tienen despacho. Se llama al
+ * entrar a la pestaña (y en cada refresco): si la lista no cambió, no
+ * toca el campo.
+ */
+export async function cargarClientesDespachados() {
+  const select = document.getElementById('regd-filtro-cliente');
+  if (!select) return;
+
+  const clientes = await fetchClientesDespachados();
+  const firma = clientes.join('\n');
+  if (firma === firmaClientes) return;
+  firmaClientes = firma;
+
+  reconstruirSelect('regd-filtro-cliente', clientes);
+  sincronizarEtiquetaFiltro('regd-filtro-cliente');
 }
 
 export async function cargarRegistrosDespachos() {
@@ -167,6 +199,7 @@ function renderDespachos(despachos) {
         <div class="regd-fila" data-despacho="${escapeHtml(d.id)}" data-consecutivo="${escapeHtml(d.consecutivo)}" data-ordenes="${escapeHtml(listaOrdenes)}" data-bultos="${d.total_bultos}"${comentario ? ' data-tiene-comentario="1"' : ''}>
           <div class="regd-col-consecutivo">${escapeHtml(d.consecutivo)}</div>
           <div class="regd-col-fecha">${formatearFecha(d.created_at)}</div>
+          <div class="regd-col-hora" title="Hora del despacho">${formatearHora(d.created_at)}</div>
           <div class="regd-col-ordenes" data-lbl="Pedidos" title="${escapeHtml(listaOrdenes)}">${escapeHtml(listaOrdenes) || '—'}</div>
           <div class="regd-col-num" data-lbl="Bultos">${d.total_bultos}</div>
           <div class="regd-col-num" data-lbl="Kilos">${formatearKilos(d.peso_total)}</div>
@@ -399,6 +432,7 @@ async function confirmarEliminar() {
     await eliminarDespachoConMotivo(despachoAEliminar, motivo);
     mostrarToast('Despacho eliminado. Sus órdenes vuelven a "A Despachar".', 'ok');
     cerrarModalEliminar();
+    await cargarClientesDespachados();
     await cargarRegistrosDespachos();
     document.dispatchEvent(new CustomEvent(EVENTO_DESPACHO_ELIMINADO));
   } catch (err) {
@@ -419,6 +453,16 @@ function formatearFecha(fecha) {
   } catch {
     return String(fecha);
   }
+}
+
+/** Hora local en 24 h, sin segundos. Solo el listado: el detalle y el PDF siguen en fecha. */
+function formatearHora(fecha) {
+  if (!fecha) return '—';
+  const d = new Date(fecha);
+  if (Number.isNaN(d.getTime())) return '—';
+  const horas = String(d.getHours()).padStart(2, '0');
+  const minutos = String(d.getMinutes()).padStart(2, '0');
+  return `${horas}:${minutos}`;
 }
 
 /** Kilos sin decimales, igual que en "Crear Salida". */

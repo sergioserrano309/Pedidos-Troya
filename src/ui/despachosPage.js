@@ -10,7 +10,7 @@ import {
 import { rolEfectivo, esValidador, esPropuesta } from '../services/validatorService.js';
 import { calcularOpciones, reconstruirSelect } from '../lib/facetas.js';
 import { abrirDetalleOrden } from './orderDetail.js';
-import { cargarRegistrosDespachos, EVENTO_DESPACHO_ELIMINADO } from './registrosDespachosPage.js';
+import { cargarRegistrosDespachos, cargarClientesDespachados, EVENTO_DESPACHO_ELIMINADO } from './registrosDespachosPage.js';
 import { sincronizarEtiquetaFiltro } from './customSelect.js';
 import { mostrarToast } from './toast.js';
 
@@ -211,6 +211,7 @@ export function cargarDespachosTab() {
     cargarPedidosPorDespachar();
     cargarFacetasADespachar();
   }
+  cargarClientesDespachados();
   cargarRegistrosDespachos();
 }
 
@@ -792,6 +793,7 @@ async function confirmarCrearSalida() {
     cerrarModalCrearSalida();
     seleccionDespacho.clear();
     await cargarPedidosPorDespachar();
+    await cargarClientesDespachados();
     await cargarRegistrosDespachos();
     cargarFacetasADespachar();
   } catch (err) {
