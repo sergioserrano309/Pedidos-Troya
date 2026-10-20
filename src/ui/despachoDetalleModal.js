@@ -5,7 +5,8 @@ import {
   fetchItemsDespacho,
   fetchEstadoPedidos,
   fetchInfoPedidos,
-  editarComentarioDespacho
+  editarComentarioDespacho,
+  editarFacturaDespacho
 } from '../services/despachosService.js';
 import { esPropuesta, esValidador } from '../services/validatorService.js';
 import { mostrarToast } from './toast.js';
@@ -104,6 +105,7 @@ export async function abrirDetalleDespacho(despachoId, consecutivo) {
     titulo.textContent = `Detalle del Despacho — ${ctx.detalle.consecutivo}`;
     contenido.innerHTML = renderContenidoPantalla(ctx);
     enlazarEdicionComentario(despachoId, ctx.detalle.comentario);
+    enlazarEdicionFactura(despachoId, ctx.detalle.numero_factura);
     return String(ctx.detalle.consecutivo || consecutivo || '').trim() || null;
   } catch (err) {
     contenido.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
@@ -228,6 +230,7 @@ function renderContenidoPantalla(ctx) {
       ${renderMatrizPedidos(ordenes, { bultosDe, unidadesDe, estadoPorPedido })}
     </div>
 ${esValidador() ? renderComentarioEditable(detalle.comentario) : renderComentario(detalle.comentario, 'form-group')}
+${renderFacturaEditable(detalle.numero_factura)}
   `;
 }
 
@@ -295,6 +298,67 @@ function enlazarEdicionComentario(despachoId, comentarioInicial) {
       guardado = nuevo;
       campo.value = nuevo;
       mostrarToast(nuevo ? 'Comentario guardado.' : 'Comentario eliminado.', 'ok');
+    } catch (err) {
+      mostrarToast(err.message, 'error');
+    } finally {
+      campo.disabled = false;
+      sincronizar();
+    }
+  });
+}
+
+/**
+ * Factura editable (068) para quien abre Despachado. Solo dígitos, máx. 5.
+ * Vacío al guardar = quitar. No se incluye en el PDF.
+ */
+function renderFacturaEditable(numeroFactura) {
+  const texto = String(numeroFactura ?? '').replace(/\D/g, '').slice(0, 5);
+  return `
+    <div class="form-group">
+      <label for="detalle-despacho-factura-input">Facturas</label>
+      <input type="text" id="detalle-despacho-factura-input" maxlength="5"
+        inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-solo-digitos
+        placeholder="Número de factura"
+        value="${escapeHtml(texto)}">
+      <div class="detalle-despacho-comentario-pie">
+        <span id="detalle-despacho-factura-ayuda" class="crear-despacho-contador">${texto.length} / 5</span>
+        <button type="button" class="btn btn-primary btn-sm" id="detalle-despacho-factura-guardar" disabled>Guardar factura</button>
+      </div>
+    </div>`;
+}
+
+function enlazarEdicionFactura(despachoId, facturaInicial) {
+  const campo = document.getElementById('detalle-despacho-factura-input');
+  const boton = document.getElementById('detalle-despacho-factura-guardar');
+  const ayuda = document.getElementById('detalle-despacho-factura-ayuda');
+  if (!campo || !boton) return;
+
+  let guardado = String(facturaInicial ?? '').replace(/\D/g, '').slice(0, 5);
+
+  const soloDigitos = () => {
+    const limpio = campo.value.replace(/\D/g, '').slice(0, 5);
+    if (campo.value !== limpio) campo.value = limpio;
+    return limpio;
+  };
+
+  const sincronizar = () => {
+    const actual = soloDigitos();
+    if (ayuda) ayuda.textContent = `${actual.length} / 5`;
+    boton.disabled = actual === guardado;
+  };
+  campo.addEventListener('input', sincronizar);
+
+  boton.addEventListener('click', async () => {
+    const nuevo = soloDigitos();
+    if (nuevo === guardado) return;
+
+    boton.disabled = true;
+    campo.disabled = true;
+    try {
+      await editarFacturaDespacho(despachoId, nuevo);
+      guardado = nuevo;
+      campo.value = nuevo;
+      mostrarToast(nuevo ? 'Factura guardada.' : 'Factura eliminada.', 'ok');
     } catch (err) {
       mostrarToast(err.message, 'error');
     } finally {
