@@ -59,16 +59,41 @@ export const CAMPOS_APLICABLES = [
   'Esterilla', 'DetalleEsterilla', 'Marquilla', 'NombreR'
 ];
 
-/** Solo un cambio de texto ya aplicado se puede deshacer (SQL 071). */
+/** Interruptores que se pueden encender: los textos y, desde 072, el cierre por cancelación. */
+export const INTERRUPTORES = [...CAMPOS_APLICABLES, 'Cancelado'];
+
+/**
+ * Se puede deshacer: un cambio de texto ya aplicado (SQL 071) o un cierre por
+ * cancelación hecho por el sistema (072) o por el Validador con "Aplicar"
+ * (073); reabre el pedido. Un cancelado que "ya estaba cerrado" a mano no se toca.
+ */
 export function puedeDeshacer(cambio) {
-  return cambio?.estado === 'aplicado' && cambio?.tipo === 'texto'
-    && CAMPOS_APLICABLES.includes(cambio?.campo);
+  if (cambio?.estado !== 'aplicado') return false;
+  if (cambio?.tipo === 'texto') return CAMPOS_APLICABLES.includes(cambio?.campo);
+  if (cambio?.tipo === 'cancelado') return ['automatico', 'validador'].includes(cambio?.aplicado_por);
+  return false;
+}
+
+/**
+ * Botón "Aplicar" (SQL 073): un cambio pendiente o descartado que se puede
+ * aplicar a mano. Hoy solo el CANCELADO del pedido completo; las fases 4 y 5
+ * agregan los demás tipos con el mismo botón.
+ */
+export function puedeAplicar(cambio) {
+  return ['pendiente', 'rechazado'].includes(cambio?.estado)
+    && cambio?.tipo === 'cancelado' && !cambio?.talla;
+}
+
+/** Botón "Descartar" (SQL 073): cualquier diferencia pendiente de cualquier tipo. */
+export function puedeDescartar(cambio) {
+  return cambio?.estado === 'pendiente';
 }
 
 /** Texto de los campos encendidos para el panel: «Cliente, Vira» o «ninguno». */
 export function textoCamposEncendidos(campos) {
   if (!Array.isArray(campos)) return null;
-  const nombres = campos.filter((c) => CAMPOS_APLICABLES.includes(c)).map((c) => ETIQUETA_CAMPO[c] || c);
+  const nombres = campos.filter((c) => INTERRUPTORES.includes(c))
+    .map((c) => (c === 'Cancelado' ? 'Cancelados (cierre)' : ETIQUETA_CAMPO[c] || c));
   return nombres.length ? nombres.join(', ') : 'ninguno';
 }
 
@@ -77,6 +102,21 @@ export function textoCamposEncendidos(campos) {
  * pedido). null si el estado no es de historial.
  */
 export function descripcionHistorial(c) {
+  if (c.tipo === 'cancelado') {
+    if (c.estado === 'aplicado') {
+      if (c.aplicado_por === 'automatico') {
+        return `Cancelado en Access: el pedido se cerró a la fuerza el ${formatearDia(c.aplicado_at)} (Cancelado en Troya)`;
+      }
+      if (c.aplicado_por === 'validador') {
+        return `Cancelado en Access: el Validador cerró el pedido a la fuerza el ${formatearDia(c.aplicado_at)} (Cancelado en Troya)`;
+      }
+      return 'Cancelado en Access: el pedido ya estaba cerrado a la fuerza';
+    }
+    if (c.estado === 'rechazado') {
+      return 'Access lo tiene cancelado, pero el Validador decidió no aplicarlo';
+    }
+    return null;
+  }
   const etiqueta = ETIQUETA_CAMPO[c.campo] || c.campo || 'Dato';
   const antes = formatearValor(c.campo, c.valor_programa);
   const ahora = formatearValor(c.campo, c.valor_access);
@@ -117,7 +157,9 @@ export function descripcionCambio(c) {
 
   switch (c.tipo) {
     case 'cancelado':
-      return 'El pedido fue cancelado en Access';
+      return c.contexto?.completo
+        ? 'El pedido fue cancelado en Access, pero ya está completo: no se cierra solo, se revisa a mano'
+        : 'El pedido fue cancelado en Access';
     case 'cancelado_parcial':
       return `${talla || 'Una línea'} fue cancelada en Access`;
     case 'linea_nueva':

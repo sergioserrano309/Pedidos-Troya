@@ -1,9 +1,10 @@
 import {
-  fetchCambiosPanel, fetchEstadoDetector, fetchCamposAplicables, revertirCambioErp
+  fetchCambiosPanel, fetchEstadoDetector, fetchCamposAplicables, revertirCambioErp,
+  aplicarCambioErp, descartarCambioErp
 } from '../services/cambiosErpService.js';
 import {
   ETIQUETA_TIPO, ETIQUETA_ESTADO, descripcionCambio, contadoresPanel, estadoDetector, formatearValor,
-  formatearDia, puedeDeshacer, textoCamposEncendidos
+  formatearDia, puedeDeshacer, puedeAplicar, puedeDescartar, textoCamposEncendidos
 } from '../lib/cambiosErp.js';
 import { abrirDetalleOrden } from './orderDetail.js';
 import { esValidador } from '../services/validatorService.js';
@@ -53,9 +54,10 @@ export async function cargarCambiosErpPage() {
         <button id="btn-refrescar-cambios-erp" class="btn btn-secondary btn-sm">🔄 Refrescar</button>
       </div>
       <div style="font-size:12px; color:var(--text2); margin-bottom:0.5rem;">
-        Aquí se listan los datos que en Access cambiaron después de cargar el pedido. <strong>Los datos de texto cuyo campo
-        esté encendido (ver abajo) se aplican solos cuando se ven iguales en 2 revisiones seguidas y se pueden deshacer aquí.
-        Todo lo demás, por ahora, solo se muestra: no se modifica ningún pedido.</strong>
+        Aquí se listan los datos que en Access cambiaron después de cargar el pedido. <strong>Los datos de texto y los pedidos
+        cancelados (se cierran a la fuerza) cuyo interruptor esté encendido (ver abajo) se aplican solos cuando se ven iguales
+        en 2 revisiones seguidas, y se pueden deshacer aquí. Lo que el sistema no aplica solo lo decide usted con
+        los botones <em>Aplicar</em> o <em>Descartar</em>.</strong>
       </div>
       <div id="cambios-erp-estado" style="font-size:12px; margin-bottom:0.75rem;"></div>
       <div id="cambios-erp-contadores" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:0.75rem;"></div>
@@ -103,9 +105,9 @@ export async function cargarCambiosErpPage() {
     pagina += 1; pintar();
   });
   document.getElementById('cambios-erp-tabla')?.addEventListener('click', async (e) => {
-    const deshacer = e.target.closest('[data-deshacer]');
-    if (deshacer) {
-      await deshacerCambio(deshacer);
+    const boton = e.target.closest('[data-accion]');
+    if (boton) {
+      await ejecutarAccion(boton);
       return;
     }
     const enlace = e.target.closest('[data-abrir-orden]');
@@ -131,26 +133,72 @@ async function recargar() {
   pintar(filas === null);
 }
 
-/** Botón "Deshacer": pide confirmación y restaura el cliente anterior. */
-async function deshacerCambio(boton) {
-  const id = Number(boton.dataset.deshacer);
+/**
+ * Botones de la fila: los mismos textos para cualquier tipo de cambio.
+ *   Aplicar    aplica el cambio ahora, a mano (hoy: cierra un cancelado).
+ *   Descartar  lo rechaza (no toca ningún pedido).
+ *   Deshacer   revierte un cambio ya aplicado.
+ * Cada uno pide confirmación antes de actuar.
+ */
+async function ejecutarAccion(boton) {
+  const id = Number(boton.dataset.id);
+  const accion = boton.dataset.accion;
   const pedido = boton.dataset.pedido;
+  const esCancelado = boton.dataset.tipo === 'cancelado';
+  const completo = boton.dataset.completo === '1';
   if (!Number.isFinite(id)) return;
-  const ok = window.confirm(
-    `¿Deshacer este cambio del pedido ${pedido}?\n\n`
-    + 'Se restaura el valor anterior y el programa no lo volverá a cambiar '
-    + 'mientras Access no lo modifique otra vez.'
-  );
-  if (!ok) return;
+
+  const textos = {
+    aplicar: {
+      pregunta: `¿Aplicar este cambio del pedido ${pedido}?\n\n`
+        + 'Se cierra a la fuerza con el motivo "Cancelado en Troya", firmado por usted. '
+        + (completo ? 'OJO: el pedido ya está completo. ' : '')
+        + 'Nadie podrá registrar ni eliminar movimientos hasta que lo reabra (puede hacerlo con Deshacer).',
+      exito: `Pedido ${pedido} cerrado a la fuerza.`,
+      accion: () => aplicarCambioErp(id)
+    },
+    descartar: {
+      pregunta: `¿Descartar este cambio del pedido ${pedido}?\n\n`
+        + 'No se aplicará y dejará de mostrarse como pendiente. No se modifica ningún pedido. '
+        + 'Si Access lo cambia otra vez, volverá a aparecer.',
+      exito: `Cambio del pedido ${pedido} descartado.`,
+      accion: () => descartarCambioErp(id)
+    },
+    deshacer: {
+      pregunta: esCancelado
+        ? `¿Deshacer el cierre del pedido ${pedido}?\n\n`
+          + 'Se quita el cierre a la fuerza y no se volverá a cerrar mientras Access no cambie.'
+        : `¿Deshacer este cambio del pedido ${pedido}?\n\n`
+          + 'Se restaura el valor anterior y el programa no lo volverá a cambiar '
+          + 'mientras Access no lo modifique otra vez.',
+      exito: esCancelado ? `Pedido ${pedido} reabierto.` : `Cambio del pedido ${pedido} deshecho.`,
+      accion: () => revertirCambioErp(id)
+    }
+  };
+
+  const t = textos[accion];
+  if (!t || !window.confirm(t.pregunta)) return;
   boton.disabled = true;
   try {
-    await revertirCambioErp(id);
-    mostrarToast(`Cambio del pedido ${pedido} deshecho.`, 'ok');
+    await t.accion();
+    mostrarToast(t.exito, 'ok');
     await recargar();
   } catch (err) {
     boton.disabled = false;
-    mostrarToast(err.message || 'No se pudo deshacer el cambio.', 'error');
+    mostrarToast(err.message || 'No se pudo completar la acción.', 'error');
   }
+}
+
+/** Botones que corresponden a una fila, según su estado y tipo. */
+function botonesDeFila(c) {
+  const datos = `data-id="${Number(c.id)}" data-pedido="${escapeHtml(c.pedido)}" data-tipo="${escapeHtml(c.tipo)}" data-completo="${c.contexto?.completo ? 1 : 0}"`;
+  const boton = (accion, texto, titulo) =>
+    `<button class="btn btn-secondary btn-sm" data-accion="${accion}" ${datos} title="${titulo}" style="margin:0 2px;">${texto}</button>`;
+  const partes = [];
+  if (puedeAplicar(c)) partes.push(boton('aplicar', 'Aplicar', 'Aplica el cambio ahora'));
+  if (puedeDescartar(c)) partes.push(boton('descartar', 'Descartar', 'No aplicar este cambio'));
+  if (puedeDeshacer(c)) partes.push(boton('deshacer', 'Deshacer', 'Revierte el cambio aplicado'));
+  return partes.join('');
 }
 
 function pintarEstado() {
@@ -256,7 +304,7 @@ function pintar(errorDeCarga = false) {
             <td style="padding:8px;">${escapeHtml(ETIQUETA_ESTADO[c.estado] || c.estado)}${c.estado === 'aplicado' ? `<div style="font-size:11px; color:var(--text3);">el ${escapeHtml(formatearDia(c.aplicado_at))}</div>` : ''}</td>
             <td style="padding:8px; white-space:nowrap;">${escapeHtml(fechaHora(c.detectado_at))}</td>
             <td style="padding:8px; text-align:center;">${Number(c.revisiones_consecutivas || 0)}</td>
-            <td style="padding:8px; text-align:center;">${puedeDeshacer(c) ? `<button class="btn btn-secondary btn-sm" data-deshacer="${Number(c.id)}" data-pedido="${escapeHtml(c.pedido)}" title="Restaura el valor anterior">Deshacer</button>` : ''}</td>
+            <td style="padding:8px; text-align:center; white-space:nowrap;">${botonesDeFila(c)}</td>
           </tr>`;
         }).join('')}
       </tbody>
