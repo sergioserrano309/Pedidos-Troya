@@ -114,6 +114,28 @@ export async function revertirCambioErp(idCambio) {
 }
 
 /**
+ * Botón "Aplicar" (función erp_aplicar_cambio, SQL 073; solo el Validador):
+ * aplica a mano un cambio pendiente. Hoy solo el CANCELADO: cierra el pedido a
+ * la fuerza con motivo "Cancelado en Troya", firmado por quien hace clic.
+ * Lanza el mensaje de la base si no se puede.
+ */
+export async function aplicarCambioErp(idCambio) {
+  const { data, error } = await supabase.rpc('erp_aplicar_cambio', { p_id: idCambio });
+  if (error) throw new Error(error.message || 'No se pudo aplicar el cambio.');
+  return data;
+}
+
+/**
+ * Botón "Descartar" (función erp_descartar_cambio, SQL 073; solo el
+ * Validador): rechaza una diferencia pendiente. No toca ningún pedido.
+ */
+export async function descartarCambioErp(idCambio) {
+  const { data, error } = await supabase.rpc('erp_descartar_cambio', { p_id: idCambio });
+  if (error) throw new Error(error.message || 'No se pudo descartar el cambio.');
+  return data;
+}
+
+/**
  * Campos de texto cuya aplicación automática está encendida
  * (erp_cambios_estado.aplicar_campos). Consulta aparte y tolerante: si la
  * columna aún no existe (SQL 071 sin ejecutar) o falla, devuelve null.
