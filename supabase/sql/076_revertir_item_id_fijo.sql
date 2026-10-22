@@ -1,0 +1,32 @@
+-- =====================================================================
+-- 076_revertir_item_id_fijo.sql
+-- NO HAY UNA REVERSA "LIMPIA" de la estructura, y no hace falta.
+--
+-- POR QUE
+--   Volver item_id a "columna generada" obliga a borrar y recrear la columna,
+--   y las vistas de la aplicacion dependen de ella: habria que recrearlas
+--   todas. Pero tampoco es necesario: despues de 076 el codigo de cada
+--   linea es IDENTICO al que daba la formula (se verifica dentro del propio
+--   archivo), y solo se distingue en que un cambio posterior de material,
+--   color o referencia ya no lo modifica (que es justo el objetivo).
+--
+-- SI ALGO SALIO MAL, LA SALIDA SEGURA ES EL RESPALDO
+--   1) Compare la tabla actual con la copia (solo lee):
+--        select count(*) from public.p_pedidosh;
+--        select count(*) from public.p_pedidosh_respaldo_076;
+--        -- lineas cuyo codigo es distinto al de la copia:
+--        select p."PedidoNo", p."Talla", p.item_id as ahora, r.item_id as respaldo
+--          from public.p_pedidosh p
+--          join public.p_pedidosh_respaldo_076 r
+--            on r."PedidoNo" = p."PedidoNo" and r."Talla" = p."Talla"
+--               and r."Referencia" = p."Referencia"
+--         where p.item_id is distinct from r.item_id;
+--   2) Cualquier valor puede restaurarse desde la copia. Pida ayuda antes de
+--      escribir sobre p_pedidosh.
+--
+-- SI SOLO QUIERE QUITAR EL DISPARADOR (las lineas nuevas quedarian sin codigo
+-- y el sincronizador fallaria: NO lo haga salvo que tambien permita item_id
+-- vacio):
+--   drop trigger if exists trg_item_id_al_insertar on public.p_pedidosh;
+--   alter table public.p_pedidosh alter column item_id drop not null;
+-- =====================================================================

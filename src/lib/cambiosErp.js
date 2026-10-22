@@ -70,6 +70,62 @@ export function formatearDia(valor) {
     : d.toLocaleDateString('es', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
+/** Campos de identidad que se cambian por pedido (SQL 077). */
+export const CAMPOS_IDENTIDAD = ['MaterialP', 'ColorP', 'Referencia'];
+
+/** Rango de tallas sin el conteo: «34 a 40» (contiguas), «34, 36, 40» o «34». */
+export function rangoTallas(tallas) {
+  const lista = [...new Set((tallas || []).map((t) => String(t).trim()).filter(Boolean))];
+  if (lista.length === 0) return '';
+  const numericas = lista.every((t) => Number.isFinite(Number(t)));
+  const orden = numericas ? [...lista].sort((a, b) => Number(a) - Number(b)) : [...lista].sort();
+  if (orden.length === 1) return orden[0];
+  const contiguas = numericas && orden.every((t, i) => i === 0 || Number(t) === Number(orden[i - 1]) + 1);
+  return contiguas ? `${orden[0]} a ${orden[orden.length - 1]}` : orden.join(', ');
+}
+
+/** «34 a 40 (7 tallas)»; una sola talla: «34». */
+export function tallasTexto(tallas) {
+  const rango = rangoTallas(tallas);
+  const n = new Set((tallas || []).map((t) => String(t).trim()).filter(Boolean)).size;
+  return n > 1 ? `${rango} (${n} tallas)` : rango;
+}
+
+/**
+ * Junta en UNA fila las diferencias de identidad (material, color, referencia)
+ * de un mismo pedido, campo, valor nuevo y estado: se aplican, descartan y
+ * deshacen juntas (por pedido, no por talla). La fila agrupada es la primera
+ * del grupo con: talla = «34 a 40 (7 tallas)», _grupo, _ids, _tallas.
+ * Conserva el orden; las demás filas pasan tal cual.
+ */
+export function agruparIdentidad(cambios) {
+  const salida = [];
+  const grupos = new Map();
+  (cambios || []).forEach((c) => {
+    const esIdentidad = c?.tipo === 'identidad' && CAMPOS_IDENTIDAD.includes(c.campo) && c.talla && !c.clave_linea;
+    if (!esIdentidad) {
+      salida.push(c);
+      return;
+    }
+    const clave = [c.pedido, c.campo, c.valor_access ?? '', c.estado, c.aplicado_at ?? ''].join('|');
+    let g = grupos.get(clave);
+    if (!g) {
+      g = { ...c, _grupo: true, _ids: [], _tallas: [], _actuales: [] };
+      grupos.set(clave, g);
+      salida.push(g);
+    }
+    g._ids.push(c.id);
+    g._tallas.push(c.talla);
+    const actual = c.valor_programa ?? '';
+    if (!g._actuales.includes(actual)) g._actuales.push(actual);
+  });
+  grupos.forEach((g) => {
+    g.talla = tallasTexto(g._tallas);
+    g.valor_programa = g._actuales.length > 1 ? 'varios valores' : g._actuales[0];
+  });
+  return salida;
+}
+
 /** Campos de texto que el programa puede aplicar solo (lista cerrada, igual que SQL 071). */
 export const CAMPOS_APLICABLES = [
   'Cliente', 'Vira', 'DetalleVira', 'Acabado', 'DetalleAcab',
@@ -90,6 +146,7 @@ export function puedeDeshacer(cambio) {
   if (cambio?.tipo === 'cancelado') return ['automatico', 'validador'].includes(cambio?.aplicado_por);
   if (cambio?.tipo === 'cantidad') return cambio?.aplicado_por === 'validador';
   if (cambio?.tipo === 'linea_sobrante') return cambio?.aplicado_por === 'validador';
+  if (cambio?.tipo === 'identidad') return CAMPOS_IDENTIDAD.includes(cambio?.campo) && cambio?.aplicado_por === 'validador';
   return false;
 }
 
@@ -103,6 +160,7 @@ export function puedeAplicar(cambio) {
   if (cambio?.tipo === 'cancelado') return !cambio?.talla;
   if (cambio?.tipo === 'cantidad') return !!cambio?.talla && !cambio?.clave_linea;
   if (cambio?.tipo === 'linea_sobrante') return !!cambio?.talla && !!cambio?.clave_linea;
+  if (cambio?.tipo === 'identidad') return CAMPOS_IDENTIDAD.includes(cambio?.campo) && !!cambio?.talla && !cambio?.clave_linea;
   return false;
 }
 
@@ -122,7 +180,7 @@ function ultimoEvento(cambio, acciones) {
 
 /** Tipos de cambio que muestran bloqueo e impacto antes de aplicarse (074 y 075). */
 export function necesitaImpacto(cambio) {
-  return ['cantidad', 'linea_sobrante'].includes(cambio?.tipo);
+  return ['cantidad', 'linea_sobrante', 'identidad'].includes(cambio?.tipo);
 }
 
 const NOMBRE_ROL = { refilado: 'Refilado', acabado: 'Acabado', mateado: 'Mateado', empaque: 'Empaque' };
@@ -203,6 +261,30 @@ export function estadoBotones(c, impacto) {
  */
 export function textoImpacto(c, impacto) {
   if (!impacto?.soportado || impacto.bloqueado) return null;
+  if (impacto.tipo === 'identidad') {
+    const etiqueta = ETIQUETA_CAMPO[impacto.campo] || impacto.campo;
+    const antes = formatearValor(impacto.campo, impacto.actual);
+    const n = Number(impacto.n_tallas || 0);
+    const precio = (v) => (v === null || v === undefined ? 's/d' : `$${Number(v).toLocaleString('es-CO', { maximumFractionDigits: 2 })}`);
+    const lineas = [
+      `Pedido ${c.pedido}: ${etiqueta} ${antes === '—' ? '(vacío)' : antes} → ${impacto.nuevo} en ${n} ${n === 1 ? 'talla' : 'tallas'} (${rangoTallas(impacto.tallas)}).`,
+      `Registros de producción del pedido: ${impacto.registros} · unidades despachadas: ${impacto.despachadas}.`,
+      'Su historial se conserva: el código interno de cada línea no cambia.'
+    ];
+    const precios = Array.isArray(impacto.precios) ? impacto.precios : [];
+    const cambian = precios.filter((p) => String(p.hoy) !== String(p.despues));
+    if (cambian.length === 0) {
+      lineas.push('Precio por par de los registros nuevos: no cambia en ningún rol.');
+    } else {
+      lineas.push('Precio por par de los registros NUEVOS (los ya hechos no cambian):');
+      cambian.forEach((p) => lineas.push(`  ⚠ ${NOMBRE_ROL[p.rol] || p.rol}: ${precio(p.hoy)} → ${precio(p.despues)}`));
+    }
+    if (Number(impacto.despachadas) > 0) {
+      lineas.push(`⚠ Las fichas y PDF de los despachos de este pedido mostrarán el ${etiqueta.toLowerCase()} nuevo.`);
+    }
+    if (impacto.cerrado) lineas.push('El pedido está cerrado a la fuerza y seguirá cerrado.');
+    return lineas;
+  }
   const lineas = [];
   if (impacto.tipo === 'linea_sobrante') {
     lineas.push(`Se oculta la línea de la talla ${c.talla} de ${impacto.cantidad} pares (Access ya no la tiene).`);
@@ -302,12 +384,13 @@ export function descripcionHistorial(c) {
   const etiqueta = ETIQUETA_CAMPO[c.campo] || c.campo || 'Dato';
   const antes = formatearValor(c.campo, c.valor_programa);
   const ahora = formatearValor(c.campo, c.valor_access);
-  const talla = c.talla ? `Talla ${c.talla}: ` : '';
+  const talla = c._grupo ? '' : (c.talla ? `Talla ${c.talla}: ` : '');
+  const tallas = c._grupo ? ` (tallas ${c.talla})` : '';
   if (c.estado === 'aplicado') {
-    return `${talla}${etiqueta} cambiado el ${formatearDia(c.aplicado_at)} desde Access: ${antes} → ${ahora}`;
+    return `${talla}${etiqueta} cambiado el ${formatearDia(c.aplicado_at)} desde Access: ${antes} → ${ahora}${tallas}`;
   }
   if (c.estado === 'rechazado') {
-    return `${talla}Access tiene ${etiqueta} ${ahora}, pero el Validador mantuvo ${antes}`;
+    return `${talla}Access tiene ${etiqueta} ${ahora}, pero el Validador mantuvo ${antes}${tallas}`;
   }
   return null;
 }
@@ -351,6 +434,7 @@ export function descripcionCambio(c) {
     case 'cantidad':
       return `${talla}: cantidad ${antes()} → ${ahora()}`;
     default:
+      if (c._grupo) return `${etiqueta} ${antes()} → ${ahora()} · Tallas ${c.talla}`;
       return `${talla ? `${talla}: ` : ''}${etiqueta} ${antes()} → ${ahora()}`;
   }
 }
@@ -380,7 +464,8 @@ export function mensajeUnidades(cambios) {
  * @returns {{ lineas: string[], extra: number, mensaje: string|null, hayAmbiguos: boolean }|null}
  *   null = no hay nada pendiente: no se muestra nota.
  */
-export function resumenNota(cambios, maxLineas = 6) {
+export function resumenNota(cambiosCrudos, maxLineas = 6) {
+  const cambios = agruparIdentidad(cambiosCrudos);
   const pendientes = cambiosPendientes(cambios);
   // Historial permanente (nota gris): lo ya aplicado y lo que el Validador deshizo.
   const historial = (cambios || [])
