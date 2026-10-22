@@ -27,6 +27,13 @@ import { mostrarToast } from './toast.js';
  * si no caben, una copia por página sin corte. Ver §12.7.
  */
 
+/**
+ * Se dispara en document al guardar comentario o factura de un despacho:
+ * la lista de Despachado lo escucha y se vuelve a leer, así lo nuevo se ve
+ * sin F5. Evento en vez de import cruzado (la lista ya importa este módulo).
+ */
+export const EVENTO_DESPACHO_ACTUALIZADO = 'despacho-actualizado';
+
 /** Pendiente del modal “¿incluir comentario en el PDF?”. */
 let pdfPendiente = null;
 
@@ -125,6 +132,70 @@ async function cargarContextoDetalle(despachoId) {
     fetchItemsDespacho(despachoId)
   ]);
 
+  return armarContexto(detalle, asignaciones, bultos, tallasPorPedido);
+}
+
+/**
+ * Detalle de un despacho ELIMINADO (solo lectura): se arma con la copia
+ * guardada al eliminarlo (snapshot), porque sus filas ya no existen. Arriba
+ * lleva quién lo eliminó, cuándo y el motivo.
+ *
+ * @param {object} fila Fila de listar_despachos_eliminados (trae `snapshot`).
+ */
+export async function abrirDetalleDespachoEliminado(fila) {
+  const modal = document.getElementById('modal-detalle-despacho');
+  const titulo = document.getElementById('detalle-despacho-titulo');
+  const contenido = document.getElementById('detalle-despacho-contenido');
+
+  modal.classList.remove('maqueta-pdf-despacho');
+  titulo.textContent = `Detalle del Despacho — ${fila.consecutivo} (eliminado)`;
+  contenido.innerHTML = '<div class="loading"><div class="spinner"></div> Cargando...</div>';
+  modal.classList.add('open');
+
+  try {
+    const snap = fila.snapshot || {};
+    const despacho = snap.despacho || {};
+    const ordenes = (snap.ordenes || []).map((o) => String(o.order_number));
+
+    const tallasPorPedido = new Map();
+    (snap.items || []).forEach((i) => {
+      const pedido = String(i.order_number);
+      if (!tallasPorPedido.has(pedido)) tallasPorPedido.set(pedido, []);
+      tallasPorPedido.get(pedido).push({ talla: String(i.talla ?? '—'), unidades: i.cantidad ?? 0 });
+    });
+    tallasPorPedido.forEach((tallas) =>
+      tallas.sort((a, b) => a.talla.localeCompare(b.talla, undefined, { numeric: true }))
+    );
+
+    const bultos = [...(snap.bultos || [])].sort((a, b) => a.bulto_numero - b.bulto_numero);
+
+    const ctx = await armarContexto(
+      {
+        consecutivo: fila.consecutivo,
+        created_at: despacho.created_at,
+        comentario: despacho.comentario,
+        numero_factura: despacho.numero_factura,
+        order_numbers: ordenes
+      },
+      snap.asignaciones || [],
+      bultos,
+      tallasPorPedido
+    );
+
+    contenido.innerHTML = `
+      <div class="detalle-despacho-eliminado">
+        <strong>Despacho eliminado</strong>
+        <div>Por ${escapeHtml(fila.eliminado_por_nombre || '—')} · ${escapeHtml(formatearFecha(fila.eliminado_en))}</div>
+        <div class="detalle-despacho-eliminado-motivo"><span>Motivo:</span> ${escapeHtml(fila.motivo || '—')}</div>
+      </div>
+      ${renderContenidoPantalla({ ...ctx, soloLectura: true })}
+    `;
+  } catch (err) {
+    contenido.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function armarContexto(detalle, asignaciones, bultos, tallasPorPedido) {
   const ordenes = detalle.order_numbers || [];
   const [estadoPorPedido, infoPorPedido] = ordenes.length
     ? await Promise.all([fetchEstadoPedidos(ordenes), fetchInfoPedidos(ordenes)])
@@ -180,7 +251,8 @@ function renderContenidoPantalla(ctx) {
     unidadesDe,
     pesoTotal,
     unidadesTotal,
-    clientes
+    clientes,
+    soloLectura
   } = ctx;
 
   return `
@@ -229,8 +301,9 @@ function renderContenidoPantalla(ctx) {
       <label>Resumen por pedido</label>
       ${renderMatrizPedidos(ordenes, { bultosDe, unidadesDe, estadoPorPedido })}
     </div>
-${esValidador() ? renderComentarioEditable(detalle.comentario) : renderComentario(detalle.comentario, 'form-group')}
-${renderFacturaEditable(detalle.numero_factura)}
+${soloLectura
+    ? renderComentario(detalle.comentario, 'form-group') + renderFacturaSoloLectura(detalle.numero_factura)
+    : (esValidador() ? renderComentarioEditable(detalle.comentario) : renderComentario(detalle.comentario, 'form-group')) + renderFacturaEditable(detalle.numero_factura)}
   `;
 }
 
@@ -298,6 +371,7 @@ function enlazarEdicionComentario(despachoId, comentarioInicial) {
       guardado = nuevo;
       campo.value = nuevo;
       mostrarToast(nuevo ? 'Comentario guardado.' : 'Comentario eliminado.', 'ok');
+      document.dispatchEvent(new CustomEvent(EVENTO_DESPACHO_ACTUALIZADO));
     } catch (err) {
       mostrarToast(err.message, 'error');
     } finally {
@@ -324,6 +398,17 @@ function renderFacturaEditable(numeroFactura) {
         <span id="detalle-despacho-factura-ayuda" class="crear-despacho-contador">${texto.length} / 5</span>
         <button type="button" class="btn btn-primary btn-sm" id="detalle-despacho-factura-guardar" disabled>Guardar factura</button>
       </div>
+    </div>`;
+}
+
+/** Factura de un despacho eliminado: solo se muestra, si la tenía. */
+function renderFacturaSoloLectura(numeroFactura) {
+  const texto = String(numeroFactura ?? '').trim();
+  if (!texto) return '';
+  return `
+    <div class="form-group">
+      <label>Facturas</label>
+      <div>${escapeHtml(texto)}</div>
     </div>`;
 }
 
@@ -359,6 +444,7 @@ function enlazarEdicionFactura(despachoId, facturaInicial) {
       guardado = nuevo;
       campo.value = nuevo;
       mostrarToast(nuevo ? 'Factura guardada.' : 'Factura eliminada.', 'ok');
+      document.dispatchEvent(new CustomEvent(EVENTO_DESPACHO_ACTUALIZADO));
     } catch (err) {
       mostrarToast(err.message, 'error');
     } finally {

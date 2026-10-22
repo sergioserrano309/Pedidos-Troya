@@ -409,6 +409,60 @@ export async function fetchClientesDespachados() {
 }
 
 /**
+ * Cliente de cada pedido (para la columna Cliente de Despachado). Consulta
+ * aparte y tolerante a fallos: si falla, la columna queda en blanco y el
+ * listado sigue funcionando.
+ *
+ * @param {string[]} orderNumbers
+ * @returns {Promise<Map<string, string>>} order_number -> cliente
+ */
+export async function fetchClientesPorPedido(orderNumbers) {
+  const mapa = new Map();
+  const unicos = [...new Set((orderNumbers || []).map(String))];
+  if (unicos.length === 0) return mapa;
+
+  const { data, error } = await supabase
+    .from('vw_pedido_progreso')
+    .select('order_number, cliente')
+    .in('order_number', unicos);
+
+  if (error) {
+    console.error('[despachosService] Error obteniendo clientes de los pedidos:', error);
+    return mapa;
+  }
+
+  (data || []).forEach((f) => mapa.set(String(f.order_number), f.cliente || ''));
+  return mapa;
+}
+
+/**
+ * Despachos eliminados (SQL 078), solo para consulta en Despachado. Solo
+ * Empaque y Validador (la función lo exige). Tolerante a fallos: si la
+ * función aún no está aplicada o falla, la lista normal sigue sin ellos.
+ *
+ * @param {{ fecha?: string, consecutivo?: string, orden?: string, cliente?: string, factura?: string }} filters
+ * @returns {Promise<Array<object>>} más recientes primero; cada fila trae su `snapshot`
+ */
+export async function fetchDespachosEliminados(filters = {}) {
+  const { fecha = '', consecutivo = '', orden = '', cliente = '', factura = '' } = filters;
+
+  const { data, error } = await supabase.rpc('listar_despachos_eliminados', {
+    p_orden: orden.trim(),
+    p_fecha: fecha.trim(),
+    p_consecutivo: consecutivo.trim(),
+    p_cliente: cliente,
+    p_factura: factura.trim()
+  });
+
+  if (error) {
+    console.warn('[despachosService] No se pudieron cargar los despachos eliminados (¿falta el SQL 078?):', error);
+    return [];
+  }
+
+  return data || [];
+}
+
+/**
  * Acordeón Despachos > Despachado: una fila por despacho con sus agregados (bultos,
  * kilos, unidades, órdenes, comentario desde 064).
  *
