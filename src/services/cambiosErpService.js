@@ -95,6 +95,23 @@ export async function fetchCambiosPanel() {
   }
 }
 
+/**
+ * Cuántos PEDIDOS distintos tienen al menos un cambio pendiente (número de la
+ * insignia roja de la pestaña). Solo lee la columna `pedido`.
+ * @returns {Promise<number|null>} null si la consulta falla: la insignia se deja como está.
+ */
+export async function fetchPedidosConCambiosPendientes() {
+  try {
+    const filas = await leerTodo(() =>
+      supabase.from('erp_cambios').select('pedido').eq('estado', 'pendiente').order('id', { ascending: true })
+    );
+    return new Set(filas.map((f) => f.pedido)).size;
+  } catch (err) {
+    console.error('[cambiosErpService] Error contando los pedidos con cambios pendientes:', err);
+    return null;
+  }
+}
+
 /** Para la hoja "Cambios ERP" del Excel: [] si falla (la hoja sale vacía). */
 export async function fetchTodosLosCambiosERP() {
   const filas = await fetchCambiosPanel();
@@ -133,6 +150,26 @@ export async function descartarCambioErp(idCambio) {
   const { data, error } = await supabase.rpc('erp_descartar_cambio', { p_id: idCambio });
   if (error) throw new Error(error.message || 'No se pudo descartar el cambio.');
   return data;
+}
+
+/**
+ * Bloqueo e IMPACTO de varios cambios de cantidad (función erp_impacto_cambios,
+ * SQL 074; solo el Validador): para cada id, si se puede aplicar y qué pasaría
+ * con el total del pedido, su estado Completado y la liquidación por rol.
+ * @returns {Promise<Object|null>} { [id]: evaluación }, o null si falla (el
+ *   botón Aplicar de las cantidades queda deshabilitado, nunca se aplica a ciegas).
+ */
+export async function fetchImpactoCambios(ids) {
+  const lista = [...new Set((ids || []).map(Number).filter(Number.isFinite))];
+  if (lista.length === 0) return {};
+  try {
+    const { data, error } = await supabase.rpc('erp_impacto_cambios', { p_ids: lista });
+    if (error) throw error;
+    return data || {};
+  } catch (err) {
+    console.error('[cambiosErpService] Error calculando el impacto de los cambios:', err);
+    return null;
+  }
 }
 
 /**

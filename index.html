@@ -1371,6 +1371,29 @@
       border-bottom-color: var(--blue);
     }
 
+    /* Insignia de notificación (círculo rojo, número blanco) junto al texto de
+       una pestaña: hoy "Cambios ERP" = pedidos con cambios por revisar. */
+    .badge-notif {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      /* Margen vertical negativo: el círculo (18px) es más alto que el texto
+         de la pestaña (13px) y sin esto estira el botón y descuadra la línea
+         de abajo respecto a las demás pestañas. */
+      margin: -3px 0 -3px 7px;
+      border-radius: 999px;
+      background: var(--red);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      vertical-align: middle;
+      box-sizing: border-box;
+    }
+
     /* Fila bajo las pestañas: "Rol Activo" (Validador) + botón Excel.
        Comparte el MISMO grid-template-columns que #ordenes-filtros para
        que el dropdown de Rol Activo arranque exactamente donde arranca
@@ -5213,7 +5236,7 @@
               <button class="tab-btn" data-tab="despachos" id="tab-btn-despachos" style="display:none;">Despachos</button>
               <button class="tab-btn" data-tab="registros"><span class="cart-lbl-full">Registros</span><span class="cart-lbl-short">Reg.</span></button>
               <button class="tab-btn" data-tab="validador" id="tab-btn-validador" style="display:none;">Control Central</button>
-              <button class="tab-btn" data-tab="cambios-erp" id="tab-btn-cambios-erp" style="display:none;">Cambios ERP</button>
+              <button class="tab-btn" data-tab="cambios-erp" id="tab-btn-cambios-erp" style="display:none;">Cambios ERP<span id="badge-cambios-erp" class="badge-notif" style="display:none;" role="status"></span></button>
               <button class="tab-btn" data-tab="reglas" id="tab-btn-reglas" style="display:none;">Reglas de Enrutamiento</button>
               <button class="tab-btn" data-tab="audit" id="tab-btn-audit" style="display:none;">Auditoría</button>
               <button class="tab-btn" data-tab="eliminaciones" id="tab-btn-eliminaciones" style="display:none;">Eliminaciones</button>
