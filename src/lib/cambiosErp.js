@@ -44,6 +44,23 @@ export const ETIQUETA_ESTADO = {
   resuelto: 'Resuelto'
 };
 
+/**
+ * Texto de la columna Estado. «Rechazado» en la base significa dos cosas
+ * distintas para el usuario: el Validador lo DESCARTÓ (✕, "revisado, no se
+ * aplica") o lo DESHIZO (↺, tras aplicarlo). Se distingue por el último evento.
+ */
+export function etiquetaEstado(c) {
+  if (c?.estado === 'rechazado') {
+    const eventos = Array.isArray(c.historial) ? c.historial : [];
+    for (let i = eventos.length - 1; i >= 0; i -= 1) {
+      if (eventos[i]?.accion === 'revertido') return 'Deshecho';
+      if (eventos[i]?.accion === 'descartado') return 'Descartado';
+    }
+    return 'Descartado';
+  }
+  return ETIQUETA_ESTADO[c?.estado] || c?.estado;
+}
+
 /** dd/mm/aaaa en hora local; «—» si no hay fecha válida. */
 export function formatearDia(valor) {
   if (!valor) return '—';
@@ -71,22 +88,177 @@ export function puedeDeshacer(cambio) {
   if (cambio?.estado !== 'aplicado') return false;
   if (cambio?.tipo === 'texto') return CAMPOS_APLICABLES.includes(cambio?.campo);
   if (cambio?.tipo === 'cancelado') return ['automatico', 'validador'].includes(cambio?.aplicado_por);
+  if (cambio?.tipo === 'cantidad') return cambio?.aplicado_por === 'validador';
+  if (cambio?.tipo === 'linea_sobrante') return cambio?.aplicado_por === 'validador';
   return false;
 }
 
 /**
- * Botón "Aplicar" (SQL 073): un cambio pendiente o descartado que se puede
- * aplicar a mano. Hoy solo el CANCELADO del pedido completo; las fases 4 y 5
- * agregan los demás tipos con el mismo botón.
+ * Botón "Aplicar" (SQL 073/074): un cambio pendiente o descartado que se puede
+ * aplicar a mano. Hoy el CANCELADO de un pedido y la CANTIDAD de una talla
+ * (una sola línea); la fase 5 agrega los demás con el mismo botón.
  */
 export function puedeAplicar(cambio) {
-  return ['pendiente', 'rechazado'].includes(cambio?.estado)
-    && cambio?.tipo === 'cancelado' && !cambio?.talla;
+  if (!['pendiente', 'rechazado'].includes(cambio?.estado)) return false;
+  if (cambio?.tipo === 'cancelado') return !cambio?.talla;
+  if (cambio?.tipo === 'cantidad') return !!cambio?.talla && !cambio?.clave_linea;
+  if (cambio?.tipo === 'linea_sobrante') return !!cambio?.talla && !!cambio?.clave_linea;
+  return false;
 }
 
 /** Botón "Descartar" (SQL 073): cualquier diferencia pendiente de cualquier tipo. */
 export function puedeDescartar(cambio) {
   return cambio?.estado === 'pendiente';
+}
+
+/** Último evento del historial con alguna de esas acciones (o null). */
+function ultimoEvento(cambio, acciones) {
+  const eventos = Array.isArray(cambio?.historial) ? cambio.historial : [];
+  for (let i = eventos.length - 1; i >= 0; i -= 1) {
+    if (acciones.includes(eventos[i]?.accion)) return eventos[i];
+  }
+  return null;
+}
+
+/** Tipos de cambio que muestran bloqueo e impacto antes de aplicarse (074 y 075). */
+export function necesitaImpacto(cambio) {
+  return ['cantidad', 'linea_sobrante'].includes(cambio?.tipo);
+}
+
+const NOMBRE_ROL = { refilado: 'Refilado', acabado: 'Acabado', mateado: 'Mateado', empaque: 'Empaque' };
+
+/**
+ * Cómo se ve la fila: estado de los TRES botones (Aplicar ✓ verde, Descartar ✕
+ * rojo, Deshacer ↺ azul) y la etiqueta de quién hizo la acción.
+ *   habilitado  se puede pulsar ahora.
+ *   activo      es la acción que se tomó (el botón se ve "presionado").
+ *   motivo      por qué no se puede pulsar (tooltip).
+ *
+ * @param {object} c Fila de erp_cambios.
+ * @param {object|null|undefined} impacto Resultado de erp_impacto_cambios para
+ *   esta fila (solo cantidades): undefined = aún calculando; null = no se pudo.
+ */
+export function estadoBotones(c, impacto) {
+  const boton = (habilitado, motivo = '', activo = false) => ({ habilitado, activo, motivo });
+  const nada = 'Solo se puede deshacer un cambio que ya se aplicó.';
+  const estado = c?.estado;
+
+  // Aplicar: ¿se puede ahora?
+  const aplicarPosible = () => {
+    if (!puedeAplicar(c)) return boton(false, 'Este tipo de cambio todavía no se puede aplicar a mano.');
+    if (necesitaImpacto(c)) {
+      if (impacto === undefined) return boton(false, 'Calculando el impacto…');
+      if (impacto === null || !impacto.soportado) return boton(false, 'No se pudo calcular el impacto; no se puede aplicar.');
+      if (impacto.bloqueado) return boton(false, impacto.motivo || 'Este cambio está bloqueado.');
+    }
+    return boton(true, 'Aplicar el cambio');
+  };
+
+  if (estado === 'pendiente') {
+    return {
+      aplicar: aplicarPosible(),
+      descartar: boton(true, 'No aplicar (descartar)'),
+      deshacer: boton(false, nada),
+      chip: null
+    };
+  }
+
+  if (estado === 'aplicado') {
+    const quien = c.aplicado_por === 'automatico' ? 'Automático'
+      : c.aplicado_por === 'validador' ? 'Validador' : null;
+    return {
+      aplicar: boton(false, 'Ya está aplicado', true),
+      descartar: boton(false, 'Ya está aplicado: use Deshacer'),
+      deshacer: puedeDeshacer(c) ? boton(true, 'Deshacer') : boton(false, 'Este cambio no se puede deshacer desde aquí.'),
+      chip: quien
+        ? { texto: `Aplicado · ${quien}`, tono: 'verde' }
+        : { texto: 'Ya estaba cerrado', tono: 'gris' }
+    };
+  }
+
+  if (estado === 'rechazado') {
+    const hecho = ultimoEvento(c, ['descartado', 'revertido']);
+    const deshecho = hecho?.accion === 'revertido';
+    return {
+      aplicar: aplicarPosible(),
+      descartar: boton(false, deshecho ? 'Ya fue deshecho' : 'Ya está descartado', !deshecho),
+      deshacer: boton(false, nada, deshecho),
+      chip: deshecho
+        ? { texto: 'Deshecho · Validador', tono: 'azul' }
+        : { texto: 'Descartado · Validador', tono: 'rojo' }
+    };
+  }
+
+  return {
+    aplicar: boton(false, 'Ya no está pendiente'),
+    descartar: boton(false, 'Ya no está pendiente'),
+    deshacer: boton(false, nada),
+    chip: { texto: 'Resuelto', tono: 'gris' }
+  };
+}
+
+/**
+ * Líneas de texto del IMPACTO de aplicar un cambio de cantidad, para el
+ * mensaje de confirmación. null si no hay impacto calculado.
+ */
+export function textoImpacto(c, impacto) {
+  if (!impacto?.soportado || impacto.bloqueado) return null;
+  const lineas = [];
+  if (impacto.tipo === 'linea_sobrante') {
+    lineas.push(`Se oculta la línea de la talla ${c.talla} de ${impacto.cantidad} pares (Access ya no la tiene).`);
+    if (impacto.comparte_item) {
+      lineas.push(`La talla queda con ${impacto.otras_cantidad} pares (su otra línea, igual que Access) y conserva sus registros de producción.`);
+    }
+  } else {
+    const dif = Number(impacto.nueva) - Number(impacto.actual);
+    lineas.push(`Talla ${c.talla}: cantidad ${impacto.actual} → ${impacto.nueva} (${dif >= 0 ? '+' : ''}${dif})`);
+  }
+  lineas.push(`Total del pedido: ${impacto.total_actual} → ${impacto.total_nuevo}`);
+  const si = (v) => (v ? 'Sí' : 'No');
+  if (impacto.completo_hoy !== impacto.completo_despues) {
+    lineas.push(`Pedido completo: ${si(impacto.completo_hoy)} → ${si(impacto.completo_despues)}`);
+  }
+  const roles = Array.isArray(impacto.roles) ? impacto.roles : [];
+  if (roles.length > 0) {
+    lineas.push('Comisiones (trabajo liquidable por rol):');
+    roles.forEach((r) => {
+      // ⚠ = pierde lo ya liquidable · ↑ = pasa a ser liquidable · • = sin cambio
+      const marca = r.liquidable_hoy && !r.liquidable_despues ? '⚠'
+        : !r.liquidable_hoy && r.liquidable_despues ? '↑' : '•';
+      lineas.push(`  ${marca} ${NOMBRE_ROL[r.rol] || r.rol}: ${si(r.liquidable_hoy)} → ${si(r.liquidable_despues)}`);
+    });
+  }
+  if (impacto.cerrado) lineas.push('El pedido está cerrado a la fuerza y seguirá cerrado.');
+  return lineas;
+}
+
+/**
+ * Aclaración bajo «Qué cambió» para una línea que sobra: qué se quita y qué se
+ * queda. null si no aplica o aún no hay datos.
+ */
+export function infoLineaSobrante(c, impacto) {
+  if (c?.tipo !== 'linea_sobrante' || !impacto?.soportado || !impacto.comparte_item) return null;
+  return `Esta talla tiene 2 líneas en el programa; Access solo tiene la de ${impacto.otras_cantidad} pares. Sobra esta de ${impacto.cantidad}.`;
+}
+
+/**
+ * Columnas «En Access» y «En el programa» de una línea que sobra, en unidades
+ * por TALLA (como lo piensa quien revisa): si la talla tiene otra línea que sí
+ * está en Access, Access tiene esas unidades y el programa esas más las que
+ * sobran. Sin dato (o si es la única línea de la talla): «No la tiene» / la cantidad.
+ */
+export function columnasLineaSobrante(c, impacto) {
+  const sobran = Number(c?.valor_programa || 0);
+  if (impacto?.soportado && impacto.comparte_item) {
+    const otras = Number(impacto.otras_cantidad || 0);
+    return { enAccess: `${otras} (toda la talla)`, enPrograma: `${otras + sobran} (${otras} + ${sobran} que sobran)` };
+  }
+  return { enAccess: 'No la tiene', enPrograma: String(sobran) };
+}
+
+/** ¿Aplicar este cambio hará que algún rol pierda lo ya liquidable? */
+export function pierdeLiquidacion(impacto) {
+  return (impacto?.roles || []).some((r) => r.liquidable_hoy && !r.liquidable_despues);
 }
 
 /** Texto de los campos encendidos para el panel: «Cliente, Vira» o «ninguno». */
@@ -114,6 +286,16 @@ export function descripcionHistorial(c) {
     }
     if (c.estado === 'rechazado') {
       return 'Access lo tiene cancelado, pero el Validador decidió no aplicarlo';
+    }
+    return null;
+  }
+  if (c.tipo === 'linea_sobrante') {
+    const pares = formatearValor('', c.valor_programa);
+    if (c.estado === 'aplicado') {
+      return `Talla ${c.talla}: la línea de ${pares} pares que Access ya no tenía se ocultó el ${formatearDia(c.aplicado_at)}`;
+    }
+    if (c.estado === 'rechazado') {
+      return `Talla ${c.talla}: Access ya no tiene la línea de ${pares} pares, pero el Validador decidió mantenerla`;
     }
     return null;
   }
@@ -165,7 +347,7 @@ export function descripcionCambio(c) {
     case 'linea_nueva':
       return `Línea nueva en Access: ${talla || 'sin talla'} × ${formatearValor('', c.valor_access)}`;
     case 'linea_sobrante':
-      return `La línea ya no está en Access: ${talla || 'sin talla'} × ${formatearValor('', c.valor_programa)}`;
+      return `Sobra una línea en el programa: ${talla || 'sin talla'} × ${formatearValor('', c.valor_programa)} pares (Access no la tiene)`;
     case 'cantidad':
       return `${talla}: cantidad ${antes()} → ${ahora()}`;
     default:
@@ -250,6 +432,17 @@ export function contadoresPanel(cambios) {
   return r;
 }
 
+/**
+ * Texto de la insignia roja de la pestaña «Cambios ERP»: el número de PEDIDOS
+ * con cambios pendientes de revisar. '' = no se muestra (0 o dato inválido);
+ * más de 99 se muestra «99+».
+ */
+export function textoInsignia(pedidos) {
+  const n = Math.floor(Number(pedidos));
+  if (!Number.isFinite(n) || n <= 0) return '';
+  return n > 99 ? '99+' : String(n);
+}
+
 /** Estado del detector (misma forma que erp_sync_estado, mismo criterio de frescura). */
 export function estadoDetector(estado, ahora = new Date()) {
   return estadoSincronizacion(estado, ahora);
@@ -276,10 +469,14 @@ export function filasCambiosERP(cambios) {
         'Talla': c.talla || '—',
         'Tipo': ETIQUETA_TIPO[c.tipo] || c.tipo,
         'Campo': ETIQUETA_CAMPO[c.campo] || c.campo || '—',
-        'En Access': c.tipo === 'cancelado' || c.tipo === 'cancelado_parcial' ? 'Cancelado' : formatearValor(c.campo, c.valor_access),
-        'En el programa': c.tipo === 'cancelado' || c.tipo === 'cancelado_parcial' ? 'Activo' : formatearValor(c.campo, c.valor_programa),
+        'En Access': c.tipo === 'cancelado' || c.tipo === 'cancelado_parcial' ? 'Cancelado'
+          : c.tipo === 'linea_sobrante' ? 'No la tiene'
+            : formatearValor(c.campo, c.valor_access),
+        'En el programa': c.tipo === 'cancelado' || c.tipo === 'cancelado_parcial' ? 'Activo'
+          : c.tipo === 'linea_nueva' ? 'No la tiene'
+            : formatearValor(c.campo, c.valor_programa),
         'Descripción': descripcionCambio(c),
-        'Estado': ETIQUETA_ESTADO[c.estado] || c.estado,
+        'Estado': etiquetaEstado(c),
         'Detectado': aFechaExcel(c.detectado_at),
         'Última revisión': aFechaExcel(c.ultima_revision_at),
         'Revisiones iguales seguidas': c.revisiones_consecutivas ?? 0,

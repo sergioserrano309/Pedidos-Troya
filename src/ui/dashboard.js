@@ -12,6 +12,7 @@ import { esValidador, esVistaMaestra, obtenerRolActivo, establecerRolActivo, usu
 import { cargarValidadorPage } from './validatorPage.js';
 import { cargarCambiosErpPage } from './cambiosErpPage.js';
 import { fetchPendientesPorPedidos } from '../services/cambiosErpService.js';
+import { iniciarInsigniaCambiosErp, detenerInsigniaCambiosErp } from './cambiosErpInsignia.js';
 import { cargarAuditPage } from './auditPage.js';
 import { cargarDespachosTab, configurarUIDespachos } from './despachosPage.js';
 import { cargarEliminaciones } from './eliminacionesPage.js';
@@ -85,6 +86,7 @@ export function configurarUIValidador() {
     document.getElementById('tab-btn-audit').style.display = 'none';
     document.getElementById('tab-btn-eliminaciones').style.display = 'none';
     document.getElementById('tab-btn-cambios-erp').style.display = 'none';
+    detenerInsigniaCambiosErp();
     // Sin "Rol Activo": es exclusivo del Validador.
     document.getElementById('rol-selector-container').style.display = 'none';
     return;
@@ -93,6 +95,7 @@ export function configurarUIValidador() {
   document.getElementById('tab-btn-reglas').style.display = 'inline-block';
   document.getElementById('tab-btn-validador').style.display = 'inline-block';
   document.getElementById('tab-btn-cambios-erp').style.display = 'inline-block';
+  iniciarInsigniaCambiosErp();
   document.getElementById('tab-btn-audit').style.display = 'inline-block';
   document.getElementById('tab-btn-eliminaciones').style.display = 'inline-block';
   document.getElementById('rol-selector-container').style.display = 'grid';
