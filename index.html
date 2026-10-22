@@ -1739,6 +1739,21 @@
       align-items: center;
     }
 
+    /* Columna Cliente (solo Empaque y Validador): entra entre Hora y Órdenes. */
+    .regd-encabezado.regd-con-cliente,
+    .regd-fila.regd-con-cliente {
+      grid-template-columns: 76px 88px 48px minmax(90px, 1.2fr) minmax(88px, 2fr) 58px 58px 68px 92px 72px 32px 32px 36px;
+    }
+
+    .regd-col-cliente {
+      font-size: 13px;
+      color: var(--text2);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+    }
+
     .regd-encabezado {
       padding: 0 24px 10px;
       font-size: 11px;
@@ -1770,6 +1785,59 @@
     .regd-fila:hover {
       box-shadow: var(--shadow-md);
       border-color: var(--blue);
+    }
+
+    /* Despacho ELIMINADO (solo consulta): fondo gris, texto apagado y el
+       ID tachado. El resto de la fila conserva las mismas columnas. */
+    .regd-fila.regd-eliminado {
+      background: var(--bg);
+      border-style: dashed;
+      border-color: var(--border2);
+    }
+
+    .regd-fila.regd-eliminado:hover {
+      box-shadow: none;
+      border-color: var(--text3);
+    }
+
+    .regd-fila.regd-eliminado > div {
+      color: var(--text3);
+    }
+
+    .regd-fila.regd-eliminado .regd-col-consecutivo {
+      text-decoration: line-through;
+    }
+
+    .regd-badge-eliminado {
+      background: var(--red-bg);
+      color: var(--red-text);
+      padding: 3px 10px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 600;
+      display: inline-block;
+      white-space: nowrap;
+    }
+
+    /* Aviso en la cabecera del detalle de un despacho eliminado. */
+    .detalle-despacho-eliminado {
+      background: var(--red-bg);
+      color: var(--red-text);
+      border: 1px solid var(--red-text);
+      border-radius: var(--r);
+      padding: 10px 14px;
+      margin-bottom: 14px;
+      font-size: 13px;
+    }
+
+    .detalle-despacho-eliminado-motivo {
+      margin-top: 4px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .detalle-despacho-eliminado-motivo span {
+      font-weight: 600;
     }
 
     .regd-col-consecutivo {
@@ -2333,6 +2401,25 @@
       .regd-col-num,
       .regd-col-accion {
         grid-row: 2;
+      }
+
+      /* Cliente (solo Empaque y Validador): fila propia debajo de los datos. */
+      .regd-fila.regd-con-cliente {
+        grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)) 44px minmax(0, 1.1fr) 26px 26px;
+      }
+
+      .regd-col-cliente {
+        grid-column: 1 / -1;
+        grid-row: 3;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text);
+      }
+
+      .regd-col-cliente::before {
+        content: attr(data-lbl) ": ";
+        font-weight: 400;
+        color: var(--text3);
       }
 
       .btn-comentario-registro,
@@ -5591,6 +5678,7 @@
                 <div>Despacho</div>
                 <div>Fecha</div>
                 <div>Hora</div>
+                <div id="regd-enc-cliente" hidden>Cliente</div>
                 <div>Órdenes</div>
                 <div class="regd-col-num">Bultos</div>
                 <div class="regd-col-num">Kilos</div>

@@ -3,12 +3,19 @@ import {
   fetchRegistrosDespachos,
   fetchClientesDespachados,
   eliminarDespachoConMotivo,
-  marcarDespachoRevisado
+  marcarDespachoRevisado,
+  fetchClientesPorPedido,
+  fetchDespachosEliminados
 } from '../services/despachosService.js';
 import { reconstruirSelect } from '../lib/facetas.js';
 import { sincronizarEtiquetaFiltro } from './customSelect.js';
 import { esValidador, esPropuesta } from '../services/validatorService.js';
-import { abrirDetalleDespacho, solicitarDescargaDetalleDespachoPDF } from './despachoDetalleModal.js';
+import {
+  abrirDetalleDespacho,
+  abrirDetalleDespachoEliminado,
+  solicitarDescargaDetalleDespachoPDF,
+  EVENTO_DESPACHO_ACTUALIZADO
+} from './despachoDetalleModal.js';
 import { mostrarToast } from './toast.js';
 
 /**
@@ -33,6 +40,11 @@ let filtros = { fecha: '', consecutivo: '', orden: '', cliente: '', factura: '' 
 // misma, no se reconstruye el <select>: eso borraría lo que se está escribiendo.
 let firmaClientes = null;
 let despachoAEliminar = null;
+// Fecha del último despacho de cada página ya cargada (null = última página):
+// delimita qué despachos eliminados le tocan a cada una (ver mezclarEliminados).
+const cotasPagina = [];
+// Despachos eliminados de la página visible, por id de log, para abrir su detalle.
+let eliminadosPorLog = new Map();
 // Cada llamada a cargarRegistrosDespachos incrementa esto. Si una
 // petición anterior termina después, su resultado se descarta: si no,
 // un filtro a medias (344) pinta "no hay despachos" encima de 3449.
@@ -81,6 +93,9 @@ export function inicializarPaginaRegistrosDespachos() {
     cargarRegistrosDespachos();
   });
 
+  // Comentario o factura guardados desde el detalle: la fila se actualiza sola.
+  document.addEventListener(EVENTO_DESPACHO_ACTUALIZADO, () => cargarRegistrosDespachos());
+
   document.getElementById('btn-cerrar-eliminar-despacho')?.addEventListener('click', cerrarModalEliminar);
   document.getElementById('btn-cancelar-eliminar-despacho')?.addEventListener('click', cerrarModalEliminar);
   document.getElementById('btn-confirmar-eliminar-despacho')?.addEventListener('click', confirmarEliminar);
@@ -116,8 +131,17 @@ export async function cargarRegistrosDespachos() {
   try {
     const { despachos, hayMas } = await fetchRegistrosDespachos({ page: pagina, filters: filtros });
     if (seq !== cargaSeq) return;
+    // Columna Cliente: solo Empaque y Validador (rol real, no el emulado).
+    // Los despachos eliminados (gris, solo consulta) tienen el mismo permiso.
+    const verCliente = puedeVerCliente();
+    const eliminados = verCliente ? await fetchDespachosEliminados(filtros) : [];
+    const items = mezclarEliminados(despachos, eliminados, hayMas);
+    const clientes = verCliente
+      ? await fetchClientesPorPedido(items.flatMap((d) => d.order_numbers || []))
+      : null;
+    if (seq !== cargaSeq) return;
     hayPaginaSiguiente = hayMas;
-    renderDespachos(despachos);
+    renderDespachos(items, clientes);
     renderPaginacion();
   } catch (err) {
     if (seq !== cargaSeq) return;
@@ -170,10 +194,81 @@ function contadorCompletos(completos, total) {
   return `<span style="background:${bg}; color:${color}; padding:3px 10px; border-radius:5px; font-size:12px; font-weight:600; display:inline-block; white-space:nowrap;">${completos} de ${total}</span>`;
 }
 
-function renderDespachos(despachos) {
+function puedeVerCliente() {
+  const rol = getState().user?.role;
+  return rol === 'empaque' || rol === 'validador';
+}
+
+/**
+ * Intercala los despachos eliminados entre los de la página, por fecha de
+ * creación. Cada página cubre desde el último despacho de la anterior
+ * (incluido) hasta su propio último (excluido), así un eliminado cae en una
+ * sola página aunque se pagine. La primera no tiene tope arriba y la
+ * última no tiene tope abajo.
+ */
+function mezclarEliminados(despachos, eliminados, hayMas) {
+  const marca = (fecha) => new Date(fecha).getTime();
+  const ultimo = despachos.length ? marca(despachos[despachos.length - 1].created_at) : null;
+  cotasPagina[pagina] = hayMas ? ultimo : null;
+
+  const tope = pagina === 0
+    ? Infinity
+    : (cotasPagina[pagina - 1] ?? (despachos.length ? marca(despachos[0].created_at) : Infinity));
+  const piso = hayMas && ultimo !== null ? ultimo : -Infinity;
+
+  const propios = eliminados
+    .filter((e) => {
+      const t = marca(e.created_at);
+      return t > piso && t <= tope;
+    })
+    .map((e) => ({ ...e, _eliminado: true }));
+
+  return [...despachos, ...propios].sort((a, b) => marca(b.created_at) - marca(a.created_at));
+}
+
+/**
+ * Fila de un despacho eliminado: gris, con el visto bueno marcado y apagado,
+ * sin comentario, descarga ni ×. Solo abre el detalle (con el motivo).
+ * Mantiene las mismas columnas que la fila normal para no romper la grilla.
+ */
+function htmlFilaEliminada(d, listaOrdenes, conCliente, clientes) {
+  const listaClientes = conCliente
+    ? [...new Set((d.order_numbers || []).map((n) => clientes.get(String(n))).filter(Boolean))].join(', ')
+    : '';
+  const celdaCliente = conCliente
+    ? `<div class="regd-col-cliente" data-lbl="Cliente" title="${escapeHtml(listaClientes)}">${escapeHtml(listaClientes) || '—'}</div>`
+    : '';
+  return `
+        <div class="regd-fila regd-eliminado${conCliente ? ' regd-con-cliente' : ''}" data-eliminado="${escapeHtml(d.log_id)}" title="Despacho eliminado: ${escapeHtml(d.motivo || '')}">
+          <div class="regd-col-consecutivo">${escapeHtml(d.consecutivo)}</div>
+          <div class="regd-col-fecha">${formatearFecha(d.created_at)}</div>
+          <div class="regd-col-hora" title="Hora del despacho">${formatearHora(d.created_at)}</div>
+          ${celdaCliente}
+          <div class="regd-col-ordenes" data-lbl="Pedidos" title="${escapeHtml(listaOrdenes)}">${escapeHtml(listaOrdenes) || '—'}</div>
+          <div class="regd-col-num" data-lbl="Bultos">${d.total_bultos}</div>
+          <div class="regd-col-num" data-lbl="Kilos">${formatearKilos(d.peso_total)}</div>
+          <div class="regd-col-num" data-lbl="Unidades">${d.total_unidades ?? 0}</div>
+          <div class="regd-col-num" data-lbl="Completos"><span class="regd-badge-eliminado">Eliminado</span></div>
+          <div class="regd-col-revisado">
+            <input type="checkbox" class="checkbox-revisado" checked disabled tabindex="-1" aria-label="Despacho eliminado">
+          </div>
+          <div class="regd-col-comentario"></div>
+          <div class="regd-col-descarga"></div>
+          <div class="regd-col-accion"></div>
+        </div>
+      `;
+}
+
+function renderDespachos(despachos, clientes = null) {
   const contenedor = document.getElementById('regd-lista');
   contenedor.classList.remove('regd-lista-cargando');
   cerrarPopoverComentario();
+
+  // El encabezado y las filas comparten la grilla: ambos llevan la clase.
+  const conCliente = clientes !== null;
+  document.querySelector('.regd-encabezado')?.classList.toggle('regd-con-cliente', conCliente);
+  const encCliente = document.getElementById('regd-enc-cliente');
+  if (encCliente) encCliente.hidden = !conCliente;
 
   if (despachos.length === 0) {
     contenedor.innerHTML = '<div class="empty">No hay despachos para mostrar.</div>';
@@ -188,9 +283,12 @@ function renderDespachos(despachos) {
   const puedeEliminar = !esPropuesta();
   const puedeDescargar = !esPropuesta();
 
+  eliminadosPorLog = new Map(despachos.filter((d) => d._eliminado).map((d) => [d.log_id, d]));
+
   contenedor.innerHTML = despachos
     .map((d) => {
       const listaOrdenes = (d.order_numbers || []).join(', ');
+      if (d._eliminado) return htmlFilaEliminada(d, listaOrdenes, conCliente, clientes);
       const comentario = String(d.comentario ?? '').trim();
       const factura = String(d.numero_factura ?? '').trim();
       const tieneNota = Boolean(comentario || factura);
@@ -204,11 +302,18 @@ function renderDespachos(despachos) {
       // Validador — que de todos modos puede quitarlo. Es el mismo
       // criterio de Registros: no ofrecer lo que el servidor rechazaría.
       const bloqueado = d.revisado && !puedeRevisar;
+      const listaClientes = conCliente
+        ? [...new Set((d.order_numbers || []).map((n) => clientes.get(String(n))).filter(Boolean))].join(', ')
+        : '';
+      const celdaCliente = conCliente
+        ? `<div class="regd-col-cliente" data-lbl="Cliente" title="${escapeHtml(listaClientes)}">${escapeHtml(listaClientes) || '—'}</div>`
+        : '';
       return `
-        <div class="regd-fila" data-despacho="${escapeHtml(d.id)}" data-consecutivo="${escapeHtml(d.consecutivo)}" data-ordenes="${escapeHtml(listaOrdenes)}" data-bultos="${d.total_bultos}"${comentario ? ' data-tiene-comentario="1"' : ''}>
+        <div class="regd-fila${conCliente ? ' regd-con-cliente' : ''}" data-despacho="${escapeHtml(d.id)}" data-consecutivo="${escapeHtml(d.consecutivo)}" data-ordenes="${escapeHtml(listaOrdenes)}" data-bultos="${d.total_bultos}"${comentario ? ' data-tiene-comentario="1"' : ''}>
           <div class="regd-col-consecutivo">${escapeHtml(d.consecutivo)}</div>
           <div class="regd-col-fecha">${formatearFecha(d.created_at)}</div>
           <div class="regd-col-hora" title="Hora del despacho">${formatearHora(d.created_at)}</div>
+          ${celdaCliente}
           <div class="regd-col-ordenes" data-lbl="Pedidos" title="${escapeHtml(listaOrdenes)}">${escapeHtml(listaOrdenes) || '—'}</div>
           <div class="regd-col-num" data-lbl="Bultos">${d.total_bultos}</div>
           <div class="regd-col-num" data-lbl="Kilos">${formatearKilos(d.peso_total)}</div>
@@ -240,6 +345,11 @@ function renderDespachos(despachos) {
   contenedor.querySelectorAll('.regd-fila').forEach((fila) => {
     fila.addEventListener('click', () => {
       cerrarPopoverComentario();
+      if (fila.dataset.eliminado) {
+        const eliminado = eliminadosPorLog.get(fila.dataset.eliminado);
+        if (eliminado) abrirDetalleDespachoEliminado(eliminado);
+        return;
+      }
       abrirDetalleDespacho(fila.dataset.despacho, fila.dataset.consecutivo);
     });
   });

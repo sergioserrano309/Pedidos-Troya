@@ -4,6 +4,7 @@ import { mostrarToast } from './toast.js';
 import { fetchOpcionesCliente, fetchOpcionesNombreSuela, fetchOpcionesMaterial, fetchOpcionesColor } from '../services/ordersService.js';
 import { construirMapaUltimaFechaPorProceso, calcularDiasPorProceso } from '../lib/procesoDias.js';
 import { esValidador } from '../services/validatorService.js';
+import { getState } from '../state/appState.js';
 import { fetchInyectadoPorPedidos, fetchEstadoSincronizacion } from '../services/inyeccionService.js';
 import { aplicaInyeccion, porcentajeInyectado, estadoSincronizacion } from '../lib/inyeccion.js';
 
@@ -17,6 +18,11 @@ let paginaActual = 0;
 const PAGE_SIZE = 50;
 let hayPaginaSiguiente = false;
 let filtros = { orden: '', cliente: '', nombreSuela: '', material: '', color: '', fecha: '' };
+
+/** Rol real Empaque (no el emulado por el Validador, que ya tiene todo). */
+function esEmpaque() {
+  return getState().user?.role === 'empaque';
+}
 
 const ESTILO_INPUT = 'padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;';
 
@@ -48,7 +54,11 @@ export async function cargarValidadorPage() {
         <input type="date" id="validador-filtro-fecha" style="${ESTILO_INPUT}">
       </div>
 
-      ${esValidador() ? '<div id="validador-nota-inyeccion" style="font-size:11px; color:var(--text3); margin:-0.25rem 0 0.5rem;">I% = Inyección (ERP): pares inyectados | % de lo solicitado. Verificando actualización…</div>' : ''}
+      ${esValidador()
+        ? '<div id="validador-nota-inyeccion" style="font-size:11px; color:var(--text3); margin:-0.25rem 0 0.5rem;">I% = Inyección (ERP): pares inyectados | % de lo solicitado. Verificando actualización…</div>'
+        : esEmpaque()
+          ? '<div style="font-size:11px; color:var(--text3); margin:-0.25rem 0 0.5rem;">I% = Inyección (ERP): pares inyectados | % de lo solicitado.</div>'
+          : ''}
 
       <div style="overflow-x: auto;">
         <div id="validador-tabla"></div>
@@ -274,9 +284,13 @@ async function cargarValidador() {
 
   // Inyección (ERP): dato informativo de Access, solo para el Validador.
   // undefined = la columna no se muestra; null = la consulta falló ("—").
+  // Empaque ve la misma columna; el estado de la sincronización (rótulo
+  // "Actualizado hace X min") sigue siendo solo del Validador (RLS).
   let inyeccion;
   if (esValidador()) {
     [inyeccion] = await Promise.all([fetchInyectadoPorPedidos(numerosOrden), actualizarEstadoInyeccion()]);
+  } else if (esEmpaque()) {
+    inyeccion = await fetchInyectadoPorPedidos(numerosOrden);
   }
 
   renderTablaValidador(ordenes, mapaUltimaFecha, inyeccion);
@@ -380,7 +394,7 @@ function renderTablaValidador(ordenes, mapaUltimaFecha, inyeccion) {
           <th style="padding: 8px; text-align: left;">Color</th>
           <th style="padding: 8px; text-align: left;">Fecha Pedido</th>
           <th style="padding: 8px; text-align: center;" title="Unidades (pares) totales del pedido">UNDS.</th>
-          ${verInyeccion ? `<th style="padding: 8px; text-align: center;" title="Inyección (ERP): pares inyectados | % de lo solicitado. ${escapeHtml(estadoSincronizacion(estadoInyeccion).texto)}.">I%</th>` : ''}
+          ${verInyeccion ? `<th style="padding: 8px; text-align: center;" title="Inyección (ERP): pares inyectados | % de lo solicitado.${esValidador() ? ` ${escapeHtml(estadoSincronizacion(estadoInyeccion).texto)}.` : ''}">I%</th>` : ''}
           <th style="padding: 8px; text-align: center;" title="Refilado: pares procesados | % de avance">R%</th>
           <th style="padding: 8px; text-align: center;" title="Acabado: pares procesados | % de avance">A%</th>
           <th style="padding: 8px; text-align: center;" title="Mateado: pares procesados | % de avance">M%</th>
