@@ -4,7 +4,8 @@ import {
 } from '../services/cambiosErpService.js';
 import {
   ETIQUETA_TIPO, etiquetaEstado, descripcionCambio, contadoresPanel, estadoDetector, formatearValor,
-  formatearDia, estadoBotones, textoImpacto, pierdeLiquidacion, textoCamposEncendidos, necesitaImpacto, infoLineaSobrante, columnasLineaSobrante
+  formatearDia, estadoBotones, textoImpacto, pierdeLiquidacion, textoCamposEncendidos, necesitaImpacto, infoLineaSobrante, columnasLineaSobrante,
+  agruparIdentidad
 } from '../lib/cambiosErp.js';
 import { abrirDetalleOrden } from './orderDetail.js';
 import { esValidador } from '../services/validatorService.js';
@@ -217,11 +218,12 @@ async function ejecutarAccion(boton) {
   const esCancelado = c.tipo === 'cancelado';
   const esCantidad = c.tipo === 'cantidad';
   const esLinea = c.tipo === 'linea_sobrante';
+  const esIdentidad = c.tipo === 'identidad';
   const impacto = impactos.get(id);
 
   const textos = {
     aplicar: () => {
-      if (esCantidad || esLinea) {
+      if (esCantidad || esLinea || esIdentidad) {
         const lineas = textoImpacto(c, impacto);
         if (!lineas) {
           mostrarToast('No se pudo calcular el impacto; no se aplica a ciegas.', 'error');
@@ -233,9 +235,11 @@ async function ejecutarAccion(boton) {
               ? '⚠ ATENCIÓN: con este cambio, trabajo que hoy ya es liquidable deja de serlo (comisiones). '
               : '')
             + 'Se puede deshacer después.',
-          exito: esLinea
-            ? `Línea de la talla ${c.talla} del pedido ${pedido} ocultada.`
-            : `Cantidad de la talla ${c.talla} del pedido ${pedido} actualizada.`,
+          exito: esIdentidad
+            ? `Pedido ${pedido}: ${impacto?.campo === 'ColorP' ? 'color' : impacto?.campo === 'MaterialP' ? 'material' : 'dato'} actualizado en ${impacto?.n_tallas ?? ''} tallas.`
+            : esLinea
+              ? `Línea de la talla ${c.talla} del pedido ${pedido} ocultada.`
+              : `Cantidad de la talla ${c.talla} del pedido ${pedido} actualizada.`,
           accion: () => aplicarCambioErp(id)
         };
       }
@@ -250,6 +254,7 @@ async function ejecutarAccion(boton) {
     },
     descartar: () => ({
       pregunta: `¿No aplicar este cambio del pedido ${pedido}?\n\n`
+        + (esIdentidad ? 'Se descarta para TODAS las tallas de este pedido. ' : '')
         + 'Se descarta y dejará de mostrarse como pendiente. No se modifica ningún pedido. '
         + 'Si Access lo cambia otra vez, volverá a aparecer. Después se puede aplicar con ✓.',
       exito: `Cambio del pedido ${pedido} descartado.`,
@@ -259,6 +264,9 @@ async function ejecutarAccion(boton) {
       pregunta: esCancelado
         ? `¿Deshacer el cierre del pedido ${pedido}?\n\n`
           + 'Se quita el cierre a la fuerza y no se volverá a cerrar mientras Access no cambie.'
+        : esIdentidad
+          ? `¿Deshacer el cambio de ${c.campo === 'ColorP' ? 'color' : c.campo === 'MaterialP' ? 'material' : 'dato'} del pedido ${pedido}?\n\n`
+            + 'Se restaura el valor anterior en TODAS las tallas que se aplicaron juntas (solo si ninguna cambió después).'
         : esLinea
           ? `¿Volver a mostrar la línea de la talla ${c.talla} del pedido ${pedido}?\n\n`
             + 'La línea vuelve a contar en el pedido y no se volverá a ocultar mientras Access no cambie.'
@@ -352,10 +360,11 @@ function pintarContadores() {
 }
 
 function filtrar() {
-  return todos.filter((c) =>
+  // Material, color y referencia se muestran y se deciden por PEDIDO (una fila por pedido).
+  return agruparIdentidad(todos.filter((c) =>
     (!filtros.estado || c.estado === filtros.estado)
     && (!filtros.tipo || c.tipo === filtros.tipo)
-    && (!filtros.orden || String(c.pedido).includes(filtros.orden)));
+    && (!filtros.orden || String(c.pedido).includes(filtros.orden))));
 }
 
 function pintar(errorDeCarga = false) {
