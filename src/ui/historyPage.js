@@ -136,7 +136,8 @@ export async function cargarHistorial() {
   let procesoEfectivo = filtroProceso;
   if (esValidador()) {
     const rolActivo = obtenerRolActivo();
-    procesoEfectivo = rolActivo === 'Validador' ? '' : rolActivo;
+    // Inyección no es un proceso con registros: se comporta como vista maestra.
+    procesoEfectivo = rolActivo === 'Validador' || rolActivo === 'Inyeccion' ? '' : rolActivo;
   }
 
   try {

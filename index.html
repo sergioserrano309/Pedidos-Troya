@@ -1409,13 +1409,38 @@
       margin-top: 0.75rem;
     }
 
-    #ordenes-controles-superiores #rol-selector-container {
+    #ordenes-controles-superiores #rol-selector-container,
+    #ordenes-controles-superiores #vista-empaque-container {
       grid-column: 1 / 3;
       grid-template-columns: 80px minmax(0,1.2fr);
       gap: 0.75rem;
       align-items: center;
       min-width: 0;
     }
+
+    /* "Actualizado hace X min" (vista Refilado): a la derecha del selector. */
+    #ordenes-controles-superiores #nota-actualizacion-iny {
+      grid-column: 3 / 6;
+      min-width: 0;
+    }
+
+    .nota-actualizacion-iny {
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .nota-actualizacion-ok { color: var(--green-text); }
+
+    .nota-actualizacion-alerta,
+    .nota-actualizacion-desconocido {
+      padding: 4px 10px;
+      border-radius: var(--r);
+      width: fit-content;
+      max-width: 100%;
+    }
+
+    .nota-actualizacion-alerta { background: var(--red-bg); color: var(--red-text); }
+    .nota-actualizacion-desconocido { background: var(--amber-bg); color: var(--amber-text); }
 
     #ordenes-controles-superiores #btn-descargar-excel {
       grid-column: 6 / 7;
@@ -3539,12 +3564,15 @@
       }
 
       #ordenes-controles-superiores #rol-selector-container,
+      #ordenes-controles-superiores #vista-empaque-container,
+      #ordenes-controles-superiores #nota-actualizacion-iny,
       #ordenes-controles-superiores #btn-descargar-excel {
         grid-column: 1 / -1 !important;
         justify-self: stretch !important;
       }
 
-      #rol-selector-container {
+      #rol-selector-container,
+      #vista-empaque-container {
         grid-template-columns: 1fr !important;
         align-items: stretch !important;
       }
@@ -5338,6 +5366,7 @@
                     <option value="Acabado">Acabado</option>
                     <option value="Mateado">Mateado</option>
                     <option value="Empaque">Empaque</option>
+                    <option value="Inyeccion">Inyección</option>
                     <option value="Validador">Validador (vista maestra)</option>
                   </select>
                   <button type="button" class="filtro-custom-btn">
@@ -5347,6 +5376,22 @@
                   <div class="filtro-custom-dropdown"></div>
                 </div>
               </div>
+              <!-- Empaque: puede mirar la vista de Inyección, solo lectura -->
+              <div id="vista-empaque-container" style="display:none;">
+                <label style="font-size: 12px; color: var(--text2); white-space:nowrap;">Ver como:</label>
+                <div class="filtro-custom-select" data-filtro-select="vista-empaque-selector">
+                  <select id="vista-empaque-selector" style="display:none;">
+                    <option value="Empaque">Empaque</option>
+                    <option value="Inyeccion">Inyección (solo lectura)</option>
+                  </select>
+                  <button type="button" class="filtro-custom-btn">
+                    <span class="filtro-custom-label">Empaque</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                  <div class="filtro-custom-dropdown"></div>
+                </div>
+              </div>
+              <div id="nota-actualizacion-iny" class="nota-actualizacion-iny" style="display:none;" role="status"></div>
               <button id="btn-descargar-excel" class="btn btn-success" style="display:none;padding:6px 14px;font-size:12px;font-weight:500;border:1px solid var(--green);line-height:1.2;">Excel</button>
             </div>
 
@@ -5774,6 +5819,7 @@
                   <option value="Acabado">Acabado</option>
                   <option value="Mateado">Mateado</option>
                   <option value="Empaque">Empaque</option>
+                  <option value="Inyeccion">Inyección</option>
                   <option value="Validador">Validador (vista maestra)</option>
                 </select>
                 <button type="button" class="filtro-custom-btn">

@@ -87,6 +87,23 @@ export async function fetchEstadoSincronizacion() {
 }
 
 /**
+ * Frescura de la sincronización para el rótulo "Actualizado hace X min" de la
+ * vista Refilado. A diferencia de fetchEstadoSincronizacion (tabla, solo
+ * Validador), usa la función de solo lectura del SQL 081 que también deja
+ * leer a Empaque, con solo 4 campos. null si no se pudo leer.
+ */
+export async function fetchFrescuraSincronizacion() {
+  try {
+    const { data, error } = await supabase.rpc('erp_estado_sincronizacion_vista');
+    if (error) throw error;
+    return (data && data[0]) || null;
+  } catch (err) {
+    console.error('[inyeccionService] Error obteniendo la frescura de la sincronización:', err);
+    return null;
+  }
+}
+
+/**
  * Todas las líneas (pedido x talla) desde el 3095, para la hoja "Inyección
  * ERP" del Excel. Si falla, devuelve [] y la hoja sale vacía en vez de
  * impedir la descarga (mismo criterio que las demás hojas).

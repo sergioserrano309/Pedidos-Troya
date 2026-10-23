@@ -1,4 +1,4 @@
-import { fetchOrderDetail, fetchMovimientosOrden } from '../services/ordersService.js';
+import { fetchOrderDetail, fetchOrderDetailInyeccion, fetchMovimientosOrden } from '../services/ordersService.js';
 import { formatearFechaPedido } from '../lib/fechas.js';
 import { fetchDestinoOrden, confirmarDestinoOrden, cambiarDestinoOrden } from '../services/destinoService.js';
 import { getState, setState } from '../state/appState.js';
@@ -8,7 +8,7 @@ import { calcularPendientePorProceso, calcularProcesadoPorProceso, calcularRecib
 import { abrirModalProcesar } from './processModal.js';
 import { abrirModalDevolucion } from './returnModal.js';
 import { mostrarToast } from './toast.js';
-import { usuarioEfectivo } from '../services/validatorService.js';
+import { usuarioEfectivo, esVistaInyeccion } from '../services/validatorService.js';
 import { fetchCierreForzadoDePedido } from '../services/cierreForzadoService.js';
 import { fetchCambiosDePedido } from '../services/cambiosErpService.js';
 import { resumenNota } from '../lib/cambiosErp.js';
@@ -46,6 +46,21 @@ export async function abrirDetalleOrden(orderNumber) {
 
   setState({ selectedOrderNumber: orderNumber, selectedItem: null, destinoConfirmadoOrden: null, cierreForzadoOrden: null });
   actualizarBotonDevolucion();
+
+  // Rol Activo = Inyección: detalle de solo lectura con lo inyectado según
+  // Access. No hay destino, procesar ni movimientos que cargar.
+  if (esVistaInyeccion()) {
+    const bloqueLote = document.getElementById('detalle-procesar-lote');
+    if (bloqueLote) bloqueLote.innerHTML = '';
+    try {
+      const items = await fetchOrderDetailInyeccion(orderNumber);
+      setState({ selectedOrderItems: items, selectedOrderMovimientos: [] });
+      renderDetalleInyeccion(items);
+    } catch (err) {
+      contenedor.innerHTML = `<div class="empty">${err.message}</div>`;
+    }
+    return;
+  }
 
   try {
     // El enrutamiento automático (pedidos que cumplen una regla) ya lo
@@ -94,6 +109,63 @@ export async function abrirDetalleOrden(orderNumber) {
   } catch (err) {
     contenedor.innerHTML = `<div class="empty">${err.message}</div>`;
   }
+}
+
+/**
+ * Detalle de la orden en la vista Inyección (solo lectura). Mismo encabezado
+ * (cliente, fecha, PARES, especificaciones) y una tarjeta por talla con
+ * Solicitado / Inyectado / Pendiente. Si una talla viene partida por vira,
+ * cada línea lleva su detalle de vira junto a la talla.
+ */
+function renderDetalleInyeccion(items) {
+  const contenedor = document.getElementById('detalle-contenido');
+
+  if (items.length === 0) {
+    contenedor.innerHTML = '<div class="empty">Esta orden no tiene ítems.</div>';
+    return;
+  }
+
+  const firstItem = items[0];
+  document.getElementById('detalle-cliente').textContent = firstItem.cliente || '—';
+  document.getElementById('detalle-fecha').textContent = formatearFecha(firstItem.fecha_pedido);
+
+  const totalPares = items.reduce((sum, i) => sum + Number(i.cantidad_solicitada || 0), 0);
+  const totalInyectado = items.reduce((sum, i) => sum + Number(i.cantidad_inyectada || 0), 0);
+  const pct = totalPares > 0 ? Math.min(100, Math.round((totalInyectado / totalPares) * 100)) : 0;
+  document.getElementById('detalle-total-pares').innerHTML =
+    `${formatearMiles(totalPares)} PARES <span class="detalle-total-sep">–</span> <span class="badge-recibido ${claseRecibido(pct)}">${pct}% Inyectado</span>`;
+
+  renderEspecificaciones(firstItem);
+
+  contenedor.innerHTML = items
+    .map((item) => {
+      const solicitado = Number(item.cantidad_solicitada || 0);
+      const inyectado = Number(item.cantidad_inyectada || 0);
+      const pendiente = Math.max(solicitado - inyectado, 0);
+      const porcentaje = solicitado > 0 ? Math.min(100, Math.round((inyectado / solicitado) * 100)) : 0;
+      const estado = estadoPorPorcentaje(porcentaje);
+      const completado = estado === 'completado';
+      const vira = item.detalle_vira?.trim();
+
+      return `
+        <div class="card-orden" style="padding:0.85rem 1rem; margin-bottom:0.75rem; cursor:default; background:${completado ? 'var(--bg)' : 'var(--surface)'}; border:1px solid ${completado ? 'var(--border2)' : 'var(--border)'};">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.65rem;">
+            <div class="talla-titulo">
+              <span class="orden-num">Talla ${escapeHtml(item.talla)}</span>
+              ${vira ? `<span class="talla-sep">–</span><span style="font-size:12px; color:var(--text2);">Vira ${escapeHtml(vira)}</span>` : ''}
+              <span class="talla-sep">–</span>${badgeRecibidoTalla(porcentaje)}
+            </div>
+            <span class="estado-badge estado-${estado}">${estado.replace('-', ' ')}</span>
+          </div>
+          <div class="item-stats-row">
+            <div class="stat-item">${etiqueta('Solicitado', 'Soli.')}<div class="stat-value">${formatearMiles(solicitado)}</div></div>
+            <div class="stat-item stat-procesado">${etiqueta('Inyectado', 'Iny.')}<div class="stat-value">${formatearMiles(inyectado)}</div></div>
+            <div class="stat-item stat-pendiente">${etiqueta('Pendiente', 'Pend.')}<div class="stat-value">${formatearMiles(pendiente)}</div></div>
+          </div>
+        </div>
+      `;
+    })
+    .join('');
 }
 
 /**

@@ -33,6 +33,41 @@ export function esVistaMaestra() {
 }
 
 /**
+ * Vista Inyección (ERP): Validador con Rol Activo = "Inyeccion", o Empaque
+ * con "Ver como: Inyección". Solo lectura: tarjetas y detalle por talla con lo inyectado según Access.
+ */
+export function esVistaInyeccion() {
+  const { user } = getState();
+  if (user?.role === 'empaque') return vistaEmpaque === 'Inyeccion';
+  return esValidador() && obtenerRolActivo() === 'Inyeccion';
+}
+
+/**
+ * Empaque puede MIRAR la vista de Inyección ("Ver como: Inyección"), solo
+ * lectura: ve las mismas Activas/Completadas y el mismo detalle, sin ningún
+ * control (no procesa, no envía, no confirma destino). El servidor además
+ * lo rechaza: un movimiento solo lo inserta quien tiene el rol del proceso
+ * de origen (006) y el destino solo lo confirman Refilado/Validador (010).
+ * Se guarda solo en memoria: cada sesión arranca en su vista normal.
+ */
+let vistaEmpaque = 'Empaque';
+
+export function establecerVistaEmpaque(vista) {
+  vistaEmpaque = vista === 'Inyeccion' ? 'Inyeccion' : 'Empaque';
+}
+
+/**
+ * Usuario con el que se ARMAN las listas y el detalle de Órdenes: el
+ * efectivo de siempre, salvo Empaque mirando Refilado (se le trata como
+ * Refilado solo para VER). Nunca se usa para registrar nada.
+ */
+export function usuarioVista() {
+  const base = usuarioEfectivo();
+  if (esVistaInyeccion()) return { ...base, role: 'inyeccion' };
+  return base;
+}
+
+/**
  * Obtiene el rol de proceso actualmente activo del validador (para actuar
  * como Refilado/Acabado/Empaque). Se guarda en localStorage para persistencia.
  */
