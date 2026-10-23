@@ -27,7 +27,12 @@ const PAGE_SIZE = 30;
 
 let paginaActual = 0;
 let hayPaginaSiguiente = false;
-let filtros = { orden: '', cliente: '', nombreSuela: '', material: '', color: '', fecha: '' };
+const FILTROS_VACIOS = { orden: '', cliente: '', nombreSuela: '', material: '', color: '', fecha: '', vira: '', acabado: '', esterilla: '', marquilla: '' };
+let filtros = { ...FILTROS_VACIOS };
+
+// Filtros tipo interruptor (vira/acabado/esterilla/marquilla): todos los roles con Órdenes salvo Comercial.
+const IDS_FILTROS_SI_NO = ['filtro-vira', 'filtro-acabado', 'filtro-esterilla', 'filtro-marquilla'];
+const ROLES_CON_FILTROS_SI_NO = ['empaque', 'refilado', 'acabado', 'mateado', 'propuesta', 'validador'];
 let debounceTimer = null;
 // Una fila por pedido visible en la pestaña (Activas o Completadas), para
 // calcular las opciones de los filtros en cascada. Se descarga al entrar
@@ -100,6 +105,7 @@ export function configurarUIValidador() {
   // Validador: no usa el selector "Ver como" de Empaque.
   establecerVistaEmpaque('Empaque');
   document.getElementById('vista-empaque-container').style.display = 'none';
+  actualizarFiltrosSiNo();
 
   document.getElementById('tab-btn-reglas').style.display = 'inline-block';
   document.getElementById('tab-btn-validador').style.display = 'inline-block';
@@ -175,6 +181,39 @@ export function configurarUIValidador() {
 }
 
 /**
+ * Filtros tipo interruptor (Vira/Acabado/Esterilla/Marquilla): los ven Empaque,
+ * Refilado, Acabado, Mateado, Propuesta y Validador, también en la vista Inyección.
+ * Al ocultarlos se borran sus valores, para que no queden filtrando sin que
+ * se vea. Devuelve true si había alguno activo (la lista debe recargarse).
+ */
+function actualizarFiltrosSiNo() {
+  const visibles = ROLES_CON_FILTROS_SI_NO.includes(getState().user?.role);
+  let habiaActivo = false;
+
+  IDS_FILTROS_SI_NO.forEach((id) => {
+    const interruptor = document.getElementById(id);
+    const envoltorio = document.querySelector(`[data-filtro-toggle="${id}"]`);
+    if (!interruptor || !envoltorio) return;
+
+    envoltorio.style.display = visibles ? '' : 'none';
+    if (!visibles && interruptor.checked) {
+      habiaActivo = true;
+      interruptor.checked = false;
+    }
+  });
+
+  // Con los interruptores visibles, la fila de filtros cambia de distribución (ver CSS).
+  document.getElementById('ordenes-filtros')?.classList.toggle('filtros-con-toggles', visibles);
+  document.getElementById('ordenes-controles-superiores')?.classList.toggle('filtros-con-toggles', visibles);
+
+  if (!visibles) {
+    ['vira', 'acabado', 'esterilla', 'marquilla'].forEach((k) => { filtros[k] = ''; });
+    actualizarContadorFiltros();
+  }
+  return habiaActivo;
+}
+
+/**
  * Empaque: selector "Ver como" (Empaque / Inyección solo lectura). Cada
  * login arranca en Empaque. Mismo patrón de clonado que el Rol Activo del
  * Validador para no apilar listeners en cada login.
@@ -186,6 +225,13 @@ function configurarVistaEmpaque() {
   establecerVistaEmpaque('Empaque');
   const esEmpaque = getState().user?.role === 'empaque';
   contenedor.style.display = esEmpaque ? 'grid' : 'none';
+  // Cada login arranca con los filtros Sí/No vacíos.
+  IDS_FILTROS_SI_NO.forEach((id) => {
+    const interruptor = document.getElementById(id);
+    if (interruptor) interruptor.checked = false;
+  });
+  ['vira', 'acabado', 'esterilla', 'marquilla'].forEach((k) => { filtros[k] = ''; });
+  actualizarFiltrosSiNo();
   if (!esEmpaque) return;
 
   let selector = document.getElementById('vista-empaque-selector');
@@ -238,6 +284,11 @@ export function inicializarPaginaOrdenes() {
       }
 
       document.getElementById('ordenes-filtros').style.display = esOrdenes ? 'grid' : 'none';
+      // Empaque: "Ver como" solo tiene sentido en Activas y Completadas.
+      const controlesSuperiores = document.getElementById('ordenes-controles-superiores');
+      if (controlesSuperiores && getState().user?.role === 'empaque') {
+        controlesSuperiores.style.display = esOrdenes ? '' : 'none';
+      }
       document.getElementById('ordenes-seccion').style.display = esOrdenes ? 'block' : 'none';
       document.getElementById('registros-seccion').style.display = esRegistros ? 'block' : 'none';
       document.getElementById('reglas-seccion').style.display = esReglas ? 'block' : 'none';
@@ -275,14 +326,26 @@ export function inicializarPaginaOrdenes() {
     'filtro-nombre-suela': 'nombreSuela',
     'filtro-material': 'material',
     'filtro-color': 'color',
-    'filtro-fecha': 'fecha'
+    'filtro-fecha': 'fecha',
+    'filtro-vira': 'vira',
+    'filtro-acabado': 'acabado',
+    'filtro-esterilla': 'esterilla',
+    'filtro-marquilla': 'marquilla'
   };
 
   Object.keys(FILTRO_ID_A_CLAVE).forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
 
-    if (el.tagName === 'SELECT') {
+    if (el.type === 'checkbox') {
+      // Interruptor Sí/No: encendido = solo pedidos con ese atributo; apagado = sin filtro.
+      el.addEventListener('change', () => {
+        filtros[FILTRO_ID_A_CLAVE[id]] = el.checked ? 'Si' : '';
+        paginaActual = 0;
+        actualizarContadorFiltros();
+        cargarOrdenes();
+      });
+    } else if (el.tagName === 'SELECT') {
       // Dropdown: aplica de inmediato, sin debounce (es una selección
       // puntual, no texto que se sigue escribiendo).
       el.addEventListener('change', () => {
@@ -387,10 +450,14 @@ function inicializarControlesMobile() {
   });
 
   document.getElementById('btn-limpiar-filtros')?.addEventListener('click', () => {
-    filtros = { orden: '', cliente: '', nombreSuela: '', material: '', color: '', fecha: '' };
+    filtros = { ...FILTROS_VACIOS };
     ['filtro-orden', 'filtro-cliente', 'filtro-nombre-suela', 'filtro-material', 'filtro-color', 'filtro-fecha'].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.value = '';
+    });
+    IDS_FILTROS_SI_NO.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.checked = false;
     });
     ['filtro-cliente', 'filtro-nombre-suela', 'filtro-material', 'filtro-color'].forEach(sincronizarEtiquetaFiltro);
     paginaActual = 0;

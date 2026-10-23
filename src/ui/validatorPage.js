@@ -17,7 +17,10 @@ const MS_REFRESCO_ESTADO = 60 * 1000;
 let paginaActual = 0;
 const PAGE_SIZE = 50;
 let hayPaginaSiguiente = false;
-let filtros = { orden: '', cliente: '', nombreSuela: '', material: '', color: '', fecha: '' };
+let filtros = { orden: '', cliente: '', nombreSuela: '', material: '', color: '', fecha: '', vira: '', acabado: '', esterilla: '', marquilla: '' };
+
+// Atributos Sí/No por pedido (alguna línea = Sí), ver SQL 082.
+const ATRIBUTOS_SI_NO = ['vira', 'acabado', 'esterilla', 'marquilla'];
 
 /** Rol real Empaque (no el emulado por el Validador, que ya tiene todo). */
 function esEmpaque() {
@@ -37,7 +40,7 @@ export async function cargarValidadorPage() {
         <button id="btn-refrescar-validador" class="btn btn-secondary btn-sm">🔄 Refrescar</button>
       </div>
 
-      <div id="validador-filtros" style="display:grid;grid-template-columns:80px 1.2fr 1.2fr 1fr 1fr 150px;gap:0.75rem;margin-bottom:1rem;">
+      <div id="validador-filtros" style="display:grid;grid-template-columns:150px 1.2fr 1.2fr 1fr 1fr;gap:0.75rem;margin-bottom:1rem;">
         <input type="text" id="validador-filtro-orden" placeholder="No. Orden" maxlength="4" style="${ESTILO_INPUT}">
         <select id="validador-filtro-cliente" style="${ESTILO_INPUT}">
           <option value="">Cliente...</option>
@@ -52,6 +55,14 @@ export async function cargarValidadorPage() {
           <option value="">Color...</option>
         </select>
         <input type="date" id="validador-filtro-fecha" style="${ESTILO_INPUT}">
+        ${['Vira', 'Acabado', 'Esterilla', 'Marquilla'].map((nombre) => `
+        <label class="filtro-toggle" data-filtro-toggle="validador-filtro-${nombre.toLowerCase()}" title="Mostrar solo pedidos con ${nombre.toLowerCase()}">
+          <span class="filtro-toggle-lbl">${nombre}</span>
+          <span class="propuesta-switch">
+            <input type="checkbox" id="validador-filtro-${nombre.toLowerCase()}">
+            <span class="propuesta-switch-slider"></span>
+          </span>
+        </label>`).join('')}
       </div>
 
       ${esValidador()
@@ -72,6 +83,9 @@ export async function cargarValidadorPage() {
     </div>
   `;
 
+  // El HTML se reconstruye con los interruptores apagados: el estado también.
+  ATRIBUTOS_SI_NO.forEach((a) => { filtros[a] = ''; });
+
   document.getElementById('btn-refrescar-validador')?.addEventListener('click', () => cargarValidador());
 
   const FILTRO_ID_A_CLAVE = {
@@ -80,7 +94,11 @@ export async function cargarValidadorPage() {
     'validador-filtro-nombre-suela': 'nombreSuela',
     'validador-filtro-material': 'material',
     'validador-filtro-color': 'color',
-    'validador-filtro-fecha': 'fecha'
+    'validador-filtro-fecha': 'fecha',
+    'validador-filtro-vira': 'vira',
+    'validador-filtro-acabado': 'acabado',
+    'validador-filtro-esterilla': 'esterilla',
+    'validador-filtro-marquilla': 'marquilla'
   };
 
   let debounceTimer = null;
@@ -88,7 +106,14 @@ export async function cargarValidadorPage() {
     const el = document.getElementById(id);
     if (!el) return;
 
-    if (el.tagName === 'SELECT') {
+    if (el.type === 'checkbox') {
+      // Interruptor: encendido = solo pedidos con ese atributo; apagado = sin filtro.
+      el.addEventListener('change', () => {
+        filtros[FILTRO_ID_A_CLAVE[id]] = el.checked ? 'Si' : '';
+        paginaActual = 0;
+        cargarValidador();
+      });
+    } else if (el.tagName === 'SELECT') {
       el.addEventListener('change', () => {
         filtros[FILTRO_ID_A_CLAVE[id]] = el.value;
         paginaActual = 0;
@@ -226,10 +251,15 @@ export async function refrescarValidadorSiVisible() {
 }
 
 async function cargarValidador() {
+  // Con algún interruptor encendido se lee vw_pedido_progreso_atributos (082).
+  const atributos = ATRIBUTOS_SI_NO.filter((a) => filtros[a] === 'Si');
   let query = supabase
-    .from('vw_pedido_progreso')
+    .from(atributos.length > 0 ? 'vw_pedido_progreso_atributos' : 'vw_pedido_progreso')
     .select('*')
     .order('order_number', { ascending: false });
+  atributos.forEach((a) => {
+    query = query.eq(a, true);
+  });
 
   if (filtros.orden.trim()) {
     query = query.ilike('order_number', `%${filtros.orden.trim()}%`);
