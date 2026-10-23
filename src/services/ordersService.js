@@ -97,6 +97,23 @@ function aplicarVisibilidad(query, user, tab) {
 }
 
 /**
+ * Vista "Rol Activo: Inyección" del Validador (rolEfectivo() = 'inyeccion').
+ * Lee vw_pedido_inyeccion (SQL 080: CantidadP vs Total01Iny de Access) con
+ * las mismas columnas que la tarjeta de la orden. Activas = menos del 100%
+ * inyectado; Completadas = 100%. No hay cierre forzado en esta vista.
+ */
+function esVistaInyeccionUsuario(user) {
+  return user?.role === 'inyeccion';
+}
+
+function consultaInyeccion(columnas, tab) {
+  const query = supabase.from('vw_pedido_inyeccion').select(columnas);
+  return tab === 'completadas'
+    ? query.eq('porcentaje_completado', 100)
+    : query.lt('porcentaje_completado', 100);
+}
+
+/**
  * @param {{ role: string }} user
  * @param {'activas'|'completadas'} tab
  * @param {{ page?: number, filters?: { orden?: string, cliente?: string, nombreSuela?: string, material?: string, color?: string, fecha?: string } }} options
@@ -114,7 +131,9 @@ export async function fetchOrders(user, tab = 'activas', options = {}) {
   // vayan a mostrar 30 — eso duplicaba el trabajo real en cada consulta.
   // En su lugar pedimos PAGE_SIZE+1 filas: si llegan más de PAGE_SIZE,
   // sabemos que hay una página siguiente, sin necesidad de contar todo.
-  let query = aplicarVisibilidad(supabase.from('vw_pedido_progreso').select('*'), user, tab);
+  let query = esVistaInyeccionUsuario(user)
+    ? consultaInyeccion('*', tab)
+    : aplicarVisibilidad(supabase.from('vw_pedido_progreso').select('*'), user, tab);
 
   if (orden.trim()) {
     query = query.ilike('order_number', `%${orden.trim()}%`);
@@ -193,10 +212,10 @@ export async function fetchFacetasOrdenes(user, tab = 'activas') {
   const filas = [];
 
   for (let desde = 0; ; desde += LOTE) {
-    const query = aplicarVisibilidad(
-      supabase.from('vw_pedido_progreso').select('order_number, cliente, nombre_referencia, material, color, fecha_pedido'),
-      user,
-      tab
+    const columnasFacetas = 'order_number, cliente, nombre_referencia, material, color, fecha_pedido';
+    const query = (esVistaInyeccionUsuario(user)
+      ? consultaInyeccion(columnasFacetas, tab)
+      : aplicarVisibilidad(supabase.from('vw_pedido_progreso').select(columnasFacetas), user, tab)
     )
       .order('order_number', { ascending: false })
       .range(desde, desde + LOTE - 1);
@@ -274,6 +293,49 @@ export async function fetchOrderDetail(orderNumber) {
   }
 
   return data || [];
+}
+
+/**
+ * Detalle de una orden en la vista Inyección: una fila por línea de
+ * p_pedidosh (talla, y detalle de vira si la talla viene partida), con lo
+ * solicitado y lo inyectado según Access. Mismos nombres de campo que
+ * vw_item_progreso para reutilizar el encabezado del detalle; las cifras
+ * de producción no aplican y no se piden.
+ * @param {string} orderNumber
+ */
+export async function fetchOrderDetailInyeccion(orderNumber) {
+  const { data, error } = await supabase
+    .from('p_pedidosh')
+    .select('Talla, Cliente, FechaP, Referencia, NombreR, MaterialP, ColorP, Vira, DetalleVira, Acabado, DetalleAcab, Esterilla, DetalleEsterilla, Marquilla, CantidadP, Total01Iny, Cancelado')
+    .eq('PedidoNo', orderNumber)
+    .order('Talla', { ascending: true })
+    .order('DetalleVira', { ascending: true });
+
+  if (error) {
+    console.error('[ordersService] Error obteniendo detalle de inyección:', error);
+    throw new Error('No se pudo cargar el detalle de la orden.');
+  }
+
+  return (data || [])
+    .filter((f) => !f.Cancelado)
+    .map((f) => ({
+      talla: f.Talla,
+      cliente: f.Cliente,
+      fecha_pedido: f.FechaP,
+      referencia: f.Referencia,
+      nombre_referencia: f.NombreR,
+      material: f.MaterialP,
+      color: f.ColorP,
+      vira: f.Vira,
+      detalle_vira: f.DetalleVira,
+      acabado_spec: f.Acabado,
+      detalle_acabado: f.DetalleAcab,
+      esterilla: f.Esterilla,
+      detalle_esterilla: f.DetalleEsterilla,
+      marquilla: f.Marquilla,
+      cantidad_solicitada: f.CantidadP ?? 0,
+      cantidad_inyectada: f.Total01Iny ?? 0
+    }));
 }
 
 /**

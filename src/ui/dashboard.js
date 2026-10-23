@@ -8,10 +8,13 @@ import { mostrarToast } from './toast.js';
 import { cargarHistorial } from './historyPage.js';
 import { cargarReglas } from './reglasPage.js';
 import { generarExcel } from '../services/excelService.js';
-import { esValidador, esVistaMaestra, obtenerRolActivo, establecerRolActivo, usuarioEfectivo, rolEfectivo } from '../services/validatorService.js';
+import { esValidador, esVistaMaestra, esVistaInyeccion, obtenerRolActivo, establecerRolActivo, usuarioEfectivo, usuarioVista, establecerVistaEmpaque, rolEfectivo } from '../services/validatorService.js';
 import { cargarValidadorPage } from './validatorPage.js';
 import { cargarCambiosErpPage } from './cambiosErpPage.js';
+import { iniciarNotaActualizacionIny, refrescarNotaActualizacionIny } from './notaActualizacionIny.js';
 import { fetchPendientesPorPedidos } from '../services/cambiosErpService.js';
+import { fetchInyectadoPorPedidos } from '../services/inyeccionService.js';
+import { aplicaInyeccion, porcentajeInyectado } from '../lib/inyeccion.js';
 import { iniciarInsigniaCambiosErp, detenerInsigniaCambiosErp } from './cambiosErpInsignia.js';
 import { cargarAuditPage } from './auditPage.js';
 import { cargarDespachosTab, configurarUIDespachos } from './despachosPage.js';
@@ -89,8 +92,14 @@ export function configurarUIValidador() {
     detenerInsigniaCambiosErp();
     // Sin "Rol Activo": es exclusivo del Validador.
     document.getElementById('rol-selector-container').style.display = 'none';
+    configurarVistaEmpaque();
+    iniciarNotaActualizacionIny();
     return;
   }
+
+  // Validador: no usa el selector "Ver como" de Empaque.
+  establecerVistaEmpaque('Empaque');
+  document.getElementById('vista-empaque-container').style.display = 'none';
 
   document.getElementById('tab-btn-reglas').style.display = 'inline-block';
   document.getElementById('tab-btn-validador').style.display = 'inline-block';
@@ -99,6 +108,7 @@ export function configurarUIValidador() {
   document.getElementById('tab-btn-audit').style.display = 'inline-block';
   document.getElementById('tab-btn-eliminaciones').style.display = 'inline-block';
   document.getElementById('rol-selector-container').style.display = 'grid';
+  iniciarNotaActualizacionIny();
 
   const rolActivo = obtenerRolActivo();
   let selector = document.getElementById('rol-activo-selector');
@@ -116,6 +126,7 @@ export function configurarUIValidador() {
       const nuevoRol = selector.value;
       establecerRolActivo(nuevoRol);
       mostrarToast(`Actuando como ${nuevoRol}`, 'ok');
+      refrescarNotaActualizacionIny();
 
       // Mismo Rol Activo, dos selectores (este y el de Compensación) —
       // mantener el otro sincronizado para que no muestre un valor viejo
@@ -161,6 +172,40 @@ export function configurarUIValidador() {
       }
     });
   }
+}
+
+/**
+ * Empaque: selector "Ver como" (Empaque / Inyección solo lectura). Cada
+ * login arranca en Empaque. Mismo patrón de clonado que el Rol Activo del
+ * Validador para no apilar listeners en cada login.
+ */
+function configurarVistaEmpaque() {
+  const contenedor = document.getElementById('vista-empaque-container');
+  if (!contenedor) return;
+
+  establecerVistaEmpaque('Empaque');
+  const esEmpaque = getState().user?.role === 'empaque';
+  contenedor.style.display = esEmpaque ? 'grid' : 'none';
+  if (!esEmpaque) return;
+
+  let selector = document.getElementById('vista-empaque-selector');
+  const selectorLimpio = selector.cloneNode(true);
+  selector.replaceWith(selectorLimpio);
+  selector = selectorLimpio;
+
+  selector.value = 'Empaque';
+  sincronizarEtiquetaFiltro('vista-empaque-selector');
+  selector.addEventListener('change', async () => {
+    establecerVistaEmpaque(selector.value);
+    paginaActual = 0;
+    tabFacetas = null;
+    refrescarNotaActualizacionIny();
+    const { currentTab } = getState();
+    if (['activas', 'completadas'].includes(currentTab)) {
+      await cargarOrdenes();
+      await cargarFacetasOrdenes();
+    }
+  });
 }
 
 export function inicializarPaginaOrdenes() {
@@ -309,7 +354,7 @@ export async function cargarFacetasOrdenes({ forzar = false } = {}) {
   }
 
   const tabPedida = currentTab;
-  const filas = await fetchFacetasOrdenes(usuarioEfectivo(), tabPedida);
+  const filas = await fetchFacetasOrdenes(usuarioVista(), tabPedida);
 
   // Si mientras tanto el usuario cambió de pestaña, esta respuesta ya no aplica.
   if (getState().currentTab !== tabPedida) return;
@@ -386,7 +431,7 @@ export async function cargarOrdenes() {
     // Validador con un "Rol Activo" de proceso (Refilado/Acabado/...) ve
     // exactamente lo que vería ese rol real (usuarioEfectivo() reemplaza
     // solo el campo role, conserva id/nombre reales para auditoría).
-    const { orders, hayMas } = await fetchOrders(usuarioEfectivo(), currentTab, {
+    const { orders, hayMas } = await fetchOrders(usuarioVista(), currentTab, {
       page: paginaActual,
       filters: filtros
     });
@@ -400,6 +445,7 @@ export async function cargarOrdenes() {
     renderOrdenes(orders);
     renderPaginacion();
     marcarCambiosErp(orders, miSolicitud);
+    if (esVistaMaestra()) marcarInyeccion(orders, miSolicitud);
   } catch (err) {
     if (miSolicitud !== solicitudActual) return;
     contenedor.innerHTML = `<div class="card"><div class="empty">${err.message}</div></div>`;
@@ -434,6 +480,25 @@ async function marcarCambiosErp(orders, miSolicitud) {
 }
 
 /**
+ * Quinto badge de la vista maestra: "I: x%" (Inyección, dato de Access). Se
+ * llena DESPUÉS de pintar el listado y no lo bloquea: si la consulta falla o
+ * llega tarde (otra carga más reciente), el badge queda en "I: —".
+ */
+async function marcarInyeccion(orders, miSolicitud) {
+  const inyectado = await fetchInyectadoPorPedidos(orders.map((o) => o.order_number));
+  if (!inyectado || miSolicitud !== solicitudActual) return;
+
+  const solicitadoPorPedido = new Map(orders.map((o) => [String(o.order_number), o.total_solicitado]));
+  document.querySelectorAll('#ordenes-lista [data-iny-pedido]').forEach((badge) => {
+    const pedido = badge.dataset.inyPedido;
+    if (!aplicaInyeccion(pedido)) return;
+    const pares = inyectado.get(pedido) ?? 0;
+    badge.textContent = `I: ${porcentajeInyectado(pares, solicitadoPorPedido.get(pedido))}%`;
+    badge.title = `Inyección (ERP): ${pares} pares inyectados`;
+  });
+}
+
+/**
  * Para Validador: en vez del badge/barra global (que puede ser engañoso,
  * ver 018_fix_etapa_fin.sql), muestra el % de CADA proceso por separado —
  * cada uno se calcula independiente contra el total del pedido, así que
@@ -446,6 +511,7 @@ function renderBadgesPorProceso(orden) {
       <span style="background:var(--green-bg); color:var(--green-text); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:600;" title="Acabado">A ${orden.porcentaje_acabado ?? 0}%</span>
       <span style="background:var(--purple-bg); color:var(--purple-text); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:600;" title="Mateado">M ${orden.porcentaje_mateado ?? 0}%</span>
       <span style="background:var(--amber-bg); color:var(--amber-text); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:600;" title="Empaque">E ${orden.porcentaje_empaque ?? 0}%</span>
+      <span data-iny-pedido="${escapeHtml(orden.order_number)}" style="background:var(--bg); color:var(--text2); border:1px dashed var(--border2); padding:1px 6px; border-radius:4px; font-size:10px; font-weight:600;" title="Inyección (ERP)">I: —</span>
     </div>
   `;
 }
@@ -463,6 +529,8 @@ function renderOrdenes(orders) {
   // como un proceso específico, ve el mismo badge/barra que vería ese
   // rol real — "exactamente como lo vería un usuario Acabado real".
   const modoMaestroValidador = esVistaMaestra();
+  // Rol Activo = Inyección: mismas tarjetas, con "Inyectadas" en vez de "Procesadas".
+  const modoInyeccion = esVistaInyeccion();
 
   contenedor.innerHTML = orders
     .map((orden) => {
@@ -508,18 +576,18 @@ function renderOrdenes(orders) {
           <div class="col-nombre-suela" title="Nombre de la suela">${escapeHtml(orden.nombre_referencia || '—')}</div>
           <div class="col-material" title="Material">${escapeHtml(orden.material || '—')}</div>
           <div class="col-color" title="Color">${escapeHtml(orden.color || '—')}</div>
-          <div class="col-etapa" title="Etapa actual del pedido">${escapeHtml(orden.etapa_actual || '—')}</div>
+          <div class="col-etapa" title="Etapa actual del pedido">${modoInyeccion ? 'Inyección' : escapeHtml(orden.etapa_actual || '—')}</div>
           <div class="col-mobile-attrs" title="${atributosMobile}">${atributosMobile || '—'}</div>
 
           <div class="col-metrica col-metrica-total" title="Cantidad total solicitada">
             <div class="metrica-label"><span class="lbl-full">Total Suelas</span><span class="lbl-short">Total</span></div>
             <div class="metrica-valor">${orden.total_solicitado ?? 0}</div>
           </div>
-          <div class="col-metrica col-metrica-procesado" title="Suelas ya procesadas">
-            <div class="metrica-label"><span class="lbl-full">Procesadas</span><span class="lbl-short">Proc.</span></div>
+          <div class="col-metrica col-metrica-procesado" title="${modoInyeccion ? 'Suelas ya inyectadas (según Access)' : 'Suelas ya procesadas'}">
+            <div class="metrica-label"><span class="lbl-full">${modoInyeccion ? 'Inyectadas' : 'Procesadas'}</span><span class="lbl-short">${modoInyeccion ? 'Iny.' : 'Proc.'}</span></div>
             <div class="metrica-valor">${orden.total_procesado ?? 0}</div>
           </div>
-          <div class="col-metrica col-metrica-pendiente" title="Suelas aún por procesar">
+          <div class="col-metrica col-metrica-pendiente" title="${modoInyeccion ? 'Suelas aún por inyectar' : 'Suelas aún por procesar'}">
             <div class="metrica-label"><span class="lbl-full">Pendientes</span><span class="lbl-short">Pend.</span></div>
             <div class="metrica-valor">${orden.total_pendiente ?? 0}</div>
           </div>
