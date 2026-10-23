@@ -46,6 +46,9 @@ const PROCESO_COLUMNAS = {
 
 const PAGE_SIZE = 30;
 
+// Atributos Sí/No por pedido (alguna línea = Sí), ver SQL 082.
+const ATRIBUTOS_SI_NO = ['vira', 'acabado', 'esterilla', 'marquilla'];
+
 /**
  * Qué pedidos ve un rol en una pestaña. La usan el listado Y las
  * opciones de los filtros (fetchFacetasOrdenes): si cada uno tuviera su
@@ -98,9 +101,9 @@ function aplicarVisibilidad(query, user, tab) {
 
 /**
  * Vista "Rol Activo: Inyección" del Validador (rolEfectivo() = 'inyeccion').
- * Lee vw_pedido_inyeccion (SQL 080: CantidadP vs Total01Iny de Access) con
+ * Lee vw_pedido_inyeccion (SQL 080/083: CantidadP vs Total01Iny de Access) con
  * las mismas columnas que la tarjeta de la orden. Activas = menos del 100%
- * inyectado; Completadas = 100%. No hay cierre forzado en esta vista.
+ * inyectado y sin cierre forzado; Completadas = 100% o cierre forzado.
  */
 function esVistaInyeccionUsuario(user) {
   return user?.role === 'inyeccion';
@@ -108,9 +111,11 @@ function esVistaInyeccionUsuario(user) {
 
 function consultaInyeccion(columnas, tab) {
   const query = supabase.from('vw_pedido_inyeccion').select(columnas);
+  // Igual que las demás vistas: un pedido cerrado a la fuerza (incluye los
+  // cancelados en Access, 072) cuenta como completado y sale de Activas.
   return tab === 'completadas'
-    ? query.eq('porcentaje_completado', 100)
-    : query.lt('porcentaje_completado', 100);
+    ? query.or('porcentaje_completado.eq.100,cierre_forzado.eq.true')
+    : query.lt('porcentaje_completado', 100).eq('cierre_forzado', false);
 }
 
 /**
@@ -121,6 +126,8 @@ function consultaInyeccion(columnas, tab) {
 export async function fetchOrders(user, tab = 'activas', options = {}) {
   const { page = 0, filters = {} } = options;
   const { orden = '', cliente = '', nombreSuela = '', material = '', color = '', fecha = '' } = filters;
+  // Filtros Si/No ('Si' | 'No' | ''): vira, acabado, esterilla, marquilla.
+  const atributos = ATRIBUTOS_SI_NO.filter((a) => filters[a] === 'Si' || filters[a] === 'No');
 
   const proceso = ROLE_TO_PROCESS[user.role];
   const columnas = proceso ? PROCESO_COLUMNAS[proceso] : null;
@@ -131,9 +138,17 @@ export async function fetchOrders(user, tab = 'activas', options = {}) {
   // vayan a mostrar 30 — eso duplicaba el trabajo real en cada consulta.
   // En su lugar pedimos PAGE_SIZE+1 filas: si llegan más de PAGE_SIZE,
   // sabemos que hay una página siguiente, sin necesidad de contar todo.
+  // Con algún filtro Si/No se lee vw_pedido_progreso_atributos (082: la misma
+  // vista + 4 columnas por pedido); sin ellos, la de siempre.
+  const vistaPedidos = atributos.length > 0 ? 'vw_pedido_progreso_atributos' : 'vw_pedido_progreso';
   let query = esVistaInyeccionUsuario(user)
     ? consultaInyeccion('*', tab)
-    : aplicarVisibilidad(supabase.from('vw_pedido_progreso').select('*'), user, tab);
+    : aplicarVisibilidad(supabase.from(vistaPedidos).select('*'), user, tab);
+
+  // vw_pedido_inyeccion (083) también trae vira/acabado/esterilla/marquilla.
+  atributos.forEach((a) => {
+    query = query.eq(a, filters[a] === 'Si');
+  });
 
   if (orden.trim()) {
     query = query.ilike('order_number', `%${orden.trim()}%`);

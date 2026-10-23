@@ -1401,6 +1401,83 @@
        de relleno — se ubican por grid-column directamente. Cuando
        ninguno de los dos hijos es visible (usuario no-Validador), la
        fila colapsa a 0 de alto de forma natural. */
+    /* Filtros Si/No (Vira/Acabado/Esterilla/Marquilla): segunda fila, bajo Cliente..Color. */
+    #ordenes-filtros .filtro-si-no-primero {
+      grid-column: 2;
+    }
+
+    /* Empaque con filtros de interruptor: fila 1 = No. Orden, Cliente, Suela,
+       Material, Color; fila 2 = Fecha + los 4 interruptores (sin hueco al
+       final de la fila). La 1ª columna sube a 150px para que quepa la fecha.
+       Solo escritorio: en celular todo va en una columna. */
+    @media (min-width: 769px) {
+      #ordenes-filtros.filtros-con-toggles,
+      #ordenes-controles-superiores.filtros-con-toggles {
+        grid-template-columns: 150px minmax(0, 1.2fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) !important;
+      }
+
+      #ordenes-controles-superiores.filtros-con-toggles #vista-empaque-container,
+      #ordenes-controles-superiores.filtros-con-toggles #rol-selector-container {
+        grid-template-columns: 150px minmax(0, 1.2fr);
+      }
+
+      /* "Actualizado hace x min" (vista Inyección) cabe antes del Excel. */
+      #ordenes-controles-superiores.filtros-con-toggles #nota-actualizacion-iny {
+        grid-column: 3 / 5;
+      }
+
+      /* El botón Excel (Validador) pasa a la última de las 5 columnas. */
+      #ordenes-controles-superiores.filtros-con-toggles #btn-descargar-excel {
+        grid-column: 5 / 6;
+      }
+
+      /* Control Central: misma distribución (fecha + 4 interruptores en la fila 2). */
+      #validador-filtros {
+        grid-template-columns: 150px minmax(0, 1.2fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) !important;
+      }
+
+      #validador-filtro-fecha { grid-area: 2 / 1; }
+      #validador-filtros [data-filtro-toggle="validador-filtro-vira"] { grid-area: 2 / 2; }
+      #validador-filtros [data-filtro-toggle="validador-filtro-acabado"] { grid-area: 2 / 3; }
+      #validador-filtros [data-filtro-toggle="validador-filtro-esterilla"] { grid-area: 2 / 4; }
+      #validador-filtros [data-filtro-toggle="validador-filtro-marquilla"] { grid-area: 2 / 5; }
+
+      #ordenes-filtros.filtros-con-toggles #filtro-fecha { grid-area: 2 / 1; }
+      #ordenes-filtros.filtros-con-toggles [data-filtro-toggle="filtro-vira"] { grid-area: 2 / 2; }
+      #ordenes-filtros.filtros-con-toggles [data-filtro-toggle="filtro-acabado"] { grid-area: 2 / 3; }
+      #ordenes-filtros.filtros-con-toggles [data-filtro-toggle="filtro-esterilla"] { grid-area: 2 / 4; }
+      #ordenes-filtros.filtros-con-toggles [data-filtro-toggle="filtro-marquilla"] { grid-area: 2 / 5; }
+    }
+
+    /* Filtro tipo interruptor (mismo look que los filtros desplegables). */
+    .filtro-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      box-sizing: border-box;
+      min-width: 0;
+      padding: 6px 12px;
+      background: var(--blue-bg);
+      color: var(--blue);
+      border: 1.5px solid #bfdbfe;
+      border-radius: var(--r);
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.15s;
+    }
+
+    .filtro-toggle:hover {
+      background: #dbe9fe;
+    }
+
+    .filtro-toggle-lbl {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+    }
+
     #ordenes-controles-superiores {
       display: grid;
       grid-template-columns: 80px minmax(0,1.2fr) minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) 150px;
@@ -3563,6 +3640,10 @@
         grid-template-columns: 1fr !important;
       }
 
+      #ordenes-filtros .filtro-si-no-primero {
+        grid-column: auto !important;
+      }
+
       #ordenes-controles-superiores #rol-selector-container,
       #ordenes-controles-superiores #vista-empaque-container,
       #ordenes-controles-superiores #nota-actualizacion-iny,
@@ -5452,6 +5533,34 @@
               </div>
 
               <input type="date" id="filtro-fecha" placeholder="Fecha de Pedido..." style="min-width:0;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+              <label class="filtro-toggle filtro-si-no filtro-si-no-primero" data-filtro-toggle="filtro-vira" style="display:none;" title="Mostrar solo pedidos con vira">
+                <span class="filtro-toggle-lbl">Vira</span>
+                <span class="propuesta-switch">
+                  <input type="checkbox" id="filtro-vira">
+                  <span class="propuesta-switch-slider"></span>
+                </span>
+              </label>
+              <label class="filtro-toggle filtro-si-no" data-filtro-toggle="filtro-acabado" style="display:none;" title="Mostrar solo pedidos con acabado">
+                <span class="filtro-toggle-lbl">Acabado</span>
+                <span class="propuesta-switch">
+                  <input type="checkbox" id="filtro-acabado">
+                  <span class="propuesta-switch-slider"></span>
+                </span>
+              </label>
+              <label class="filtro-toggle filtro-si-no" data-filtro-toggle="filtro-esterilla" style="display:none;" title="Mostrar solo pedidos con esterilla">
+                <span class="filtro-toggle-lbl">Esterilla</span>
+                <span class="propuesta-switch">
+                  <input type="checkbox" id="filtro-esterilla">
+                  <span class="propuesta-switch-slider"></span>
+                </span>
+              </label>
+              <label class="filtro-toggle filtro-si-no" data-filtro-toggle="filtro-marquilla" style="display:none;" title="Mostrar solo pedidos con marquilla">
+                <span class="filtro-toggle-lbl">Marquilla</span>
+                <span class="propuesta-switch">
+                  <input type="checkbox" id="filtro-marquilla">
+                  <span class="propuesta-switch-slider"></span>
+                </span>
+              </label>
             </div>
           </div>
 

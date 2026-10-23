@@ -12,18 +12,34 @@ const PAGE_SIZE = 1000;
 async function fetchTodasLasOrdenes() {
   let allOrders = [];
   let page = 0;
+  let usarAtributos = true;
   while (true) {
-    const { data, error } = await supabase
-      .from('vw_pedido_progreso')
+    // vw_pedido_progreso_atributos (082) = la misma vista + vira/acabado/
+    // esterilla/marquilla. Si aún no existe, se usa la de siempre y esas
+    // cuatro columnas del Excel salen con "—".
+    let { data, error } = await supabase
+      .from(usarAtributos ? 'vw_pedido_progreso_atributos' : 'vw_pedido_progreso')
       .select('*')
       .order('order_number', { ascending: false })
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+    if (error && usarAtributos) {
+      usarAtributos = false;
+      allOrders = [];
+      page = 0;
+      continue;
+    }
     if (error) throw new Error('No se pudieron cargar las órdenes.');
     if (!data || data.length === 0) break;
     allOrders = allOrders.concat(data);
     page++;
   }
   return allOrders;
+}
+
+/** Sí/No para las columnas Vira/Acabado/Esterilla/Marquilla; '—' si el dato no llegó (vista 082 ausente). */
+function siNoExcel(valor) {
+  if (valor === undefined || valor === null) return '—';
+  return valor ? 'Sí' : 'No';
 }
 
 async function fetchTodoElHistorial() {
@@ -331,6 +347,10 @@ export async function generarExcel() {
       'Nombre Suel': orden.nombre_referencia || '—',
       'Material': orden.material || '—',
       'Color': orden.color || '—',
+      'Vira': siNoExcel(orden.vira),
+      'Acabado': siNoExcel(orden.acabado),
+      'Esterilla': siNoExcel(orden.esterilla),
+      'Marquilla': siNoExcel(orden.marquilla),
       'Fecha': serialExcelDeDia(diaPedidoLocal(orden.fecha_pedido)),
       'Total Solicita': orden.total_solicitado ?? 0,
       'Total Procese': orden.total_procesado ?? 0,
