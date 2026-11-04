@@ -7,10 +7,11 @@ import { abrirDetalleOrden } from './orderDetail.js';
 import { mostrarToast } from './toast.js';
 import { cargarHistorial } from './historyPage.js';
 import { cargarReglas } from './reglasPage.js';
-import { generarExcel } from '../services/excelService.js';
+import { generarExcel, generarExcelHistorial } from '../services/excelService.js';
 import { esValidador, esVistaMaestra, esVistaInyeccion, obtenerRolActivo, establecerRolActivo, usuarioEfectivo, usuarioVista, establecerVistaEmpaque, rolEfectivo } from '../services/validatorService.js';
 import { cargarValidadorPage } from './validatorPage.js';
 import { cargarCambiosErpPage } from './cambiosErpPage.js';
+import { cargarDashboardPage } from './dashboardPage.js';
 import { iniciarNotaActualizacionIny, refrescarNotaActualizacionIny } from './notaActualizacionIny.js';
 import { fetchPendientesPorPedidos } from '../services/cambiosErpService.js';
 import { fetchInyectadoPorPedidos } from '../services/inyeccionService.js';
@@ -67,8 +68,8 @@ export function configurarUIValidador() {
 
   // Descarga de Excel: solo Validador (Refilado/Acabado/Mateado/Empaque
   // solo necesitan procesar, no descargar el reporte completo).
-  const btnExcel = document.getElementById('btn-descargar-excel');
-  if (btnExcel) btnExcel.style.display = esVal ? '' : 'none';
+  const botonesExcel = document.getElementById('excel-botones');
+  if (botonesExcel) botonesExcel.style.display = esVal ? 'flex' : 'none';
 
   // Completadas y Registros (sin id propio): Propuesta no los ve; el resto
   // sí. Se fija siempre para no arrastrar el estado de una sesión anterior
@@ -94,6 +95,7 @@ export function configurarUIValidador() {
     document.getElementById('tab-btn-audit').style.display = 'none';
     document.getElementById('tab-btn-eliminaciones').style.display = 'none';
     document.getElementById('tab-btn-cambios-erp').style.display = 'none';
+    document.getElementById('tab-btn-dashboard').style.display = 'none';
     detenerInsigniaCambiosErp();
     // Sin "Rol Activo": es exclusivo del Validador.
     document.getElementById('rol-selector-container').style.display = 'none';
@@ -110,6 +112,7 @@ export function configurarUIValidador() {
   document.getElementById('tab-btn-reglas').style.display = 'inline-block';
   document.getElementById('tab-btn-validador').style.display = 'inline-block';
   document.getElementById('tab-btn-cambios-erp').style.display = 'inline-block';
+  document.getElementById('tab-btn-dashboard').style.display = 'inline-block';
   iniciarInsigniaCambiosErp();
   document.getElementById('tab-btn-audit').style.display = 'inline-block';
   document.getElementById('tab-btn-eliminaciones').style.display = 'inline-block';
@@ -172,7 +175,7 @@ export function configurarUIValidador() {
         await cargarHistorial();
       } else if (currentTab === 'despachos') {
         await cargarDespachosTab();
-      } else if (!['validador', 'cambios-erp', 'audit', 'reglas', 'eliminaciones'].includes(currentTab)) {
+      } else if (!['validador', 'cambios-erp', 'dashboard', 'audit', 'reglas', 'eliminaciones'].includes(currentTab)) {
         await cargarOrdenes();
         await cargarFacetasOrdenes();
       }
@@ -269,7 +272,8 @@ export function inicializarPaginaOrdenes() {
       const esDespachos = tab === 'despachos';
       const esEliminaciones = tab === 'eliminaciones';
       const esCambiosErp = tab === 'cambios-erp';
-      const esOrdenes = !esRegistros && !esReglas && !esPestanaValidador && !esAudit && !esDespachos && !esEliminaciones && !esCambiosErp;
+      const esDashboard = tab === 'dashboard';
+      const esOrdenes = !esRegistros && !esReglas && !esPestanaValidador && !esAudit && !esDespachos && !esEliminaciones && !esCambiosErp && !esDashboard;
 
       // La barra "Filtros (n) / Limpiar" de celular solo sirve en Activas
       // y Completadas. Al salir se cierra también el panel: su regla de
@@ -294,6 +298,7 @@ export function inicializarPaginaOrdenes() {
       document.getElementById('reglas-seccion').style.display = esReglas ? 'block' : 'none';
       document.getElementById('page-validador').style.display = esPestanaValidador ? 'block' : 'none';
       document.getElementById('page-cambios-erp').style.display = esCambiosErp ? 'block' : 'none';
+      document.getElementById('page-dashboard').style.display = esDashboard ? 'block' : 'none';
       document.getElementById('page-audit').style.display = esAudit ? 'block' : 'none';
       document.getElementById('despachos-seccion').style.display = esDespachos ? 'block' : 'none';
       document.getElementById('eliminaciones-seccion').style.display = esEliminaciones ? 'block' : 'none';
@@ -304,6 +309,8 @@ export function inicializarPaginaOrdenes() {
         cargarReglas();
       } else if (esPestanaValidador) {
         cargarValidadorPage();
+      } else if (esDashboard) {
+        cargarDashboardPage();
       } else if (esCambiosErp) {
         cargarCambiosErpPage();
       } else if (esAudit) {
@@ -373,25 +380,29 @@ export function inicializarPaginaOrdenes() {
   inicializarControlesMobile();
   actualizarContadorFiltros();
 
-  const btnExcel = document.getElementById('btn-descargar-excel');
-  if (btnExcel) {
-    btnExcel.addEventListener('click', async () => {
-      btnExcel.disabled = true;
-      const textoOriginal = btnExcel.textContent;
-      btnExcel.textContent = '⏳ Generando...';
+  [
+    ['btn-descargar-excel', generarExcel],
+    ['btn-descargar-excel-historial', generarExcelHistorial]
+  ].forEach(([id, generar]) => {
+    const boton = document.getElementById(id);
+    if (!boton) return;
+    boton.addEventListener('click', async () => {
+      boton.disabled = true;
+      const textoOriginal = boton.textContent;
+      boton.textContent = '⏳ Generando...';
 
       try {
-        await generarExcel();
+        await generar();
         mostrarToast('Excel descargado correctamente', 'ok');
       } catch (err) {
         console.error('[dashboard] Error generando Excel:', err);
         mostrarToast(err.message || 'Error al generar Excel', 'error');
       } finally {
-        btnExcel.disabled = false;
-        btnExcel.textContent = textoOriginal;
+        boton.disabled = false;
+        boton.textContent = textoOriginal;
       }
     });
-  }
+  });
 }
 
 /**

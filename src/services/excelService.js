@@ -42,21 +42,68 @@ function siNoExcel(valor) {
   return valor ? 'Sí' : 'No';
 }
 
+// Solo lo que el Excel usa. vw_historial tiene columnas calculadas muy caras
+// (bloqueos, despachos); con select('*') se calculan para cada fila y las
+// últimas páginas terminaban en timeout (500). Pidiendo solo estas, la base
+// no las evalúa.
+const COLUMNAS_HISTORIAL_EXCEL =
+  'id, tipo, order_number, size, quantity, from_process, to_process, causal, ' +
+  'failed_process, action, observation, user_name, created_at, precio_cop, valor_cop';
+
+const REINTENTOS_PAGINA = 3;
+
+const esperar = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Historial completo, de lo más nuevo a lo más viejo. Pagina por fecha
+ * ("lo más viejo que lo último recibido") y no por posición, así cada página
+ * cuesta lo mismo aunque haya decenas de miles de registros. Cada página se
+ * reintenta si falla antes de rendirse.
+ */
 async function fetchTodoElHistorial() {
-  let allHistory = [];
-  let page = 0;
+  const todo = [];
+  const vistos = new Set();
+  let cursor = null;
+  let incluirIgual = true;
+
   while (true) {
-    const { data, error } = await supabase
-      .from('vw_historial')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
-    if (error) throw new Error('No se pudo cargar el historial.');
-    if (!data || data.length === 0) break;
-    allHistory = allHistory.concat(data);
-    page++;
+    let data = null;
+    for (let intento = 1; intento <= REINTENTOS_PAGINA; intento++) {
+      let consulta = supabase
+        .from('vw_historial')
+        .select(COLUMNAS_HISTORIAL_EXCEL)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(PAGE_SIZE);
+      if (cursor) {
+        consulta = incluirIgual ? consulta.lte('created_at', cursor) : consulta.lt('created_at', cursor);
+      }
+      const respuesta = await consulta;
+      if (!respuesta.error) {
+        data = respuesta.data || [];
+        break;
+      }
+      if (intento === REINTENTOS_PAGINA) throw new Error('No se pudo cargar el historial.');
+      await esperar(1000 * intento);
+    }
+
+    // lte repite las filas que comparten la fecha del borde; se descartan.
+    let nuevas = 0;
+    for (const fila of data) {
+      const clave = `${fila.tipo}|${fila.id}`;
+      if (vistos.has(clave)) continue;
+      vistos.add(clave);
+      todo.push(fila);
+      nuevas++;
+    }
+
+    if (data.length < PAGE_SIZE) break;
+    // Si toda la página ya se había visto (más de PAGE_SIZE filas con la
+    // misma fecha exacta), se salta esa fecha para no quedar en bucle.
+    incluirIgual = nuevas > 0;
+    cursor = data[data.length - 1].created_at;
   }
-  return allHistory;
+  return todo;
 }
 
 /**
@@ -294,6 +341,95 @@ function formatearColumnaFechaHora(ws, titulo, formato = 'dd/mm/yyyy hh:mm') {
   }
 }
 
+/**
+ * Hojas que salen del historial de movimientos: una por proceso
+ * (Refilado, Acabado, Mateado, Empaque) y la de Inyección (devoluciones).
+ */
+function agregarHojasHistorial(libro, historial, mapaOrdenes) {
+  // === HOJAS DE PROCESOS ===
+  const procesos = ['Refilado', 'Acabado', 'Mateado', 'Empaque'];
+
+  procesos.forEach((proceso) => {
+    const filasMovimientos = historial
+      .filter((h) => h.tipo === 'movimiento' && h.from_process === proceso)
+      .map((h) => {
+        const orden = mapaOrdenes[h.order_number];
+        const usuario = h.observation?.includes('Enrutamiento automático') ? 'Regla' : (h.user_name || '—');
+
+        return {
+          'Orden': h.order_number,
+          'Nombre Suel': orden?.nombre_referencia || '—',
+          'Material': orden?.material || '—',
+          'Color': orden?.color || '—',
+          'Talla': h.size || '—',
+          'Cantidad': h.quantity,
+          'Precio por Par': h.precio_cop ?? '—',
+          'Comisión': h.valor_cop ?? '—',
+          'Enviado a': h.to_process || '—',
+          'Usuario': usuario,
+          'Fecha': serialExcelDeDia(soloFecha(h.created_at)),
+          'Hora': formatearHora24(h.created_at),
+          'Observaciones': h.observation || '—'
+        };
+      });
+
+    if (filasMovimientos.length > 0) {
+      const ws = XLSX.utils.json_to_sheet(filasMovimientos);
+      formatearColumnasFecha(ws, ['Fecha']);
+      XLSX.utils.book_append_sheet(libro, ws, proceso);
+    }
+  });
+
+  // === HOJA INYECCIÓN ===
+  const filasInyeccion = historial
+    .filter((h) => h.tipo === 'devolucion' && h.failed_process === 'Inyección')
+    .map((h) => {
+      const orden = mapaOrdenes[h.order_number];
+      return {
+        'Orden': h.order_number,
+        'Nombre Suel': orden?.nombre_referencia || '—',
+        'Material': orden?.material || '—',
+        'Color': orden?.color || '—',
+        'Talla': h.size || '—',
+        'Cantidad': h.quantity,
+        'Causal': h.causal || '—',
+        'Acción': h.action || '—',
+        'Usuario': h.user_name || '—',
+        'Fecha': serialExcelDeDia(soloFecha(h.created_at)),
+        'Hora': formatearHora24(h.created_at),
+        'Observaciones': h.observation || '—'
+      };
+    });
+
+  const wsInyeccion = XLSX.utils.json_to_sheet(filasInyeccion);
+  formatearColumnasFecha(wsInyeccion, ['Fecha']);
+  XLSX.utils.book_append_sheet(libro, wsInyeccion, 'Inyección');
+}
+
+function descargarLibro(libro, prefijo) {
+  const fecha = new Date();
+  const fechaStr = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}-${String(fecha.getDate()).padStart(2, '0')}`;
+  XLSX.writeFile(libro, `${prefijo}_${fechaStr}.xlsx`);
+}
+
+/**
+ * Excel de movimientos: solo las hojas que salen del historial. Va aparte
+ * de generarExcel porque el historial es lo más pesado de descargar.
+ */
+export async function generarExcelHistorial() {
+  const libro = XLSX.utils.book_new();
+  const ordenes = await fetchTodasLasOrdenes();
+  const historial = await fetchTodoElHistorial();
+
+  const mapaOrdenes = {};
+  ordenes.forEach((o) => {
+    mapaOrdenes[o.order_number] = o;
+  });
+
+  agregarHojasHistorial(libro, historial, mapaOrdenes);
+  descargarLibro(libro, 'Movimientos_Produccion');
+}
+
 export async function generarExcel() {
   const libro = XLSX.utils.book_new();
   const ordenes = await fetchTodasLasOrdenes();
@@ -309,11 +445,6 @@ export async function generarExcel() {
   const lineasInyeccionERP = await fetchLineasInyeccionERP();
   const estadoSincronizacionERP = await fetchEstadoSincronizacion();
   const cambiosERP = await fetchTodosLosCambiosERP();
-
-  const mapaOrdenes = {};
-  ordenes.forEach((o) => {
-    mapaOrdenes[o.order_number] = o;
-  });
 
   const mapaUltimaFecha = construirMapaUltimaFechaPorProceso(historial);
 
@@ -400,65 +531,6 @@ export async function generarExcel() {
   const wsOrdenes = XLSX.utils.json_to_sheet(hojaCórdenes);
   formatearColumnasFecha(wsOrdenes, ['Fecha', 'F_Refilado', 'F_Acabado', 'F_Empaque', 'F_Mateado', 'F_Despacho', 'FechaCerradaF']);
   XLSX.utils.book_append_sheet(libro, wsOrdenes, 'Órdenes');
-
-  // === HOJAS DE PROCESOS ===
-  const procesos = ['Refilado', 'Acabado', 'Mateado', 'Empaque'];
-
-  procesos.forEach((proceso) => {
-    const filasMovimientos = historial
-      .filter((h) => h.tipo === 'movimiento' && h.from_process === proceso)
-      .map((h) => {
-        const orden = mapaOrdenes[h.order_number];
-        const usuario = h.observation?.includes('Enrutamiento automático') ? 'Regla' : (h.user_name || '—');
-
-        return {
-          'Orden': h.order_number,
-          'Nombre Suel': orden?.nombre_referencia || '—',
-          'Material': orden?.material || '—',
-          'Color': orden?.color || '—',
-          'Talla': h.size || '—',
-          'Cantidad': h.quantity,
-          'Precio por Par': h.precio_cop ?? '—',
-          'Comisión': h.valor_cop ?? '—',
-          'Enviado a': h.to_process || '—',
-          'Usuario': usuario,
-          'Fecha': serialExcelDeDia(soloFecha(h.created_at)),
-          'Hora': formatearHora24(h.created_at),
-          'Observaciones': h.observation || '—'
-        };
-      });
-
-    if (filasMovimientos.length > 0) {
-      const ws = XLSX.utils.json_to_sheet(filasMovimientos);
-      formatearColumnasFecha(ws, ['Fecha']);
-      XLSX.utils.book_append_sheet(libro, ws, proceso);
-    }
-  });
-
-  // === HOJA INYECCIÓN ===
-  const filasInyeccion = historial
-    .filter((h) => h.tipo === 'devolucion' && h.failed_process === 'Inyección')
-    .map((h) => {
-      const orden = mapaOrdenes[h.order_number];
-      return {
-        'Orden': h.order_number,
-        'Nombre Suel': orden?.nombre_referencia || '—',
-        'Material': orden?.material || '—',
-        'Color': orden?.color || '—',
-        'Talla': h.size || '—',
-        'Cantidad': h.quantity,
-        'Causal': h.causal || '—',
-        'Acción': h.action || '—',
-        'Usuario': h.user_name || '—',
-        'Fecha': serialExcelDeDia(soloFecha(h.created_at)),
-        'Hora': formatearHora24(h.created_at),
-        'Observaciones': h.observation || '—'
-      };
-    });
-
-  const wsInyeccion = XLSX.utils.json_to_sheet(filasInyeccion);
-  formatearColumnasFecha(wsInyeccion, ['Fecha']);
-  XLSX.utils.book_append_sheet(libro, wsInyeccion, 'Inyección');
 
   // === HOJA INYECCIÓN ERP ===
   // Total Inyectado tal como viene de Access (columna Total01Iny), por
@@ -599,7 +671,5 @@ export async function generarExcel() {
   XLSX.utils.book_append_sheet(libro, wsEliminacionesD, 'EliminacionesD');
 
   // Descargar
-  const fecha = new Date();
-  const fechaStr = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}-${String(fecha.getDate()).padStart(2, '0')}`;
-  XLSX.writeFile(libro, `Ordenes_Produccion_${fechaStr}.xlsx`);
+  descargarLibro(libro, 'Ordenes_Produccion');
 }
