@@ -12,6 +12,8 @@ import { esValidador, esVistaMaestra, esVistaInyeccion, obtenerRolActivo, establ
 import { cargarValidadorPage } from './validatorPage.js';
 import { cargarCambiosErpPage } from './cambiosErpPage.js';
 import { cargarDashboardPage } from './dashboardPage.js';
+import { cargarDashboardProcesoPage } from './dashboardProcesoPage.js';
+import { esRolDashboardProceso } from '../lib/roles.js';
 import { iniciarNotaActualizacionIny, refrescarNotaActualizacionIny } from './notaActualizacionIny.js';
 import { fetchPendientesPorPedidos } from '../services/cambiosErpService.js';
 import { fetchInyectadoPorPedidos } from '../services/inyeccionService.js';
@@ -95,7 +97,8 @@ export function configurarUIValidador() {
     document.getElementById('tab-btn-audit').style.display = 'none';
     document.getElementById('tab-btn-eliminaciones').style.display = 'none';
     document.getElementById('tab-btn-cambios-erp').style.display = 'none';
-    document.getElementById('tab-btn-dashboard').style.display = 'none';
+    document.getElementById('tab-btn-dashboard').style.display =
+      esRolDashboardProceso(getState().user?.role) ? 'inline-block' : 'none';
     detenerInsigniaCambiosErp();
     // Sin "Rol Activo": es exclusivo del Validador.
     document.getElementById('rol-selector-container').style.display = 'none';
@@ -310,7 +313,8 @@ export function inicializarPaginaOrdenes() {
       } else if (esPestanaValidador) {
         cargarValidadorPage();
       } else if (esDashboard) {
-        cargarDashboardPage();
+        if (esValidador()) cargarDashboardPage();
+        else cargarDashboardProcesoPage();
       } else if (esCambiosErp) {
         cargarCambiosErpPage();
       } else if (esAudit) {

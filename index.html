@@ -6120,6 +6120,23 @@
     </div>
   </div>
 
+  <!-- Modal: confirmar envío del dashboard operativo (Refilado / Acabado / Mateado) -->
+  <div id="modal-dashboard-proceso" class="modal">
+    <div class="modal-content dash-proc-modal">
+      <div class="modal-header">
+        <div class="modal-title">Confirmar envío</div>
+        <button class="modal-close" id="btn-cerrar-dash-proc" type="button">×</button>
+      </div>
+      <div id="dash-proc-resumen" class="dash-proc-resumen"></div>
+      <div id="dash-proc-destino-box"></div>
+      <div id="dash-proc-modal-nota" class="dash-proc-nota">Revisa la talla y la cantidad antes de confirmar.</div>
+      <div style="display:flex;gap:0.75rem;">
+        <button class="btn btn-secondary" id="btn-cancelar-dash-proc" type="button">Volver</button>
+        <button class="btn btn-primary" id="btn-confirmar-dash-proc" type="button">Sí, enviar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal: Registrar Proceso -->
   <div id="modal-procesar" class="modal">
     <div class="modal-content">

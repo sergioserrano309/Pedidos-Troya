@@ -39,6 +39,26 @@ export function esRolDeProceso(role) {
   return role === 'refilado' || role === 'acabado' || role === 'mateado' || role === 'empaque';
 }
 
+/** Pestaña Dashboard operativa (fase 1): no incluye empaque ni validador. */
+export function esRolDashboardProceso(role) {
+  return role === 'refilado' || role === 'acabado' || role === 'mateado';
+}
+
+/**
+ * Destinos que ofrece el dashboard operativo. Más estricto que
+ * DESTINOS_PERMITIDOS_POR_ROL: Refilado no manda a Empaque aquí.
+ * Órdenes (el flujo viejo) no usa esto.
+ */
+export const DESTINOS_DASHBOARD_PROCESO = {
+  refilado: ['Acabado', 'Mateado'],
+  acabado: ['Empaque'],
+  mateado: ['Empaque']
+};
+
+export function destinosDashboardProceso(role) {
+  return DESTINOS_DASHBOARD_PROCESO[role] || [];
+}
+
 export const ROLE_LABELS = {
   refilado: 'Refilado',
   acabado: 'Acabado',
