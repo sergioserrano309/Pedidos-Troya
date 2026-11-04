@@ -1427,7 +1427,7 @@
       }
 
       /* El botón Excel (Validador) pasa a la última de las 5 columnas. */
-      #ordenes-controles-superiores.filtros-con-toggles #btn-descargar-excel {
+      #ordenes-controles-superiores.filtros-con-toggles #excel-botones {
         grid-column: 5 / 6;
       }
 
@@ -1519,7 +1519,7 @@
     .nota-actualizacion-alerta { background: var(--red-bg); color: var(--red-text); }
     .nota-actualizacion-desconocido { background: var(--amber-bg); color: var(--amber-text); }
 
-    #ordenes-controles-superiores #btn-descargar-excel {
+    #ordenes-controles-superiores #excel-botones {
       grid-column: 6 / 7;
       justify-self: end;
     }
@@ -3647,7 +3647,7 @@
       #ordenes-controles-superiores #rol-selector-container,
       #ordenes-controles-superiores #vista-empaque-container,
       #ordenes-controles-superiores #nota-actualizacion-iny,
-      #ordenes-controles-superiores #btn-descargar-excel {
+      #ordenes-controles-superiores #excel-botones {
         grid-column: 1 / -1 !important;
         justify-self: stretch !important;
       }
@@ -5432,6 +5432,7 @@
               <button class="tab-btn" data-tab="despachos" id="tab-btn-despachos" style="display:none;">Despachos</button>
               <button class="tab-btn" data-tab="registros"><span class="cart-lbl-full">Registros</span><span class="cart-lbl-short">Reg.</span></button>
               <button class="tab-btn" data-tab="validador" id="tab-btn-validador" style="display:none;">Control Central</button>
+              <button class="tab-btn" data-tab="dashboard" id="tab-btn-dashboard" style="display:none;">Dashboard</button>
               <button class="tab-btn" data-tab="cambios-erp" id="tab-btn-cambios-erp" style="display:none;">Cambios ERP<span id="badge-cambios-erp" class="badge-notif" style="display:none;" role="status"></span></button>
               <button class="tab-btn" data-tab="reglas" id="tab-btn-reglas" style="display:none;">Reglas de Enrutamiento</button>
               <button class="tab-btn" data-tab="audit" id="tab-btn-audit" style="display:none;">Auditoría</button>
@@ -5473,7 +5474,10 @@
                 </div>
               </div>
               <div id="nota-actualizacion-iny" class="nota-actualizacion-iny" style="display:none;" role="status"></div>
-              <button id="btn-descargar-excel" class="btn btn-success" style="display:none;padding:6px 14px;font-size:12px;font-weight:500;border:1px solid var(--green);line-height:1.2;">Excel</button>
+              <div id="excel-botones" style="display:none;gap:6px;">
+                <button id="btn-descargar-excel-historial" class="btn btn-success" title="Hojas de Refilado, Acabado, Mateado, Empaque e Inyección" style="padding:6px 14px;font-size:12px;font-weight:500;border:1px solid var(--green);line-height:1.2;">Excel movimientos</button>
+                <button id="btn-descargar-excel" class="btn btn-success" style="padding:6px 14px;font-size:12px;font-weight:500;border:1px solid var(--green);line-height:1.2;">Excel</button>
+              </div>
             </div>
 
             <!-- Línea divisora entre las pestañas y Filtros/Limpiar — solo móvil -->
@@ -5893,6 +5897,7 @@
           <div id="page-validador" style="display:none;"></div>
 
           <div id="page-cambios-erp" style="display:none;"></div>
+          <div id="page-dashboard" style="display:none;"></div>
 
           <div id="page-audit" style="display:none;"></div>
         </div>
