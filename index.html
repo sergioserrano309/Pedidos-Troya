@@ -1447,6 +1447,50 @@
       #ordenes-filtros.filtros-con-toggles [data-filtro-toggle="filtro-acabado"] { grid-area: 2 / 3; }
       #ordenes-filtros.filtros-con-toggles [data-filtro-toggle="filtro-esterilla"] { grid-area: 2 / 4; }
       #ordenes-filtros.filtros-con-toggles [data-filtro-toggle="filtro-marquilla"] { grid-area: 2 / 5; }
+      /* Estado (Validador): fila 3, bajo la fecha, mismo ancho que No. Orden y Fecha. */
+      #ordenes-filtros.filtros-con-toggles #filtro-estado-contenedor { grid-area: 3 / 1; }
+      #validador-filtro-estado { grid-area: 3 / 1; }
+    }
+
+    /* Filtro por Estado (selección múltiple): reusa el aspecto de .filtro-custom-*. */
+    .filtro-estado-celda {
+      min-width: 0;
+    }
+
+    .filtro-estado-celda .filtro-custom-select {
+      height: 100%;
+    }
+
+    .filtro-multi-opcion {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 14px;
+      cursor: pointer;
+      color: var(--text1);
+      font-size: 13px;
+      border-bottom: 1px solid var(--border2);
+      transition: background 0.1s;
+    }
+
+    .filtro-multi-opcion:last-child {
+      border-bottom: none;
+    }
+
+    .filtro-multi-opcion:hover {
+      background: var(--surface);
+    }
+
+    .filtro-multi-opcion input {
+      width: auto;
+      margin: 0;
+      accent-color: var(--blue);
+      flex-shrink: 0;
+    }
+
+    .filtro-custom-btn.filtro-multi-activo {
+      font-weight: 600;
+      background: #dbe9fe;
     }
 
     /* Filtro tipo interruptor (mismo look que los filtros desplegables). */
@@ -2096,6 +2140,26 @@
       font-weight: 400;
       color: var(--text2);
       margin-top: 1px;
+    }
+
+    /* Clasificar un cierre viejo (detalle del pedido): mismas opciones que la
+       ventana de cierre, dentro del recuadro amarillo. */
+    .banner-cierre-forzado .form-group {
+      margin: 10px 0 0;
+    }
+
+    .banner-cierre-forzado .form-group > label:not(.cierre-tipo-opcion) {
+      color: var(--amber-text);
+    }
+
+    .banner-cierre-forzado .cierre-tipo-opcion {
+      background: var(--surface);
+    }
+
+    .cierre-clasificar-opciones {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 10px;
     }
 
     .banner-cierre-forzado-tipo {
@@ -5625,6 +5689,9 @@
                   <span class="propuesta-switch-slider"></span>
                 </span>
               </label>
+
+              <!-- Filtro por Estado (solo Validador): En proceso / Completado / Cerrado, varios a la vez -->
+              <div id="filtro-estado-contenedor" class="filtro-estado-celda" style="display:none;"></div>
             </div>
           </div>
 

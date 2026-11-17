@@ -1,4 +1,5 @@
 import { supabase } from '../config/supabaseClient.js';
+import { condicionEstados } from '../lib/estadosPedido.js';
 
 /**
  * Servicio de órdenes de producción.
@@ -149,6 +150,10 @@ export async function fetchOrders(user, tab = 'activas', options = {}) {
   atributos.forEach((a) => {
     query = query.eq(a, filters[a] === 'Si');
   });
+
+  // Filtro por Estado (solo Validador): En proceso / Completado / Cerrado, varios a la vez.
+  const condEstados = condicionEstados(filters.estados);
+  if (condEstados) query = query.or(condEstados);
 
   if (orden.trim()) {
     query = query.ilike('order_number', `%${orden.trim()}%`);

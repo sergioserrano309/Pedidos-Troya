@@ -9,7 +9,7 @@ import { abrirModalProcesar } from './processModal.js';
 import { abrirModalDevolucion } from './returnModal.js';
 import { mostrarToast } from './toast.js';
 import { usuarioEfectivo, esVistaInyeccion, esValidador } from '../services/validatorService.js';
-import { fetchCierreForzadoDePedido, clasificarCierreForzado, etiquetaTipoCierre, TIPOS_CIERRE } from '../services/cierreForzadoService.js';
+import { fetchCierreForzadoDePedido, clasificarCierreForzado, etiquetaTipoCierre, TIPOS_CIERRE, TIPOS_CIERRE_AYUDA } from '../services/cierreForzadoService.js';
 import { fetchCambiosDePedido } from '../services/cambiosErpService.js';
 import { resumenNota } from '../lib/cambiosErp.js';
 
@@ -320,12 +320,17 @@ function renderProcesarLoteHeader() {
     const tipoHtml = cierreForzadoOrden.tipo
       ? `<div>Tipo: <strong>${escapeHtml(etiquetaTipoCierre(cierreForzadoOrden.tipo))}</strong></div>`
       : puedeClasificar
-        ? `<div class="banner-cierre-forzado-tipo">Tipo: <strong>Sin clasificar</strong>
-            <select id="cierre-clasificar-tipo" aria-label="Tipo de cierre">
-              <option value="">Elegir...</option>
-              ${Object.entries(TIPOS_CIERRE).map(([k, v]) => `<option value="${k}">${escapeHtml(v)}</option>`).join('')}
-            </select>
-            <button type="button" class="btn btn-secondary btn-sm" id="btn-clasificar-cierre">Clasificar</button>
+        ? `<div>Tipo: <strong>Sin clasificar</strong></div>
+          <div class="form-group">
+            <label>¿Por qué se cerró? (obligatorio)</label>
+            <div class="cierre-clasificar-opciones">
+              ${Object.entries(TIPOS_CIERRE).map(([k, v]) => `
+              <label class="cierre-tipo-opcion">
+                <input type="radio" name="cierre-clasificar-tipo" value="${k}">
+                <span><strong>${escapeHtml(v)}</strong><small>${escapeHtml(TIPOS_CIERRE_AYUDA[k] || '')}</small></span>
+              </label>`).join('')}
+            </div>
+            <button type="button" class="btn btn-primary btn-sm" id="btn-clasificar-cierre">Clasificar</button>
           </div>`
         : '<div>Tipo: Sin clasificar</div>';
     el.innerHTML = `
@@ -338,7 +343,7 @@ function renderProcesarLoteHeader() {
       <div class="orden-divider"></div>`;
 
     document.getElementById('btn-clasificar-cierre')?.addEventListener('click', async () => {
-      const tipo = document.getElementById('cierre-clasificar-tipo')?.value;
+      const tipo = document.querySelector('input[name="cierre-clasificar-tipo"]:checked')?.value;
       if (!tipo) {
         mostrarToast('Elige el tipo de cierre.', 'error');
         return;

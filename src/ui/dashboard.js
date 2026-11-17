@@ -12,6 +12,8 @@ import { esValidador, esVistaMaestra, esVistaInyeccion, obtenerRolActivo, establ
 import { cargarValidadorPage } from './validatorPage.js';
 import { cargarCambiosErpPage } from './cambiosErpPage.js';
 import { cargarDashboardPage } from './dashboardPage.js';
+import { montarMultiSelect } from './multiSelect.js';
+import { ESTADOS_PEDIDO } from '../lib/estadosPedido.js';
 import { iniciarNotaActualizacionIny, refrescarNotaActualizacionIny } from './notaActualizacionIny.js';
 import { fetchPendientesPorPedidos } from '../services/cambiosErpService.js';
 import { fetchInyectadoPorPedidos } from '../services/inyeccionService.js';
@@ -33,6 +35,10 @@ let filtros = { ...FILTROS_VACIOS };
 
 // Filtros tipo interruptor (vira/acabado/esterilla/marquilla): todos los roles con Órdenes salvo Comercial.
 const IDS_FILTROS_SI_NO = ['filtro-vira', 'filtro-acabado', 'filtro-esterilla', 'filtro-marquilla'];
+// Filtro por Estado del pedido (En proceso / Completado / Cerrado): solo Validador.
+let estadosFiltro = [];
+let multiEstado = null;
+
 const ROLES_CON_FILTROS_SI_NO = ['empaque', 'refilado', 'acabado', 'mateado', 'propuesta', 'validador'];
 let debounceTimer = null;
 // Una fila por pedido visible en la pestaña (Activas o Completadas), para
@@ -108,6 +114,7 @@ export function configurarUIValidador() {
   establecerVistaEmpaque('Empaque');
   document.getElementById('vista-empaque-container').style.display = 'none';
   actualizarFiltrosSiNo();
+  actualizarFiltroEstado();
 
   document.getElementById('tab-btn-reglas').style.display = 'inline-block';
   document.getElementById('tab-btn-validador').style.display = 'inline-block';
@@ -135,6 +142,7 @@ export function configurarUIValidador() {
       const nuevoRol = selector.value;
       establecerRolActivo(nuevoRol);
       mostrarToast(`Actuando como ${nuevoRol}`, 'ok');
+      actualizarFiltroEstado();
       refrescarNotaActualizacionIny();
 
       // Mismo Rol Activo, dos selectores (este y el de Compensación) —
@@ -189,6 +197,27 @@ export function configurarUIValidador() {
  * Al ocultarlos se borran sus valores, para que no queden filtrando sin que
  * se vea. Devuelve true si había alguno activo (la lista debe recargarse).
  */
+/**
+ * Filtro "Estado" (En proceso / Completado / Cerrado): solo el Validador, solo en
+ * Completadas (en Activas todo está "En proceso", no aporta) y solo en la vista
+ * maestra y la de Inyección (cuando emula un proceso, el estado de la tarjeta es
+ * el de ese proceso y no coincide con este filtro). Al ocultarlo se borra la
+ * selección para que no quede filtrando sin que se vea.
+ */
+function actualizarFiltroEstado() {
+  const celda = document.getElementById('filtro-estado-contenedor');
+  if (!celda) return;
+  const visible = esValidador()
+    && getState().currentTab === 'completadas'
+    && (esVistaMaestra() || esVistaInyeccion());
+  celda.style.display = visible ? '' : 'none';
+  if (!visible && estadosFiltro.length > 0) {
+    estadosFiltro = [];
+    multiEstado?.limpiar();
+    actualizarContadorFiltros();
+  }
+}
+
 function actualizarFiltrosSiNo() {
   const visibles = ROLES_CON_FILTROS_SI_NO.includes(getState().user?.role);
   let habiaActivo = false;
@@ -235,6 +264,7 @@ function configurarVistaEmpaque() {
   });
   ['vira', 'acabado', 'esterilla', 'marquilla'].forEach((k) => { filtros[k] = ''; });
   actualizarFiltrosSiNo();
+  actualizarFiltroEstado();
   if (!esEmpaque) return;
 
   let selector = document.getElementById('vista-empaque-selector');
@@ -264,6 +294,12 @@ export function inicializarPaginaOrdenes() {
       btn.classList.add('active');
       const tab = btn.dataset.tab;
       setState({ currentTab: tab });
+      actualizarFiltroEstado();
+
+      // Rol Activo solo sirve en Activas, Completadas y las pestañas que lo usan;
+      // en Control Central no aporta y se oculta (el Validador lo recupera al salir).
+      const selectorRol = document.getElementById('rol-selector-container');
+      if (selectorRol && esValidador()) selectorRol.style.display = tab === 'validador' ? 'none' : 'grid';
 
       const esRegistros = tab === 'registros';
       const esReglas = tab === 'reglas';
@@ -376,6 +412,21 @@ export function inicializarPaginaOrdenes() {
     }
   });
 
+  // Filtro por Estado (desplegable de selección múltiple).
+  const celdaEstado = document.getElementById('filtro-estado-contenedor');
+  if (celdaEstado) {
+    multiEstado = montarMultiSelect(celdaEstado, {
+      placeholder: 'Estado...',
+      opciones: ESTADOS_PEDIDO,
+      alCambiar: (valores) => {
+        estadosFiltro = valores;
+        paginaActual = 0;
+        actualizarContadorFiltros();
+        cargarOrdenes();
+      }
+    });
+  }
+
   inicializarFiltrosCustomSelect();
   inicializarControlesMobile();
   actualizarContadorFiltros();
@@ -462,6 +513,8 @@ function inicializarControlesMobile() {
 
   document.getElementById('btn-limpiar-filtros')?.addEventListener('click', () => {
     filtros = { ...FILTROS_VACIOS };
+    estadosFiltro = [];
+    multiEstado?.limpiar();
     ['filtro-orden', 'filtro-cliente', 'filtro-nombre-suela', 'filtro-material', 'filtro-color', 'filtro-fecha'].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.value = '';
@@ -479,7 +532,7 @@ function inicializarControlesMobile() {
 }
 
 function actualizarContadorFiltros() {
-  const activos = Object.values(filtros).filter((v) => v && v.trim() !== '').length;
+  const activos = Object.values(filtros).filter((v) => v && v.trim() !== '').length + (estadosFiltro.length > 0 ? 1 : 0);
 
   const contador = document.getElementById('filtros-contador');
   if (contador) contador.textContent = `(${activos})`;
@@ -511,7 +564,7 @@ export async function cargarOrdenes() {
     // solo el campo role, conserva id/nombre reales para auditoría).
     const { orders, hayMas } = await fetchOrders(usuarioVista(), currentTab, {
       page: paginaActual,
-      filters: filtros
+      filters: { ...filtros, estados: estadosFiltro }
     });
 
     // Si mientras esperábamos esta respuesta se disparó OTRA carga más
