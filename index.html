@@ -2053,32 +2053,47 @@
       white-space: nowrap;
     }
 
-    /* Selector del tipo de cierre a la fuerza (087). */
-    .cierre-tipo-opcion {
+    /* Selector del tipo de cierre a la fuerza (087). Va dentro de .form-group,
+       cuyas reglas (etiqueta en mayúsculas y en bloque, input al 100% de ancho)
+       hay que anular: por eso los selectores llevan .form-group delante. */
+    .form-group .cierre-tipo-opcion {
       display: flex;
       align-items: flex-start;
       gap: 10px;
+      margin-bottom: 0;
       padding: 8px 12px;
       border: 1.5px solid var(--border2);
       border-radius: var(--r);
       cursor: pointer;
       font-size: 13px;
+      font-weight: 400;
       color: var(--text);
+      text-transform: none;
+      letter-spacing: normal;
+      text-align: left;
     }
 
-    .cierre-tipo-opcion:has(input:checked) {
+    .form-group .cierre-tipo-opcion:has(input:checked) {
       border-color: var(--blue);
       background: var(--blue-bg);
     }
 
-    .cierre-tipo-opcion input {
-      margin-top: 3px;
+    .form-group .cierre-tipo-opcion input[type="radio"] {
+      width: auto;
+      padding: 0;
+      margin: 3px 0 0;
+      border: 0;
       flex-shrink: 0;
     }
 
-    .cierre-tipo-opcion small {
+    .form-group .cierre-tipo-opcion strong {
+      font-weight: 600;
+    }
+
+    .form-group .cierre-tipo-opcion small {
       display: block;
       font-size: 11px;
+      font-weight: 400;
       color: var(--text2);
       margin-top: 1px;
     }
