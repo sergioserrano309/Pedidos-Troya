@@ -108,6 +108,36 @@ async function fetchTodoElHistorial() {
 }
 
 /**
+ * Lee una vista/tabla por páginas de PAGE_SIZE. Cada página se reintenta y,
+ * si sigue fallando, la descarga se detiene con un error claro: antes la hoja
+ * salía vacía en silencio y parecía que no había datos.
+ */
+async function fetchPaginadoEstricto(nombre, crearConsulta) {
+  let todo = [];
+  let page = 0;
+  while (true) {
+    let data = null;
+    for (let intento = 1; intento <= REINTENTOS_PAGINA; intento++) {
+      const respuesta = await crearConsulta().range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+      if (!respuesta.error) {
+        data = respuesta.data || [];
+        break;
+      }
+      console.error(`[excel] Falló ${nombre} (página ${page + 1}, intento ${intento}):`, respuesta.error);
+      if (intento === REINTENTOS_PAGINA) {
+        throw new Error(`No se pudo cargar ${nombre}. La hoja no se generó para no entregarla incompleta.`);
+      }
+      await esperar(1000 * intento);
+    }
+    if (data.length === 0) break;
+    todo = todo.concat(data);
+    if (data.length < PAGE_SIZE) break;
+    page++;
+  }
+  return todo;
+}
+
+/**
  * Estado de despacho por pedido, para las columnas F_Despacho y
  * "Unidades Despachadas" de la hoja Órdenes. Una fila por pedido con
  * despachos; los pedidos que nunca han salido simplemente no aparecen.
@@ -118,7 +148,7 @@ async function fetchTodoElEstadoDespacho() {
   while (true) {
     const { data, error } = await supabase
       .from('vw_pedido_despacho_estado')
-      .select('order_number, unidades_despachadas, pedido_completo, fecha_ultimo_despacho')
+      .select('order_number, unidades_despachadas, pedido_completo, fecha_ultimo_despacho, porcentaje_despachado')
       .order('order_number', { ascending: false })
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
     if (error) return mapa;
@@ -144,73 +174,123 @@ async function fetchTodosLosDestinos() {
 }
 
 /**
- * Detalle despacho x orden (054) para la hoja "Despachos".
+ * Un registro por despacho, con kilos, unidades, órdenes, comentario y
+ * factura, desde el mismo RPC del listado Despachado (listar_despachos_registro).
+ *
+ * Se usa en vez de leer las tablas de despachos o vw_despacho_orden_detalle:
+ * con el filtro de pedidos ocultos (058) cada fila de despachos/despacho_bultos
+ * recorre todos los pedidos, y con el volumen actual Supabase corta la consulta
+ * por tiempo (57014) incluso en la primera página. El RPC primero recorta los
+ * despachos de la página y recién después agrega, por eso sí responde.
  */
-async function fetchTodoElDetalleDespachos() {
-  let all = [];
-  let page = 0;
+async function fetchRegistrosDespachosExcel() {
+  const TAMANO = 50;
+  const vistos = new Set();
+  const todos = [];
+  let offset = 0;
   while (true) {
-    const { data, error } = await supabase
-      .from('vw_despacho_orden_detalle')
-      .select('*')
-      .order('consecutivo', { ascending: false })
-      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
-    if (error) return all;
-    if (!data || data.length === 0) break;
-    all = all.concat(data);
-    page++;
+    let data = null;
+    for (let intento = 1; intento <= REINTENTOS_PAGINA; intento++) {
+      const respuesta = await supabase.rpc('listar_despachos_registro', {
+        p_orden: '',
+        p_fecha: '',
+        p_consecutivo: '',
+        p_cliente: '',
+        p_factura: '',
+        p_offset: offset,
+        p_limit: TAMANO
+      });
+      if (!respuesta.error) {
+        data = respuesta.data || [];
+        break;
+      }
+      console.error(`[excel] Falló el listado de despachos (desde ${offset}, intento ${intento}):`, respuesta.error);
+      if (intento === REINTENTOS_PAGINA) {
+        throw new Error('No se pudo cargar el listado de despachos. La hoja no se generó para no entregarla incompleta.');
+      }
+      await esperar(1000 * intento);
+    }
+    data.forEach((r) => {
+      if (vistos.has(r.id)) return;
+      vistos.add(r.id);
+      todos.push(r);
+    });
+    if (data.length < TAMANO) break;
+    offset += TAMANO;
   }
-  return all;
+  return todos;
 }
 
 /**
- * Comentario de cada salida (062), por despacho_id. Solo vienen los
- * despachos que tienen comentario. Si falla (p. ej. el SQL 062 aún no
- * está aplicado y la columna no existe), la hoja sale igual con la
- * columna vacía en vez de impedir la descarga.
+ * Detalle despacho x orden para la hoja "Despachos": una fila por despacho x
+ * orden, con las mismas columnas de vw_despacho_orden_detalle (054/055). Los
+ * atributos de la orden salen de `ordenes` (vw_pedido_progreso_atributos) y el
+ * avance de despacho de `estadoDespacho`.
  */
-async function fetchComentariosDespachos() {
-  const mapa = new Map();
-  let page = 0;
-  while (true) {
-    const { data, error } = await supabase
-      .from('despachos')
-      .select('id, comentario')
-      .not('comentario', 'is', null)
+async function fetchTodoElDetalleDespachos(registros, ordenes, estadoDespacho, itemsDespachados) {
+  const asignaciones = await fetchPaginadoEstricto('los bultos por orden', () =>
+    supabase
+      .from('despacho_orden_bultos')
+      .select('despacho_id, order_number, bulto_numero')
       .order('id', { ascending: true })
-      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
-    if (error) return mapa;
-    if (!data || data.length === 0) break;
-    data.forEach((f) => {
-      if (f.comentario) mapa.set(f.id, f.comentario);
-    });
-    page++;
-  }
-  return mapa;
-}
+  );
 
-/**
- * Número de factura de cada salida (068), por despacho_id. Si falla
- * (SQL 068 aún no aplicado), la hoja sale con FV vacía.
- */
-async function fetchFacturasDespachos() {
-  const mapa = new Map();
-  let page = 0;
-  while (true) {
-    const { data, error } = await supabase
-      .from('despachos')
-      .select('id, numero_factura')
-      .not('numero_factura', 'is', null)
-      .order('id', { ascending: true })
-      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
-    if (error) return mapa;
-    if (!data || data.length === 0) break;
-    data.forEach((f) => {
-      if (f.numero_factura) mapa.set(f.id, f.numero_factura);
+  const ordenPorNumero = new Map(ordenes.map((o) => [String(o.order_number), o]));
+
+  const unidadesPorOrden = new Map();
+  itemsDespachados.forEach((it) => {
+    const clave = `${it.despacho_id}|${it.order_number}`;
+    unidadesPorOrden.set(clave, (unidadesPorOrden.get(clave) || 0) + (it.cantidad ?? 0));
+  });
+
+  const bultosPorOrden = new Map();
+  asignaciones.forEach((a) => {
+    const clave = `${a.despacho_id}|${a.order_number}`;
+    if (!bultosPorOrden.has(clave)) bultosPorOrden.set(clave, []);
+    bultosPorOrden.get(clave).push(a.bulto_numero);
+  });
+
+  const filas = [];
+  registros.forEach((d) => {
+    (d.order_numbers || []).forEach((numeroOrden) => {
+      const o = ordenPorNumero.get(String(numeroOrden));
+      const estado = estadoDespacho[String(numeroOrden)];
+      const clave = `${d.id}|${numeroOrden}`;
+      const asignados = (bultosPorOrden.get(clave) || []).sort((x, y) => x - y);
+
+      filas.push({
+        despacho_id: d.id,
+        consecutivo: d.consecutivo,
+        fecha_despacho: d.confirmed_at || d.created_at,
+        revisado: d.revisado,
+        order_number: numeroOrden,
+        cliente: o?.cliente ?? null,
+        nombre_referencia: o?.nombre_referencia ?? null,
+        material: o?.material ?? null,
+        color: o?.color ?? null,
+        vira: !!o?.vira,
+        acabado: !!o?.acabado,
+        esterilla: !!o?.esterilla,
+        marquilla: !!o?.marquilla,
+        unidades_orden_despacho: unidadesPorOrden.get(clave) ?? 0,
+        bultos_asignados: asignados.join(', '),
+        numero_bultos: asignados.length,
+        kilos_despacho: d.peso_total ?? 0,
+        unidades_despacho: d.total_unidades ?? 0,
+        porcentaje_despachado: estado?.porcentaje_despachado ?? 0,
+        pedido_completo: estado?.pedido_completo ?? false,
+        bultos_despacho: d.total_bultos
+      });
     });
-    page++;
-  }
-  return mapa;
+  });
+
+  // Más reciente primero; D2 antes que D10 en el orden numérico.
+  filas.sort(
+    (a, b) =>
+      String(b.consecutivo).localeCompare(String(a.consecutivo), undefined, { numeric: true }) ||
+      String(a.order_number).localeCompare(String(b.order_number), undefined, { numeric: true })
+  );
+  return filas;
 }
 
 /**
@@ -218,19 +298,12 @@ async function fetchFacturasDespachos() {
  * columnas de talla de la hoja "Despachos".
  */
 async function fetchTodosLosItemsDespachados() {
-  let all = [];
-  let page = 0;
-  while (true) {
-    const { data, error } = await supabase
+  return fetchPaginadoEstricto('las unidades despachadas', () =>
+    supabase
       .from('despacho_orden_items')
       .select('despacho_id, order_number, talla, cantidad')
-      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
-    if (error) return all;
-    if (!data || data.length === 0) break;
-    all = all.concat(data);
-    page++;
-  }
-  return all;
+      .order('id', { ascending: true })
+  );
 }
 
 /**
@@ -438,10 +511,16 @@ export async function generarExcel() {
   const destinos = await fetchTodosLosDestinos();
   const eliminaciones = await fetchTodasLasEliminaciones();
   const estadoDespacho = await fetchTodoElEstadoDespacho();
-  const detalleDespachos = await fetchTodoElDetalleDespachos();
   const itemsDespachados = await fetchTodosLosItemsDespachados();
-  const comentariosDespachos = await fetchComentariosDespachos();
-  const facturasDespachos = await fetchFacturasDespachos();
+  const registrosDespachos = await fetchRegistrosDespachosExcel();
+  const detalleDespachos = await fetchTodoElDetalleDespachos(registrosDespachos, ordenes, estadoDespacho, itemsDespachados);
+  // Comentario y factura de cada salida (062 y 068), por despacho_id.
+  const comentariosDespachos = new Map(
+    registrosDespachos.filter((r) => r.comentario).map((r) => [r.id, r.comentario])
+  );
+  const facturasDespachos = new Map(
+    registrosDespachos.filter((r) => r.numero_factura).map((r) => [r.id, r.numero_factura])
+  );
   const tallas = await fetchTodasLasTallas();
   const lineasInyeccionERP = await fetchLineasInyeccionERP();
   const estadoSincronizacionERP = await fetchEstadoSincronizacion();
