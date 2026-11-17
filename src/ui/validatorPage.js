@@ -4,6 +4,8 @@ import { mostrarToast } from './toast.js';
 import { fetchOpcionesCliente, fetchOpcionesNombreSuela, fetchOpcionesMaterial, fetchOpcionesColor } from '../services/ordersService.js';
 import { construirMapaUltimaFechaPorProceso, calcularDiasPorProceso } from '../lib/procesoDias.js';
 import { esValidador } from '../services/validatorService.js';
+import { montarMultiSelect } from './multiSelect.js';
+import { ESTADOS_PEDIDO, condicionEstados } from '../lib/estadosPedido.js';
 import { getState } from '../state/appState.js';
 import { fetchInyectadoPorPedidos, fetchEstadoSincronizacion } from '../services/inyeccionService.js';
 import { aplicaInyeccion, porcentajeInyectado, estadoSincronizacion } from '../lib/inyeccion.js';
@@ -18,6 +20,9 @@ let paginaActual = 0;
 const PAGE_SIZE = 50;
 let hayPaginaSiguiente = false;
 let filtros = { orden: '', cliente: '', nombreSuela: '', material: '', color: '', fecha: '', vira: '', acabado: '', esterilla: '', marquilla: '' };
+
+// Filtro por Estado (solo Validador): En proceso / Completado / Cerrado, varios a la vez.
+let estadosFiltro = [];
 
 // Atributos Sí/No por pedido (alguna línea = Sí), ver SQL 082.
 const ATRIBUTOS_SI_NO = ['vira', 'acabado', 'esterilla', 'marquilla'];
@@ -55,6 +60,7 @@ export async function cargarValidadorPage() {
           <option value="">Color...</option>
         </select>
         <input type="date" id="validador-filtro-fecha" style="${ESTILO_INPUT}">
+        ${esValidador() ? '<div id="validador-filtro-estado" class="filtro-estado-celda"></div>' : ''}
         ${['Vira', 'Acabado', 'Esterilla', 'Marquilla'].map((nombre) => `
         <label class="filtro-toggle" data-filtro-toggle="validador-filtro-${nombre.toLowerCase()}" title="Mostrar solo pedidos con ${nombre.toLowerCase()}">
           <span class="filtro-toggle-lbl">${nombre}</span>
@@ -85,6 +91,20 @@ export async function cargarValidadorPage() {
 
   // El HTML se reconstruye con los interruptores apagados: el estado también.
   ATRIBUTOS_SI_NO.forEach((a) => { filtros[a] = ''; });
+  estadosFiltro = [];
+
+  const celdaEstado = document.getElementById('validador-filtro-estado');
+  if (celdaEstado) {
+    montarMultiSelect(celdaEstado, {
+      placeholder: 'Estado...',
+      opciones: ESTADOS_PEDIDO,
+      alCambiar: (valores) => {
+        estadosFiltro = valores;
+        paginaActual = 0;
+        cargarValidador();
+      }
+    });
+  }
 
   document.getElementById('btn-refrescar-validador')?.addEventListener('click', () => cargarValidador());
 
@@ -260,6 +280,8 @@ async function cargarValidador() {
   atributos.forEach((a) => {
     query = query.eq(a, true);
   });
+  const condEstados = condicionEstados(estadosFiltro);
+  if (condEstados) query = query.or(condEstados);
 
   if (filtros.orden.trim()) {
     query = query.ilike('order_number', `%${filtros.orden.trim()}%`);

@@ -16,6 +16,13 @@ export const TIPOS_CIERRE = {
   operativo: 'Otro motivo operativo'
 };
 
+/** Explicación corta de cada tipo (la misma de la ventana de cierre). */
+export const TIPOS_CIERRE_AYUDA = {
+  cancelado: 'El pedido se canceló. No cuenta como pendiente en el Dashboard.',
+  no_terminado: 'No se despachó completo y ya no se va a despachar más. Sí cuenta como pendiente.',
+  operativo: 'Cualquier otra razón de la operación. Sí cuenta como pendiente.'
+};
+
 /** Texto de un tipo de cierre; "Sin clasificar" si es un cierre anterior a 087. */
 export function etiquetaTipoCierre(tipo) {
   return TIPOS_CIERRE[tipo] || 'Sin clasificar';
