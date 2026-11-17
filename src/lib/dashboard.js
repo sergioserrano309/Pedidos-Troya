@@ -23,9 +23,9 @@
 export const ZONA_DESPACHO = 'America/Bogota';
 
 export const MEDIDAS = {
-  solicitado: { etiqueta: 'Solicitado', ayuda: 'Pares pedidos (sin pedidos cancelados en Access).' },
+  solicitado: { etiqueta: 'Solicitado', ayuda: 'Pares pedidos (sin pedidos cancelados: en Access o cerrados a la fuerza como Cancelado).' },
   despachado: { etiqueta: 'Despachado', ayuda: 'Pares que ya salieron en un despacho.' },
-  pendiente: { etiqueta: 'Pendiente por despachar', ayuda: 'Solicitado menos despachado, sin pedidos cancelados en Access.' }
+  pendiente: { etiqueta: 'Pendiente por despachar', ayuda: 'Solicitado menos despachado, sin pedidos cancelados (en Access o cerrados a la fuerza como Cancelado).' }
 };
 
 export const LECTURAS = {
