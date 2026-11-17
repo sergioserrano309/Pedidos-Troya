@@ -4,8 +4,9 @@ import { mostrarToast } from './toast.js';
 /**
  * Cierre forzado de un pedido por el Validador (supabase/sql/057_cierre_forzado.sql).
  * Mismo formato que el visto bueno de un despacho: check circular con ✓
- * (.checkbox-revisado) que se prende y se apaga. Prender pide un motivo;
- * apagar reabre el pedido.
+ * (.checkbox-revisado) que se prende y se apaga. Prender pide el tipo de cierre
+ * (cancelado / no se terminó de despachar / otro motivo operativo, 087) y un
+ * motivo; apagar reabre el pedido.
  */
 
 let pedidoACerrar = null;
@@ -33,6 +34,7 @@ export async function alternarCierreForzado(checkbox, refrescar) {
     alTerminar = refrescar;
     checkboxPendiente = checkbox;
     document.getElementById('cierre-forzado-motivo').value = '';
+    document.querySelectorAll('input[name="cierre-forzado-tipo"]').forEach((r) => { r.checked = false; });
     document.getElementById('cierre-forzado-resumen').innerHTML = `Pedido <strong>${escapeHtml(orderNumber)}</strong>`;
     document.getElementById('modal-cierre-forzado').classList.add('open');
     return;
@@ -59,6 +61,12 @@ function cerrarModal() {
 }
 
 async function confirmarCierre() {
+  const tipo = document.querySelector('input[name="cierre-forzado-tipo"]:checked')?.value;
+  if (!tipo) {
+    mostrarToast('Elige por qué se cierra el pedido: cancelado, no se terminó de despachar u otro motivo operativo.', 'error');
+    return;
+  }
+
   const motivo = document.getElementById('cierre-forzado-motivo').value.trim();
   if (!motivo) {
     mostrarToast('Debes indicar el motivo del cierre.', 'error');
@@ -71,7 +79,7 @@ async function confirmarCierre() {
   const orderNumber = pedidoACerrar;
 
   try {
-    await cerrarPedidoForzado(orderNumber, motivo);
+    await cerrarPedidoForzado(orderNumber, motivo, tipo);
     mostrarToast(`Pedido ${orderNumber} cerrado a la fuerza.`, 'ok');
     cerrarModal();
     if (refrescar) await refrescar();

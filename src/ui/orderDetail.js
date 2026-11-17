@@ -8,8 +8,8 @@ import { calcularPendientePorProceso, calcularProcesadoPorProceso, calcularRecib
 import { abrirModalProcesar } from './processModal.js';
 import { abrirModalDevolucion } from './returnModal.js';
 import { mostrarToast } from './toast.js';
-import { usuarioEfectivo, esVistaInyeccion } from '../services/validatorService.js';
-import { fetchCierreForzadoDePedido } from '../services/cierreForzadoService.js';
+import { usuarioEfectivo, esVistaInyeccion, esValidador } from '../services/validatorService.js';
+import { fetchCierreForzadoDePedido, clasificarCierreForzado, etiquetaTipoCierre, TIPOS_CIERRE } from '../services/cierreForzadoService.js';
 import { fetchCambiosDePedido } from '../services/cambiosErpService.js';
 import { resumenNota } from '../lib/cambiosErp.js';
 
@@ -314,13 +314,47 @@ function renderProcesarLoteHeader() {
   // Pedido cerrado a la fuerza por el Validador (057): solo lectura para todos.
   if (cierreForzadoOrden) {
     const cuando = cierreForzadoOrden.cerradoAt ? new Date(cierreForzadoOrden.cerradoAt).toLocaleDateString('es-CO') : '';
+    // Tipo del cierre (087). Un cierre anterior queda "Sin clasificar" y el
+    // Validador puede clasificarlo desde aquí.
+    const puedeClasificar = !cierreForzadoOrden.tipo && esValidador();
+    const tipoHtml = cierreForzadoOrden.tipo
+      ? `<div>Tipo: <strong>${escapeHtml(etiquetaTipoCierre(cierreForzadoOrden.tipo))}</strong></div>`
+      : puedeClasificar
+        ? `<div class="banner-cierre-forzado-tipo">Tipo: <strong>Sin clasificar</strong>
+            <select id="cierre-clasificar-tipo" aria-label="Tipo de cierre">
+              <option value="">Elegir...</option>
+              ${Object.entries(TIPOS_CIERRE).map(([k, v]) => `<option value="${k}">${escapeHtml(v)}</option>`).join('')}
+            </select>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-clasificar-cierre">Clasificar</button>
+          </div>`
+        : '<div>Tipo: Sin clasificar</div>';
     el.innerHTML = `
       <div class="banner-cierre-forzado">
         <strong>Cerrada a la fuerza</strong>${cierreForzadoOrden.cerradoPor ? ` por ${escapeHtml(cierreForzadoOrden.cerradoPor)}` : ''}${cuando ? ` · ${cuando}` : ''}
         <div>Motivo: ${escapeHtml(cierreForzadoOrden.motivo || '—')}</div>
+        ${tipoHtml}
         <div class="banner-cierre-forzado-nota">No admite registros ni eliminaciones mientras el Validador no la reabra.</div>
       </div>
       <div class="orden-divider"></div>`;
+
+    document.getElementById('btn-clasificar-cierre')?.addEventListener('click', async () => {
+      const tipo = document.getElementById('cierre-clasificar-tipo')?.value;
+      if (!tipo) {
+        mostrarToast('Elige el tipo de cierre.', 'error');
+        return;
+      }
+      const orden = getState().selectedOrderNumber;
+      const btn = document.getElementById('btn-clasificar-cierre');
+      btn.disabled = true;
+      try {
+        await clasificarCierreForzado(orden, tipo);
+        mostrarToast('Cierre clasificado.', 'ok');
+        await abrirDetalleOrden(orden);
+      } catch (err) {
+        mostrarToast(err.message, 'error');
+        btn.disabled = false;
+      }
+    });
     return;
   }
 

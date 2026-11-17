@@ -5,6 +5,7 @@ import { soloFecha, construirMapaUltimaFechaPorProceso, fechaFinProceso, calcula
 import { fetchLineasInyeccionERP, fetchEstadoSincronizacion } from './inyeccionService.js';
 import { filasInyeccionERP } from '../lib/inyeccion.js';
 import { fetchTodosLosCambiosERP } from './cambiosErpService.js';
+import { fetchTiposCierre, etiquetaTipoCierre } from './cierreForzadoService.js';
 import { filasCambiosERP } from '../lib/cambiosErp.js';
 
 const PAGE_SIZE = 1000;
@@ -445,6 +446,8 @@ export async function generarExcel() {
   const lineasInyeccionERP = await fetchLineasInyeccionERP();
   const estadoSincronizacionERP = await fetchEstadoSincronizacion();
   const cambiosERP = await fetchTodosLosCambiosERP();
+  // Tipo de cada cierre a la fuerza (087); si falla, sale "Sin clasificar".
+  const tiposCierre = await fetchTiposCierre();
 
   const mapaUltimaFecha = construirMapaUltimaFechaPorProceso(historial);
 
@@ -525,7 +528,9 @@ export async function generarExcel() {
       'FechaCerradaF': orden.cierre_forzado
         ? (serialExcelDeDia(soloFecha(orden.cierre_forzado_at)) ?? '—')
         : 'No',
-      'MotivoCierreF': orden.cierre_forzado ? (orden.cierre_forzado_motivo || '—') : 'No'
+      'MotivoCierreF': orden.cierre_forzado ? (orden.cierre_forzado_motivo || '—') : 'No',
+      // Cancelado / No se terminó de despachar / Otro motivo operativo (087).
+      'TipoCierreF': orden.cierre_forzado ? etiquetaTipoCierre(tiposCierre.get(String(orden.order_number))) : 'No'
     };
   });
   const wsOrdenes = XLSX.utils.json_to_sheet(hojaCórdenes);

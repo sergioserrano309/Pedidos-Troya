@@ -405,7 +405,7 @@ function pintar() {
   if (notas.cancelados.length > 0) {
     const pares = notas.cancelados.reduce((s, n) => s + n.pares, 0);
     partes.push(`<div class="dash-nota info">ℹ ${notas.cancelados.length} pedido${notas.cancelados.length === 1 ? '' : 's'} cancelado${notas.cancelados.length === 1 ? '' : 's'}
-      en Access (${formatearPares(pares)} pares) no cuenta${notas.cancelados.length === 1 ? '' : 'n'} en solicitado ni pendiente. Lo que ya se
+      en Access, o cerrado${notas.cancelados.length === 1 ? '' : 's'} a la fuerza como "Cancelado" (${formatearPares(pares)} pares), no cuenta${notas.cancelados.length === 1 ? '' : 'n'} en solicitado ni pendiente. Lo que ya se
       despachó de ellos sí aparece en el despachado por fecha de despacho. ${listaPedidos(notas.cancelados)}</div>`);
   }
   const notasEl = document.getElementById('dash-notas');
