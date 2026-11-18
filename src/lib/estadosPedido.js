@@ -34,3 +34,20 @@ export function condicionEstados(valores) {
   if (elegidos.length === 0 || elegidos.length === ESTADOS_PEDIDO.length) return null;
   return elegidos.map((v) => CONDICION[v]).join(',');
 }
+
+/**
+ * Misma regla que condicionEstados, pero evaluada en el navegador sobre una
+ * fila ya descargada (para filtrar sin volver a consultar).
+ * @param {{ estatus_general?: string, cierre_forzado?: boolean }} fila
+ * @param {string[]} valores
+ */
+export function cumpleEstados(fila, valores) {
+  if (condicionEstados(valores) === null) return true; // sin filtro
+  const cerrado = fila.cierre_forzado === true;
+  return (valores || []).some((v) => {
+    if (v === 'cerrado') return cerrado;
+    if (v === 'en_proceso') return !cerrado && fila.estatus_general === 'En Proceso';
+    if (v === 'completado') return !cerrado && fila.estatus_general === 'Completado';
+    return false;
+  });
+}

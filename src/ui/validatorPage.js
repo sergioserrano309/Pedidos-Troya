@@ -5,10 +5,13 @@ import { fetchOpcionesCliente, fetchOpcionesNombreSuela, fetchOpcionesMaterial, 
 import { construirMapaUltimaFechaPorProceso, calcularDiasPorProceso } from '../lib/procesoDias.js';
 import { esValidador } from '../services/validatorService.js';
 import { montarMultiSelect } from './multiSelect.js';
-import { ESTADOS_PEDIDO, condicionEstados } from '../lib/estadosPedido.js';
+import { ESTADOS_PEDIDO, condicionEstados, cumpleEstados } from '../lib/estadosPedido.js';
+import { calcularOpciones } from '../lib/facetas.js';
 import { getState } from '../state/appState.js';
 import { fetchInyectadoPorPedidos, fetchEstadoSincronizacion } from '../services/inyeccionService.js';
 import { aplicaInyeccion, porcentajeInyectado, estadoSincronizacion } from '../lib/inyeccion.js';
+import { fetchEstadoPedidos } from '../services/despachosService.js';
+import { fetchTroyaPorPedidos } from '../services/cierreForzadoService.js';
 
 // Estado de la sincronización del Total Inyectado (solo Validador). Se refresca
 // con cada carga de la tabla y, mientras la pantalla esté abierta, cada minuto.
@@ -19,7 +22,18 @@ const MS_REFRESCO_ESTADO = 60 * 1000;
 let paginaActual = 0;
 const PAGE_SIZE = 50;
 let hayPaginaSiguiente = false;
-let filtros = { orden: '', cliente: '', nombreSuela: '', material: '', color: '', fecha: '', vira: '', acabado: '', esterilla: '', marquilla: '' };
+// cliente / nombreSuela / material / color admiten VARIAS opciones (listas).
+const filtrosVacios = () => ({ orden: '', cliente: [], nombreSuela: [], material: [], color: [], fecha: '', vira: '', acabado: '', esterilla: '', marquilla: '' });
+let filtros = filtrosVacios();
+
+// Desplegables de selección múltiple (se montan al dibujar la pantalla).
+const MULTI_FILTROS = {
+  cliente: { id: 'validador-filtro-cliente', placeholder: 'Cliente...', plural: 'clientes', columna: 'cliente' },
+  nombreSuela: { id: 'validador-filtro-nombre-suela', placeholder: 'Nombre Suela...', plural: 'nombres', columna: 'nombre_referencia' },
+  material: { id: 'validador-filtro-material', placeholder: 'Material...', plural: 'materiales', columna: 'material' },
+  color: { id: 'validador-filtro-color', placeholder: 'Color...', plural: 'colores', columna: 'color' }
+};
+const multis = {};
 
 // Filtro por Estado (solo Validador): En proceso / Completado / Cerrado, varios a la vez.
 let estadosFiltro = [];
@@ -47,18 +61,10 @@ export async function cargarValidadorPage() {
 
       <div id="validador-filtros" style="display:grid;grid-template-columns:150px 1.2fr 1.2fr 1fr 1fr;gap:0.75rem;margin-bottom:1rem;">
         <input type="text" id="validador-filtro-orden" placeholder="No. Orden" maxlength="4" style="${ESTILO_INPUT}">
-        <select id="validador-filtro-cliente" style="${ESTILO_INPUT}">
-          <option value="">Cliente...</option>
-        </select>
-        <select id="validador-filtro-nombre-suela" style="${ESTILO_INPUT}">
-          <option value="">Nombre Suela...</option>
-        </select>
-        <select id="validador-filtro-material" style="${ESTILO_INPUT}">
-          <option value="">Material...</option>
-        </select>
-        <select id="validador-filtro-color" style="${ESTILO_INPUT}">
-          <option value="">Color...</option>
-        </select>
+        <div id="validador-filtro-cliente" class="filtro-estado-celda"></div>
+        <div id="validador-filtro-nombre-suela" class="filtro-estado-celda"></div>
+        <div id="validador-filtro-material" class="filtro-estado-celda"></div>
+        <div id="validador-filtro-color" class="filtro-estado-celda"></div>
         <input type="date" id="validador-filtro-fecha" style="${ESTILO_INPUT}">
         ${esValidador() ? '<div id="validador-filtro-estado" class="filtro-estado-celda"></div>' : ''}
         ${['Vira', 'Acabado', 'Esterilla', 'Marquilla'].map((nombre) => `
@@ -70,6 +76,8 @@ export async function cargarValidadorPage() {
           </span>
         </label>`).join('')}
       </div>
+
+      <div id="validador-resumen"></div>
 
       ${esValidador()
         ? '<div id="validador-nota-inyeccion" style="font-size:11px; color:var(--text3); margin:-0.25rem 0 0.5rem;">I% = Inyección (ERP): pares inyectados | % de lo solicitado. Verificando actualización…</div>'
@@ -89,9 +97,19 @@ export async function cargarValidadorPage() {
     </div>
   `;
 
-  // El HTML se reconstruye con los interruptores apagados: el estado también.
-  ATRIBUTOS_SI_NO.forEach((a) => { filtros[a] = ''; });
+  // El HTML se reconstruye con todo vacío: el estado también.
+  filtros = filtrosVacios();
   estadosFiltro = [];
+
+  // Cada cambio de filtro: la tabla se vuelve a pedir al servidor y las
+  // opciones de los desplegables y las tarjetas se recalculan al instante
+  // con los datos ya descargados (sin consultar).
+  const alCambiarFiltros = () => {
+    paginaActual = 0;
+    actualizarOpcionesFiltros();
+    pintarResumenActual();
+    cargarValidador();
+  };
 
   const celdaEstado = document.getElementById('validador-filtro-estado');
   if (celdaEstado) {
@@ -100,20 +118,33 @@ export async function cargarValidadorPage() {
       opciones: ESTADOS_PEDIDO,
       alCambiar: (valores) => {
         estadosFiltro = valores;
-        paginaActual = 0;
-        cargarValidador();
+        alCambiarFiltros();
       }
     });
   }
 
-  document.getElementById('btn-refrescar-validador')?.addEventListener('click', () => cargarValidador());
+  Object.entries(MULTI_FILTROS).forEach(([clave, cfg]) => {
+    const celda = document.getElementById(cfg.id);
+    if (!celda) return;
+    multis[clave] = montarMultiSelect(celda, {
+      placeholder: cfg.placeholder,
+      etiquetaPlural: cfg.plural,
+      buscable: true,
+      opciones: [],
+      alCambiar: (valores) => {
+        filtros[clave] = valores;
+        alCambiarFiltros();
+      }
+    });
+  });
+
+  document.getElementById('btn-refrescar-validador')?.addEventListener('click', () => {
+    cargarBase({ silencioso: true });
+    cargarValidador();
+  });
 
   const FILTRO_ID_A_CLAVE = {
     'validador-filtro-orden': 'orden',
-    'validador-filtro-cliente': 'cliente',
-    'validador-filtro-nombre-suela': 'nombreSuela',
-    'validador-filtro-material': 'material',
-    'validador-filtro-color': 'color',
     'validador-filtro-fecha': 'fecha',
     'validador-filtro-vira': 'vira',
     'validador-filtro-acabado': 'acabado',
@@ -130,22 +161,19 @@ export async function cargarValidadorPage() {
       // Interruptor: encendido = solo pedidos con ese atributo; apagado = sin filtro.
       el.addEventListener('change', () => {
         filtros[FILTRO_ID_A_CLAVE[id]] = el.checked ? 'Si' : '';
-        paginaActual = 0;
-        cargarValidador();
+        alCambiarFiltros();
       });
-    } else if (el.tagName === 'SELECT') {
+    } else if (el.type === 'date') {
       el.addEventListener('change', () => {
-        filtros[FILTRO_ID_A_CLAVE[id]] = el.value;
-        paginaActual = 0;
-        cargarValidador();
+        filtros[FILTRO_ID_A_CLAVE[id]] = el.value.trim();
+        alCambiarFiltros();
       });
     } else {
       el.addEventListener('input', () => {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
           filtros[FILTRO_ID_A_CLAVE[id]] = el.value.trim();
-          paginaActual = 0;
-          cargarValidador();
+          alCambiarFiltros();
         }, 350);
       });
     }
@@ -166,6 +194,8 @@ export async function cargarValidadorPage() {
 
   poblarFiltrosDropdown();
   iniciarTemporizadorInyeccion();
+  pintarResumen(null); // "…" hasta que llegue la base
+  cargarBase();
   await cargarValidador();
 }
 
@@ -232,17 +262,7 @@ function iniciarTemporizadorInyeccion() {
  * listado normal de Órdenes — ver poblarFiltrosDropdown() en dashboard.js.
  */
 async function poblarFiltrosDropdown() {
-  const rellenar = (id, valores) => {
-    const select = document.getElementById(id);
-    if (!select) return;
-    valores.forEach((valor) => {
-      const option = document.createElement('option');
-      option.value = valor;
-      option.textContent = valor;
-      select.appendChild(option);
-    });
-  };
-
+  const aOpciones = (valores) => valores.map((v) => ({ valor: v, etiqueta: v }));
   try {
     const [clientes, nombresSuela, materiales, colores] = await Promise.all([
       fetchOpcionesCliente(),
@@ -250,10 +270,12 @@ async function poblarFiltrosDropdown() {
       fetchOpcionesMaterial(),
       fetchOpcionesColor()
     ]);
-    rellenar('validador-filtro-cliente', clientes);
-    rellenar('validador-filtro-nombre-suela', nombresSuela);
-    rellenar('validador-filtro-material', materiales);
-    rellenar('validador-filtro-color', colores);
+    // Si la base ya llegó, sus opciones en cascada mandan (no se pisan).
+    if (baseCC) return;
+    multis.cliente?.actualizarOpciones(aOpciones(clientes));
+    multis.nombreSuela?.actualizarOpciones(aOpciones(nombresSuela));
+    multis.material?.actualizarOpciones(aOpciones(materiales));
+    multis.color?.actualizarOpciones(aOpciones(colores));
   } catch (err) {
     console.error('[validadorPage] Error cargando opciones de filtros:', err);
   }
@@ -267,15 +289,22 @@ async function poblarFiltrosDropdown() {
  */
 export async function refrescarValidadorSiVisible() {
   if (!document.getElementById('validador-tabla')) return;
+  // Realtime puede disparar muchas veces seguidas: los datos de las tarjetas y
+  // de las opciones se vuelven a bajar una sola vez por ráfaga (tras 1,5 s).
+  clearTimeout(temporizadorBase);
+  temporizadorBase = setTimeout(() => cargarBase({ silencioso: true }), 1500);
   await cargarValidador();
 }
 
-async function cargarValidador() {
+/**
+ * Consulta de pedidos de la tabla con TODOS los filtros activos aplicados.
+ */
+function consultaPedidosFiltrados(columnas) {
   // Con algún interruptor encendido se lee vw_pedido_progreso_atributos (082).
   const atributos = ATRIBUTOS_SI_NO.filter((a) => filtros[a] === 'Si');
   let query = supabase
     .from(atributos.length > 0 ? 'vw_pedido_progreso_atributos' : 'vw_pedido_progreso')
-    .select('*')
+    .select(columnas)
     .order('order_number', { ascending: false });
   atributos.forEach((a) => {
     query = query.eq(a, true);
@@ -286,21 +315,18 @@ async function cargarValidador() {
   if (filtros.orden.trim()) {
     query = query.ilike('order_number', `%${filtros.orden.trim()}%`);
   }
-  if (filtros.cliente) {
-    query = query.eq('cliente', filtros.cliente);
-  }
-  if (filtros.nombreSuela) {
-    query = query.eq('nombre_referencia', filtros.nombreSuela);
-  }
-  if (filtros.material) {
-    query = query.eq('material', filtros.material);
-  }
-  if (filtros.color) {
-    query = query.eq('color', filtros.color);
-  }
+  // Selección múltiple: uno o varios valores exactos.
+  Object.entries(MULTI_FILTROS).forEach(([clave, cfg]) => {
+    if (filtros[clave].length > 0) query = query.in(cfg.columna, filtros[clave]);
+  });
   if (filtros.fecha) {
     query = query.eq('fecha_pedido', filtros.fecha);
   }
+  return query;
+}
+
+async function cargarValidador() {
+  const query = consultaPedidosFiltrados('*');
 
   const { data, error } = await query.range(
     paginaActual * PAGE_SIZE,
@@ -345,8 +371,287 @@ async function cargarValidador() {
     inyeccion = await fetchInyectadoPorPedidos(numerosOrden);
   }
 
-  renderTablaValidador(ordenes, mapaUltimaFecha, inyeccion);
+  // Unidades despachadas por pedido (Despachos + Troya). null = la consulta
+  // falló ("—"); no debe tumbar el resto de la tabla.
+  const despachadas = await despachadasPorPedidos(numerosOrden);
+
+  renderTablaValidador(ordenes, mapaUltimaFecha, inyeccion, despachadas);
   renderPaginacionValidador();
+}
+
+// ---------------------------------------------------------------------
+// Datos base en memoria: alimentan las tarjetas y las opciones en cascada
+// ---------------------------------------------------------------------
+//
+// Se descargan UNA vez al entrar (y al pulsar Refrescar o cuando realtime avisa
+// de cambios): una fila por pedido con solo las columnas necesarias. Después,
+// filtrar no consulta nada: se filtra aquí mismo y las tarjetas y las listas
+// responden al instante. La tabla sí se sigue pidiendo al servidor (paginada).
+
+const LOTE_PEDIDOS = 150; // números de pedido por consulta (evita URLs enormes)
+const LOTE_FILAS = 1000; // tope de filas por consulta de Supabase
+const COLUMNAS_BASE = 'order_number, cliente, nombre_referencia, material, color, fecha_pedido, estatus_general, cierre_forzado, vira, acabado, esterilla, marquilla, total_solicitado, procesado_refilado, procesado_acabado, procesado_mateado, procesado_empaque';
+const CARGANDO = 'cargando';
+
+let baseCC = null; // pedidos; null = aún no llega
+let extraCC = null; // { inyectado, despachadas } por pedido; null = aún no llega
+let versionBase = 0;
+let temporizadorBase = null;
+
+// Mismas columnas y modos que usa Activas/Completadas para sus listas en cascada.
+const CAMPOS_FACETAS = {
+  orden: { columna: 'order_number', modo: 'contiene' },
+  cliente: { columna: 'cliente', modo: 'exacto', lista: true },
+  nombreSuela: { columna: 'nombre_referencia', modo: 'exacto', lista: true },
+  material: { columna: 'material', modo: 'exacto', lista: true },
+  color: { columna: 'color', modo: 'exacto', lista: true },
+  fecha: { columna: 'fecha_pedido', modo: 'exacto' }
+};
+
+/** Parte la lista en lotes y los consulta todos a la vez. */
+async function porLotes(lista, fn) {
+  const lotes = [];
+  for (let i = 0; i < lista.length; i += LOTE_PEDIDOS) {
+    lotes.push(lista.slice(i, i + LOTE_PEDIDOS));
+  }
+  return Promise.all(lotes.map(fn));
+}
+
+/**
+ * Unidades despachadas por pedido = Despachos + lo despachado en Troya (089).
+ * Map(pedido -> { despachadas, troya }), o null si la consulta falló.
+ */
+async function despachadasPorPedidos(numeros) {
+  const lista = [...new Set(numeros.map(String))];
+  const mapa = new Map();
+  try {
+    const lotes = await porLotes(lista, (lote) =>
+      Promise.all([fetchEstadoPedidos(lote), fetchTroyaPorPedidos(lote)]));
+    lotes.forEach(([estado, troya]) => {
+      estado.forEach((v, k) => mapa.set(k, { despachadas: v.despachadas ?? 0, troya: 0 }));
+      troya.forEach((pares, k) => {
+        const previo = mapa.get(k) || { despachadas: 0, troya: 0 };
+        mapa.set(k, { despachadas: previo.despachadas + pares, troya: pares });
+      });
+    });
+    return mapa;
+  } catch (err) {
+    console.error('[validadorPage] Error obteniendo unidades despachadas:', err);
+    return null;
+  }
+}
+
+/** Inyectado por pedido de TODOS los pedidos dados (por lotes). null si falla. */
+async function inyectadoPorPedidos(numeros) {
+  const lotes = await porLotes(numeros, (lote) => fetchInyectadoPorPedidos(lote));
+  if (lotes.some((m) => m === null)) return null;
+  const mapa = new Map();
+  lotes.forEach((m) => m.forEach((v, k) => mapa.set(k, v)));
+  return mapa;
+}
+
+/** Todos los pedidos (solo las columnas de la base), sin filtros. */
+async function leerBaseDatos() {
+  const leer = async (desde) => {
+    const { data, error } = await supabase
+      .from('vw_pedido_progreso_atributos')
+      .select(COLUMNAS_BASE)
+      .order('order_number', { ascending: false })
+      .range(desde, desde + LOTE_FILAS - 1);
+    if (error) throw error;
+    return data || [];
+  };
+  const filas = await leer(0);
+  // Lo normal es que quepa en una consulta; si no, se piden varias páginas a la vez
+  // (el orden por order_number es único: no se repiten ni se pierden filas).
+  if (filas.length < LOTE_FILAS) return filas;
+  const resto = [];
+  for (let desde = LOTE_FILAS; desde < LOTE_FILAS * 8; desde += LOTE_FILAS) resto.push(leer(desde));
+  const paginas = await Promise.all(resto);
+  paginas.forEach((pg) => filas.push(...pg));
+  if (paginas[paginas.length - 1].length === LOTE_FILAS) {
+    // Más de 8.000 pedidos: se sigue de forma secuencial.
+    for (let desde = LOTE_FILAS * 8; ; desde += LOTE_FILAS) {
+      const pg = await leer(desde);
+      filas.push(...pg);
+      if (pg.length < LOTE_FILAS) break;
+    }
+  }
+  return filas;
+}
+
+/**
+ * Descarga la base y los datos de Inyección/Despachos y repinta tarjetas y
+ * listas. silencioso=true (Refrescar, realtime): conserva lo que ya se ve hasta
+ * que llegue lo nuevo, sin volver a mostrar "…".
+ */
+async function cargarBase({ silencioso = false } = {}) {
+  if (!document.getElementById('validador-resumen')) return;
+  const version = ++versionBase;
+  if (!silencioso) {
+    baseCC = null;
+    extraCC = null;
+    pintarResumen(null);
+  }
+  try {
+    const filas = await leerBaseDatos();
+    if (version !== versionBase) return; // llegó una carga más nueva
+    baseCC = filas.map((f) => ({ ...f, fecha_pedido: f.fecha_pedido ? String(f.fecha_pedido).slice(0, 10) : '' }));
+    actualizarOpcionesFiltros();
+    pintarResumenActual();
+
+    const numeros = baseCC.map((p) => String(p.order_number));
+    const verInyeccion = esValidador() || esEmpaque();
+    const [inyectado, despachadas] = await Promise.all([
+      verInyeccion ? inyectadoPorPedidos(numeros) : Promise.resolve(undefined),
+      despachadasPorPedidos(numeros)
+    ]);
+    if (version !== versionBase) return;
+    extraCC = { inyectado, despachadas };
+    pintarResumenActual();
+  } catch (err) {
+    if (version !== versionBase) return;
+    console.error('[validadorPage] Error cargando los datos de las tarjetas:', err);
+    if (!baseCC) pintarResumen(undefined);
+  }
+}
+
+/** Interruptores Sí/No y Estado (lo que no entra en las listas en cascada). */
+function cumpleAtributosYEstado(fila) {
+  return ATRIBUTOS_SI_NO.every((a) => filtros[a] !== 'Si' || fila[a] === true)
+    && cumpleEstados(fila, estadosFiltro);
+}
+
+/** Pedidos que cumplen TODOS los filtros actuales. */
+function pedidosFiltrados() {
+  const orden = filtros.orden.trim().toLowerCase();
+  return baseCC.filter((f) =>
+    cumpleAtributosYEstado(f)
+    && (!orden || String(f.order_number).toLowerCase().includes(orden))
+    && (!filtros.fecha || f.fecha_pedido === filtros.fecha)
+    && Object.entries(MULTI_FILTROS).every(([clave, cfg]) =>
+      filtros[clave].length === 0 || filtros[clave].includes(String(f[cfg.columna] ?? ''))));
+}
+
+/**
+ * Listas en cascada: cada desplegable muestra solo lo que existe en los pedidos
+ * que cumplen los DEMÁS filtros (nunca el suyo), igual que Activas/Completadas.
+ * Aquí además cuentan los interruptores y el Estado.
+ */
+function actualizarOpcionesFiltros() {
+  if (!baseCC) return;
+  const candidatos = baseCC.filter(cumpleAtributosYEstado);
+  const opciones = calcularOpciones(candidatos, filtros, CAMPOS_FACETAS);
+  Object.keys(MULTI_FILTROS).forEach((clave) => {
+    multis[clave]?.actualizarOpciones((opciones[clave] || []).map((v) => ({ valor: v, etiqueta: v })));
+  });
+}
+
+/** % entero sin tope (si salió más de lo solicitado se ve el real). */
+function porcentajeSobre(parte, total) {
+  return total > 0 ? Math.round((parte / total) * 100) : 0;
+}
+
+/** Suma las tarjetas sobre los pedidos filtrados (sin consultar nada). */
+function pintarResumenActual() {
+  if (!document.getElementById('validador-resumen')) return;
+  if (!baseCC) {
+    pintarResumen(null);
+    return;
+  }
+  const pedidos = pedidosFiltrados();
+  const suma = (campo) => pedidos.reduce((t, p) => t + (Number(p[campo]) || 0), 0);
+  const solicitado = suma('total_solicitado');
+  const verInyeccion = esValidador() || esEmpaque();
+
+  // Inyección y despachos llegan un poco después de la base: mientras tanto "…".
+  let inyectado = verInyeccion ? CARGANDO : undefined;
+  let despachado = CARGANDO;
+  let pctI = CARGANDO;
+  let pctD = CARGANDO;
+
+  if (extraCC) {
+    const { inyectado: iny, despachadas } = extraCC;
+    if (verInyeccion) {
+      if (iny) {
+        let sumaIny = 0;
+        let solicitadoIny = 0;
+        pedidos.forEach((p) => {
+          if (!aplicaInyeccion(p.order_number)) return;
+          solicitadoIny += Number(p.total_solicitado) || 0;
+          sumaIny += iny.get(String(p.order_number)) ?? 0;
+        });
+        inyectado = sumaIny;
+        pctI = porcentajeSobre(sumaIny, solicitadoIny);
+      } else {
+        inyectado = null; // falló
+        pctI = null;
+      }
+    }
+    if (despachadas) {
+      despachado = pedidos.reduce((t, p) => t + (despachadas.get(String(p.order_number))?.despachadas ?? 0), 0);
+      pctD = porcentajeSobre(despachado, solicitado);
+    } else {
+      despachado = null; // falló
+      pctD = null;
+    }
+  }
+
+  pintarResumen({
+    solicitado,
+    inyectado,
+    refilado: suma('procesado_refilado'),
+    acabado: suma('procesado_acabado'),
+    mateado: suma('procesado_mateado'),
+    empacado: suma('procesado_empaque'),
+    despachado,
+    pctI,
+    pctD
+  });
+}
+
+/**
+ * Pinta las tarjetas. datos: objeto = listo; null = calculando ("…");
+ * undefined = falló ("—").
+ */
+function pintarResumen(datos) {
+  const cont = document.getElementById('validador-resumen');
+  if (!cont) return;
+
+  const fmt = (v) => {
+    if (datos === null || v === CARGANDO) return '…';
+    if (datos === undefined || v === null || v === undefined) return '—';
+    return Number(v).toLocaleString('es-CO');
+  };
+  const fmtPct = (v) => {
+    if (datos === null || v === CARGANDO) return '…';
+    if (datos === undefined || v === null || v === undefined) return '—';
+    return `${v}%`;
+  };
+  // Mismos colores que los badges de la tabla.
+  const AZUL = ['var(--blue)', '#fff', '1px solid var(--blue)']; // azul principal de la plataforma
+  const GRIS = ['var(--bg)', 'var(--text2)', '1px dashed var(--border2)'];
+  const GRIS_PCT = ['var(--border)', 'var(--text)', '1px solid var(--border2)'];
+  // Inyección solo la ven Validador y Empaque (igual que la columna I%).
+  const verInyeccion = esValidador() || esEmpaque();
+  const tarjetas = [
+    ['Solicitado', fmt(datos?.solicitado), AZUL, 'Pares solicitados de todos los pedidos filtrados'],
+    ...(verInyeccion ? [['Inyectado', fmt(datos?.inyectado), GRIS, 'Pares inyectados (ERP), pedidos desde el 3095']] : []),
+    ['Refilado', fmt(datos?.refilado), ['var(--blue-bg)', 'var(--blue)', '1px solid transparent'], 'Pares que ya salieron de Refilado'],
+    ['Acabado', fmt(datos?.acabado), ['var(--green-bg)', 'var(--green-text)', '1px solid transparent'], 'Pares que ya salieron de Acabado'],
+    ['Mateado', fmt(datos?.mateado), ['var(--purple-bg)', 'var(--purple-text)', '1px solid transparent'], 'Pares que ya salieron de Mateado'],
+    ['Empacado', fmt(datos?.empacado), ['var(--amber-bg)', 'var(--amber-text)', '1px solid transparent'], 'Pares que ya salieron de Empaque'],
+    ['Despachado', fmt(datos?.despachado), AZUL, 'Pares despachados (Despachos + Troya)'],
+    ...(verInyeccion ? [['%I', fmtPct(datos?.pctI), GRIS_PCT, '% Inyectado = Inyectado / Solicitado (solo pedidos desde el 3095)']] : []),
+    ['%D', fmtPct(datos?.pctD), GRIS_PCT, '% Despachado = Despachado / Solicitado']
+  ];
+
+  cont.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:0.5rem;margin:0 0 0.75rem;';
+  cont.innerHTML = tarjetas.map(([titulo, valor, [bg, color, borde], ayuda]) => `
+    <div title="${escapeHtml(ayuda)}" style="background:${bg};color:${color};border:${borde};border-radius:var(--r);padding:8px 10px;text-align:center;">
+      <div style="font-size:11px;font-weight:600;opacity:0.85;">${titulo}</div>
+      <div style="font-size:18px;font-weight:700;line-height:1.3;">${valor}</div>
+    </div>`).join('');
 }
 
 /**
@@ -426,7 +731,18 @@ function celdaDias(valor) {
   return `<strong>${valor}</strong>`;
 }
 
-function renderTablaValidador(ordenes, mapaUltimaFecha, inyeccion) {
+/** Celda DESP.: unidades despachadas del pedido ("—" si la consulta falló). */
+function celdaDespachadas(orden, despachadas) {
+  if (despachadas === null) return '<span style="color: var(--text3);">—</span>';
+  const d = despachadas.get(String(orden.order_number));
+  const total = d?.despachadas ?? 0;
+  if (d?.troya > 0) {
+    return `<strong title="${total - d.troya} por Despachos + ${d.troya} despachados en Troya">${total}</strong>`;
+  }
+  return `<strong>${total}</strong>`;
+}
+
+function renderTablaValidador(ordenes, mapaUltimaFecha, inyeccion, despachadas) {
   const tabla = document.getElementById('validador-tabla');
   const verInyeccion = inyeccion !== undefined;
 
@@ -446,6 +762,7 @@ function renderTablaValidador(ordenes, mapaUltimaFecha, inyeccion) {
           <th style="padding: 8px; text-align: left;">Color</th>
           <th style="padding: 8px; text-align: left;">Fecha Pedido</th>
           <th style="padding: 8px; text-align: center;" title="Unidades (pares) totales del pedido">UNDS.</th>
+          <th style="padding: 8px; text-align: center;" title="Unidades despachadas del pedido (suma de todas sus salidas en Despachos + lo despachado en Troya)">DESP.</th>
           ${verInyeccion ? `<th style="padding: 8px; text-align: center;" title="Inyección (ERP): pares inyectados | % de lo solicitado.${esValidador() ? ` ${escapeHtml(estadoSincronizacion(estadoInyeccion).texto)}.` : ''}">I%</th>` : ''}
           <th style="padding: 8px; text-align: center;" title="Refilado: pares procesados | % de avance">R%</th>
           <th style="padding: 8px; text-align: center;" title="Acabado: pares procesados | % de avance">A%</th>
@@ -472,6 +789,7 @@ function renderTablaValidador(ordenes, mapaUltimaFecha, inyeccion) {
             <td style="padding: 8px;">${o.color || '—'}</td>
             <td style="padding: 8px;">${formatearFecha(o.fecha_pedido)}</td>
             <td style="padding: 8px; text-align: center;"><strong>${o.total_solicitado ?? 0}</strong></td>
+            <td style="padding: 8px; text-align: center;">${celdaDespachadas(o, despachadas)}</td>
             ${verInyeccion ? `<td style="padding: 8px; text-align: center;">${celdaInyeccion(o, inyeccion)}</td>` : ''}
             <td style="padding: 8px; text-align: center;">${badgeAvance(o.procesado_refilado, o.porcentaje_refilado, 'var(--blue-bg)', 'var(--blue)')}</td>
             <td style="padding: 8px; text-align: center;">${badgeAvance(o.procesado_acabado, o.porcentaje_acabado, 'var(--green-bg)', 'var(--green-text)')}</td>
