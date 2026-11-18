@@ -1,5 +1,6 @@
 import { cerrarPedidoForzado, reabrirPedidoForzado } from '../services/cierreForzadoService.js';
 import { mostrarToast } from './toast.js';
+import { montarReparto, leerReparto } from './troyaReparto.js';
 
 /**
  * Cierre forzado de un pedido por el Validador (supabase/sql/057_cierre_forzado.sql).
@@ -17,6 +18,11 @@ export function inicializarModalCierreForzado() {
   document.getElementById('btn-cerrar-cierre-forzado')?.addEventListener('click', cerrarModal);
   document.getElementById('btn-cancelar-cierre-forzado')?.addEventListener('click', cerrarModal);
   document.getElementById('btn-confirmar-cierre-forzado')?.addEventListener('click', confirmarCierre);
+  // Con los tipos "despachado en Troya" aparece el reparto por talla (089).
+  document.getElementById('cierre-forzado-tipos')?.addEventListener('change', () => {
+    const tipo = document.querySelector('input[name="cierre-forzado-tipo"]:checked')?.value || null;
+    montarReparto(document.getElementById('cierre-forzado-troya'), pedidoACerrar, tipo);
+  });
 }
 
 /**
@@ -35,6 +41,7 @@ export async function alternarCierreForzado(checkbox, refrescar) {
     checkboxPendiente = checkbox;
     document.getElementById('cierre-forzado-motivo').value = '';
     document.querySelectorAll('input[name="cierre-forzado-tipo"]').forEach((r) => { r.checked = false; });
+    montarReparto(document.getElementById('cierre-forzado-troya'), orderNumber, null);
     document.getElementById('cierre-forzado-resumen').innerHTML = `Pedido <strong>${escapeHtml(orderNumber)}</strong>`;
     document.getElementById('modal-cierre-forzado').classList.add('open');
     return;
@@ -63,7 +70,7 @@ function cerrarModal() {
 async function confirmarCierre() {
   const tipo = document.querySelector('input[name="cierre-forzado-tipo"]:checked')?.value;
   if (!tipo) {
-    mostrarToast('Elige por qué se cierra el pedido: cancelado, no se terminó de despachar u otro motivo operativo.', 'error');
+    mostrarToast('Elige por qué se cierra el pedido.', 'error');
     return;
   }
 
@@ -73,13 +80,21 @@ async function confirmarCierre() {
     return;
   }
 
+  let extra;
+  try {
+    extra = leerReparto(document.getElementById('cierre-forzado-troya'), tipo);
+  } catch (err) {
+    mostrarToast(err.message, 'error');
+    return;
+  }
+
   const btn = document.getElementById('btn-confirmar-cierre-forzado');
   btn.disabled = true;
   const refrescar = alTerminar;
   const orderNumber = pedidoACerrar;
 
   try {
-    await cerrarPedidoForzado(orderNumber, motivo, tipo);
+    await cerrarPedidoForzado(orderNumber, motivo, tipo, extra);
     mostrarToast(`Pedido ${orderNumber} cerrado a la fuerza.`, 'ok');
     cerrarModal();
     if (refrescar) await refrescar();

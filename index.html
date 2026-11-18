@@ -2100,6 +2100,20 @@
     /* Selector del tipo de cierre a la fuerza (087). Va dentro de .form-group,
        cuyas reglas (etiqueta en mayúsculas y en bloque, input al 100% de ancho)
        hay que anular: por eso los selectores llevan .form-group delante. */
+    .troya-detalle:empty { display: none; }
+    .troya-detalle { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border2); border-radius: var(--r); background: var(--bg); }
+    .troya-detalle .troya-fecha { display: grid; gap: 4px; text-transform: none; margin-bottom: 8px; font-size: 12px; color: var(--text2); }
+    .troya-detalle .troya-fecha input { width: auto; max-width: 180px; padding: 6px 10px; }
+    .troya-detalle .troya-fecha small { color: var(--text3); font-weight: 400; }
+    .troya-resumen { font-size: 12px; color: var(--text2); margin-bottom: 8px; }
+    .troya-aviso { font-size: 12px; color: var(--amber-text); background: var(--amber-bg); border-radius: var(--r); padding: 6px 10px; margin-top: 6px; }
+    .troya-tabla { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .troya-tabla th { text-align: left; font-size: 11px; color: var(--text2); padding: 4px 6px; border-bottom: 1px solid var(--border2); text-transform: none; }
+    .troya-tabla td { padding: 4px 6px; border-bottom: 1px solid var(--border); }
+    .troya-tabla .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .troya-tabla tfoot td { font-weight: 700; border-bottom: 0; }
+    .troya-detalle .troya-tabla input { width: 64px; padding: 4px 6px; text-align: right; }
+    .troya-tabla .troya-mal { color: var(--red, #b91c1c); font-weight: 700; }
     .form-group .cierre-tipo-opcion {
       display: flex;
       align-items: flex-start;
@@ -6498,13 +6512,22 @@
           </label>
           <label class="cierre-tipo-opcion">
             <input type="radio" name="cierre-forzado-tipo" value="no_terminado">
-            <span><strong>No se terminó de despachar</strong><small>No se despachó completo y ya no se va a despachar más. Sí cuenta como pendiente.</small></span>
+            <span><strong>No se terminó de despachar</strong><small>No se despachó completo y ya no se va a despachar más. NO cuenta como pendiente.</small></span>
           </label>
           <label class="cierre-tipo-opcion">
             <input type="radio" name="cierre-forzado-tipo" value="operativo">
             <span><strong>Otro motivo operativo</strong><small>Cualquier otra razón de la operación. Sí cuenta como pendiente.</small></span>
           </label>
+          <label class="cierre-tipo-opcion">
+            <input type="radio" name="cierre-forzado-tipo" value="despachado_troya_total">
+            <span><strong>Cerrado y despachado en Troya (total)</strong><small>Todo lo que faltaba salió en Troya. Cuenta como despachado, no como pendiente.</small></span>
+          </label>
+          <label class="cierre-tipo-opcion">
+            <input type="radio" name="cierre-forzado-tipo" value="despachado_troya_parcial">
+            <span><strong>Cerrado y despachado en Troya (parcial)</strong><small>Una parte salió en Troya; tú repartes lo que faltaba por talla: despachado en Troya, sigue pendiente o ya no se despachará.</small></span>
+          </label>
         </div>
+        <div id="cierre-forzado-troya" class="troya-detalle"></div>
       </div>
 
       <div class="form-group">

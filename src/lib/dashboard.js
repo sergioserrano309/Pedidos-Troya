@@ -24,7 +24,7 @@ export const ZONA_DESPACHO = 'America/Bogota';
 
 export const MEDIDAS = {
   solicitado: { etiqueta: 'Solicitado', ayuda: 'Pares pedidos (sin pedidos cancelados: en Access o cerrados a la fuerza como Cancelado).' },
-  despachado: { etiqueta: 'Despachado', ayuda: 'Pares que ya salieron en un despacho.' },
+  despachado: { etiqueta: 'Despachado', ayuda: 'Pares que ya salieron en un despacho (y, por fecha del pedido, los cerrados como "Despachado en Troya").' },
   pendiente: { etiqueta: 'Pendiente por despachar', ayuda: 'Solicitado menos despachado, sin pedidos cancelados (en Access o cerrados a la fuerza como Cancelado).' }
 };
 
@@ -153,6 +153,23 @@ export function prepararLineas(lineas, hoy) {
     const solicitado = Number(l.solicitado) || 0;
     const despachado = Number(l.despachado) || 0;
     const dia = diaCalendario(l.fecha_pedido);
+    const falta = l.cancelado_access ? 0 : Math.max(solicitado - despachado, 0);
+
+    // Cierres "Cerrado y despachado en Troya" (089): de lo que falta, una parte
+    // salió en Troya, otra ya no se despachará y el resto sigue pendiente.
+    // Un pedido cancelado manda sobre cualquier tipo (falta = 0).
+    let enTroya = 0;
+    let noSeDespacha = 0;
+    if (l.tipo_cierre === 'no_terminado') {
+      // "No se terminó de despachar": ya no saldrá, así que no es pendiente.
+      noSeDespacha = falta;
+    } else if (l.tipo_cierre === 'despachado_troya_total') {
+      enTroya = falta;
+    } else if (l.tipo_cierre === 'despachado_troya_parcial') {
+      enTroya = Math.min(Math.max(Number(l.troya_despachado) || 0, 0), falta);
+      noSeDespacha = Math.min(Math.max(Number(l.troya_no_se_despacha) || 0, 0), falta - enTroya);
+    }
+
     return {
       ...l,
       solicitado,
@@ -160,7 +177,10 @@ export function prepararLineas(lineas, hoy) {
       dia,
       mes: dia ? dia.slice(0, 7) : null,
       antiguedad: dia && hoy ? rangoAntiguedad(diasEntre(dia, hoy)) : SIN_DATO,
-      pendiente: l.cancelado_access ? 0 : Math.max(solicitado - despachado, 0),
+      enTroya,
+      noSeDespacha,
+      diaTroya: l.fecha_troya ? String(l.fecha_troya).slice(0, 10) : null,
+      pendiente: falta - enTroya - noSeDespacha,
       deMas: l.cancelado_access ? 0 : Math.max(despachado - solicitado, 0)
     };
   });
@@ -235,30 +255,43 @@ function etiquetaClave(dim, clave) {
  */
 export function filasDeMedida(medida, lectura, { lineas, despachos }) {
   if (medida === 'despachado' && lectura === 'flujo') {
-    return despachos.map((d) => ({ fila: d, valor: d.cantidad }));
+    const reales = despachos.map((d) => ({ fila: d, valor: d.cantidad, troya: 0 }));
+    // Lo despachado en Troya cuenta en el flujo SOLO si se indicó la fecha en que salió.
+    const enTroya = lineas
+      .filter((l) => !l.cancelado_access && l.enTroya > 0 && l.diaTroya)
+      .map((l) => ({
+        fila: { ...l, dia: l.diaTroya, mes: l.diaTroya.slice(0, 7) },
+        valor: l.enTroya,
+        troya: l.enTroya
+      }));
+    return [...reales, ...enTroya];
   }
   const vivas = lineas.filter((l) => !l.cancelado_access);
-  if (medida === 'solicitado') return vivas.map((l) => ({ fila: l, valor: l.solicitado }));
-  if (medida === 'pendiente') return vivas.map((l) => ({ fila: l, valor: l.pendiente }));
-  return vivas.map((l) => ({ fila: l, valor: l.despachado }));
+  if (medida === 'solicitado') return vivas.map((l) => ({ fila: l, valor: l.solicitado, troya: 0 }));
+  if (medida === 'pendiente') return vivas.map((l) => ({ fila: l, valor: l.pendiente, troya: 0 }));
+  return vivas.map((l) => ({ fila: l, valor: l.despachado + l.enTroya, troya: l.enTroya }));
 }
 
 /**
  * Suma una medida agrupada por 0, 1 o 2 dimensiones, ya filtrada.
- * @returns {{ filas: Array<{ claves: string[], etiquetas: string[], valor: number }>, total: number }}
+ * `troya` = parte de `valor` que salió en Troya (solo en despachado).
+ * @returns {{ filas: Array<{ claves: string[], etiquetas: string[], valor: number, troya: number }>, total: number, totalTroya: number }}
  */
 export function agrupar(datos, { medida, lectura, dimensiones = [], filtros = {} }) {
   const dims = dimensiones.filter(Boolean).slice(0, 2);
   const grupos = new Map();
   let total = 0;
+  let totalTroya = 0;
 
-  filasDeMedida(medida, lectura, datos).forEach(({ fila, valor }) => {
+  filasDeMedida(medida, lectura, datos).forEach(({ fila, valor, troya }) => {
     if (!cumpleFiltros(fila, filtros)) return;
     total += valor;
+    totalTroya += troya;
     const claves = dims.map((d) => claveDimension(fila, d));
     const llave = claves.join('\u0001');
-    const g = grupos.get(llave) || { claves, valor: 0 };
+    const g = grupos.get(llave) || { claves, valor: 0, troya: 0 };
     g.valor += valor;
+    g.troya += troya;
     grupos.set(llave, g);
   });
 
@@ -266,7 +299,8 @@ export function agrupar(datos, { medida, lectura, dimensiones = [], filtros = {}
   const filas = [...grupos.values()].filter((g) => g.valor > 0).map((g) => ({
     claves: g.claves,
     etiquetas: g.claves.map((c, i) => etiquetaClave(dims[i], c)),
-    valor: g.valor
+    valor: g.valor,
+    troya: g.troya
   }));
 
   const esTiempo = (d) => d === 'mes' || d === 'dia';
@@ -314,7 +348,7 @@ export function agrupar(datos, { medida, lectura, dimensiones = [], filtros = {}
     });
   }
 
-  return { filas, total };
+  return { filas, total, totalTroya };
 }
 
 /**
@@ -322,11 +356,13 @@ export function agrupar(datos, { medida, lectura, dimensiones = [], filtros = {}
  * fecha natural (ver fechaDeLectura); el despachado sigue la lectura elegida.
  */
 export function totalesTarjetas(datos, lectura, filtros) {
-  const sumar = (medida) => agrupar(datos, { medida, lectura, dimensiones: [], filtros }).total;
+  const sumar = (medida) => agrupar(datos, { medida, lectura, dimensiones: [], filtros });
+  const despachado = sumar('despachado');
   return {
-    solicitado: sumar('solicitado'),
-    despachado: sumar('despachado'),
-    pendiente: sumar('pendiente')
+    solicitado: sumar('solicitado').total,
+    despachado: despachado.total,
+    despachadoTroya: despachado.totalTroya,
+    pendiente: sumar('pendiente').total
   };
 }
 
@@ -334,10 +370,16 @@ export function totalesTarjetas(datos, lectura, filtros) {
  * Notas que acompañan los números:
  *   deMas: pedidos con más despachado que solicitado (el pendiente de esas líneas cuenta 0).
  *   cancelados: pedidos cancelados en Access que NO entran en solicitado/pendiente.
+ *   troya: pares de cierres "despachado en Troya" (089), cuentan como despachados.
+ *   noSeDespacha: pares que ya no se despacharán (cierre "No se terminó de
+ *     despachar" o la parte (iii) del parcial en Troya): no cuentan como pendiente.
  */
 export function notasDashboard(datos, filtros) {
   const deMasPorPedido = new Map();
   const cancelados = new Map();
+  const troya = new Map();
+  const noSeDespacha = new Map();
+  const sumarA = (mapa, l, pares) => mapa.set(l.order_number, (mapa.get(l.order_number) || 0) + pares);
 
   datos.lineas.forEach((l) => {
     if (!cumpleFiltros(l, { ...filtros, desde: '', hasta: '' })) return;
@@ -345,6 +387,8 @@ export function notasDashboard(datos, filtros) {
       cancelados.set(l.order_number, (cancelados.get(l.order_number) || 0) + l.solicitado);
       return;
     }
+    if (l.enTroya > 0) sumarA(troya, l, l.enTroya);
+    if (l.noSeDespacha > 0) sumarA(noSeDespacha, l, l.noSeDespacha);
     if (l.deMas > 0) {
       deMasPorPedido.set(l.order_number, (deMasPorPedido.get(l.order_number) || 0) + l.deMas);
     }
@@ -354,7 +398,12 @@ export function notasDashboard(datos, filtros) {
     .map(([pedido, pares]) => ({ pedido, pares }))
     .sort((a, b) => Number(b.pedido) - Number(a.pedido));
 
-  return { deMas: ordenar(deMasPorPedido), cancelados: ordenar(cancelados) };
+  return {
+    deMas: ordenar(deMasPorPedido),
+    cancelados: ordenar(cancelados),
+    troya: ordenar(troya),
+    noSeDespacha: ordenar(noSeDespacha)
+  };
 }
 
 /** Formato de unidades con punto de miles: 12.345. */
