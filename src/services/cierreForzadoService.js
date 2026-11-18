@@ -1,4 +1,5 @@
 import { supabase } from '../config/supabaseClient.js';
+import { prepararLineas } from '../lib/dashboard.js';
 
 /**
  * Cierre forzado de un pedido por el Validador (supabase/sql/057_cierre_forzado.sql).
@@ -117,6 +118,36 @@ export async function fetchTallasParaCierre(orderNumber) {
     despachado_troya: Number(l.troya_despachado) || 0,
     no_se_despacha: Number(l.troya_no_se_despacha) || 0
   }));
+}
+
+/**
+ * Pares "despachados en Troya" (089) por pedido, para sumarlos a DESP. en
+ * Control Central. Usa las mismas reglas del Dashboard de unidades
+ * (prepararLineas): total = todo lo que faltaba; parcial = lo escrito por
+ * talla; un pedido cancelado en Access no suma. Solo lectura.
+ * Si falla (p. ej. el SQL 089 aún no está ejecutado) devuelve un mapa vacío:
+ * DESP. sigue mostrando los despachos reales.
+ * @param {string[]} orderNumbers
+ * @returns {Promise<Map<string, number>>}
+ */
+export async function fetchTroyaPorPedidos(orderNumbers) {
+  const mapa = new Map();
+  if (!orderNumbers?.length) return mapa;
+
+  const { data, error } = await supabase
+    .from('vw_dashboard_lineas')
+    .select('order_number, solicitado, despachado, cancelado_access, tipo_cierre, troya_despachado, troya_no_se_despacha')
+    .in('order_number', orderNumbers.map(String))
+    .in('tipo_cierre', TIPOS_TROYA);
+  if (error) {
+    console.error('[cierreForzadoService] Error leyendo despachado en Troya:', error);
+    return mapa;
+  }
+
+  prepararLineas(data || [], '').forEach((l) => {
+    if (l.enTroya > 0) mapa.set(l.order_number, (mapa.get(l.order_number) || 0) + l.enTroya);
+  });
+  return mapa;
 }
 
 export async function reabrirPedidoForzado(orderNumber) {

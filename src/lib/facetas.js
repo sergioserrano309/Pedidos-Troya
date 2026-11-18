@@ -20,11 +20,14 @@
  */
 
 function activo(valor) {
+  // Un filtro de selección múltiple llega como lista: activo si tiene algo.
+  if (Array.isArray(valor)) return valor.length > 0;
   return valor != null && String(valor).trim() !== '';
 }
 
 function cumple(fila, clave, valor, campo) {
   const dato = fila[campo.columna];
+  if (Array.isArray(valor)) return valor.map(String).includes(String(dato ?? ''));
   if (campo.modo === 'contiene') {
     return String(dato ?? '').includes(String(valor).trim());
   }
