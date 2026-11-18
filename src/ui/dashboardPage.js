@@ -85,7 +85,13 @@ const ESTILO_PAGINA = `
   .dash-tabla tfoot td { font-weight:700; border-top:2px solid var(--border); border-bottom:0; background:var(--bg); }
   .dash-barra-celda { width:34%; min-width:120px; }
   .dash-barra { height:8px; border-radius:999px; background:var(--blue-bg); overflow:hidden; }
-  .dash-barra > span { display:block; height:100%; background:var(--blue); border-radius:999px; }
+  .dash-barra { display:flex; }
+  .dash-barra > span { display:block; height:100%; background:var(--blue); }
+  .dash-barra > span.troya { background:#7c3aed; }
+  .dash-leyenda { display:flex; flex-wrap:wrap; gap:14px; font-size:12px; color:var(--text2); margin:0 0 0.5rem; }
+  .dash-leyenda i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:-1px; background:var(--blue); }
+  .dash-leyenda i.troya { background:#7c3aed; }
+  .dash-tarjeta-troya { font-size:11px; color:#7c3aed; margin-top:2px; }
   .dash-notas { display:grid; gap:0.5rem; margin-top:1rem; }
   .dash-nota { font-size:12px; border-radius:var(--r); padding:8px 12px; background:var(--amber-bg); color:var(--amber-text); }
   .dash-nota.info { background:var(--bg); color:var(--text2); border:1px solid var(--border2); }
@@ -369,6 +375,8 @@ function pintar() {
         <div class="dash-tarjeta-lbl">${escapeHtml(m.etiqueta)}</div>
         <div class="dash-tarjeta-valor">${formatearPares(totales[k])}<span class="dash-tarjeta-unidad">pares</span></div>
         <div class="dash-tarjeta-fecha">${fechaTarjeta[k]}</div>
+        ${k === 'despachado' && totales.despachadoTroya > 0
+          ? `<div class="dash-tarjeta-troya">incluye ${formatearPares(totales.despachadoTroya)} pares despachados en Troya</div>` : ''}
       </button>`).join('');
   }
 
@@ -389,7 +397,7 @@ function pintar() {
   // --- Tabla ---
   const resultado = agrupar(datos, { medida, lectura, dimensiones: dims, filtros });
   const cont = document.getElementById('dash-resultado');
-  if (cont) cont.innerHTML = htmlTabla(resultado, dims);
+  if (cont) cont.innerHTML = htmlTabla(resultado, dims, medida === 'despachado');
 
   // --- Notas ---
   const notas = notasDashboard(datos, filtros);
@@ -407,6 +415,19 @@ function pintar() {
     partes.push(`<div class="dash-nota info">ℹ ${notas.cancelados.length} pedido${notas.cancelados.length === 1 ? '' : 's'} cancelado${notas.cancelados.length === 1 ? '' : 's'}
       en Access, o cerrado${notas.cancelados.length === 1 ? '' : 's'} a la fuerza como "Cancelado" (${formatearPares(pares)} pares), no cuenta${notas.cancelados.length === 1 ? '' : 'n'} en solicitado ni pendiente. Lo que ya se
       despachó de ellos sí aparece en el despachado por fecha de despacho. ${listaPedidos(notas.cancelados)}</div>`);
+  }
+  if (notas.troya.length > 0) {
+    const pares = notas.troya.reduce((s, n) => s + n.pares, 0);
+    const n = notas.troya.length;
+    partes.push(`<div class="dash-nota info">ℹ <strong>Despachado en Troya:</strong> ${n} pedido${n === 1 ? '' : 's'} cerrado${n === 1 ? '' : 's'} a la fuerza
+      como "Cerrado y despachado en Troya" (${formatearPares(pares)} pares) cuenta${n === 1 ? '' : 'n'} como despachado y no como pendiente. Aparece${n === 1 ? '' : 'n'} en
+      "por fecha del pedido"; en "por fecha de despacho" solo si al cerrar se indicó el día en que salió en Troya. ${listaPedidos(notas.troya)}</div>`);
+  }
+  if (notas.noSeDespacha.length > 0) {
+    const pares = notas.noSeDespacha.reduce((s, n) => s + n.pares, 0);
+    const n = notas.noSeDespacha.length;
+    partes.push(`<div class="dash-nota info">ℹ <strong>Ya no se despacharán:</strong> ${formatearPares(pares)} pares de ${n} pedido${n === 1 ? '' : 's'}
+      (cierres "No se terminó de despachar" o parcial en Troya) siguen en "solicitado" pero no cuentan como pendiente ni como despachado. ${listaPedidos(notas.noSeDespacha)}</div>`);
   }
   const notasEl = document.getElementById('dash-notas');
   if (notasEl) notasEl.innerHTML = partes.join('');
@@ -444,7 +465,15 @@ function listaPedidos(lista) {
   return visibles + (lista.length > 12 ? ` y ${lista.length - 12} más` : '');
 }
 
-function htmlTabla({ filas, total }, dims) {
+/** Barra de una fila: azul = real, violeta = despachado en Troya (si lo hay). */
+function barra(f, maximo) {
+  const real = Math.max(f.valor - (f.troya || 0), 0);
+  const ancho = (v) => (v / maximo) * 100;
+  return `<span style="width:${ancho(real)}%"></span>` +
+    (f.troya > 0 ? `<span class="troya" style="width:${ancho(f.troya)}%"></span>` : '');
+}
+
+function htmlTabla({ filas, total, totalTroya }, dims, mostrarLeyenda) {
   if (filas.length === 0) {
     return '<div class="empty">No hay pares para mostrar con estos filtros.</div>';
   }
@@ -461,11 +490,16 @@ function htmlTabla({ filas, total }, dims) {
     return `<tr>${celdas}
       <td class="num">${formatearPares(f.valor)}</td>
       <td class="num">${pct.toFixed(1).replace('.', ',')}%</td>
-      <td class="dash-barra-celda"><div class="dash-barra"><span style="width:${(f.valor / maximo) * 100}%"></span></div></td>
+      <td class="dash-barra-celda"><div class="dash-barra">${barra(f, maximo)}</div></td>
     </tr>`;
   }).join('');
 
+  const leyenda = mostrarLeyenda && totalTroya > 0
+    ? '<div class="dash-leyenda"><span><i></i>Despachado en la plataforma</span><span><i class="troya"></i>Despachado en Troya</span></div>'
+    : '';
+
   return `
+    ${leyenda}
     <div class="dash-tabla-wrap">
       <table class="dash-tabla">
         <thead><tr>${encabezados}<th class="num">Pares</th><th class="num">% del total</th><th></th></tr></thead>

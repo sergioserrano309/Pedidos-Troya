@@ -9,7 +9,8 @@ import { abrirModalProcesar } from './processModal.js';
 import { abrirModalDevolucion } from './returnModal.js';
 import { mostrarToast } from './toast.js';
 import { usuarioEfectivo, esVistaInyeccion, esValidador } from '../services/validatorService.js';
-import { fetchCierreForzadoDePedido, clasificarCierreForzado, etiquetaTipoCierre, TIPOS_CIERRE, TIPOS_CIERRE_AYUDA } from '../services/cierreForzadoService.js';
+import { fetchCierreForzadoDePedido, cambiarTipoCierreForzado, etiquetaTipoCierre, TIPOS_CIERRE, TIPOS_CIERRE_AYUDA } from '../services/cierreForzadoService.js';
+import { montarReparto, leerReparto } from './troyaReparto.js';
 import { fetchCambiosDePedido } from '../services/cambiosErpService.js';
 import { resumenNota } from '../lib/cambiosErp.js';
 
@@ -314,25 +315,29 @@ function renderProcesarLoteHeader() {
   // Pedido cerrado a la fuerza por el Validador (057): solo lectura para todos.
   if (cierreForzadoOrden) {
     const cuando = cierreForzadoOrden.cerradoAt ? new Date(cierreForzadoOrden.cerradoAt).toLocaleDateString('es-CO') : '';
-    // Tipo del cierre (087). Un cierre anterior queda "Sin clasificar" y el
-    // Validador puede clasificarlo desde aquí.
-    const puedeClasificar = !cierreForzadoOrden.tipo && esValidador();
-    const tipoHtml = cierreForzadoOrden.tipo
-      ? `<div>Tipo: <strong>${escapeHtml(etiquetaTipoCierre(cierreForzadoOrden.tipo))}</strong></div>`
-      : puedeClasificar
-        ? `<div>Tipo: <strong>Sin clasificar</strong></div>
-          <div class="form-group">
-            <label>¿Por qué se cerró? (obligatorio)</label>
-            <div class="cierre-clasificar-opciones">
-              ${Object.entries(TIPOS_CIERRE).map(([k, v]) => `
-              <label class="cierre-tipo-opcion">
-                <input type="radio" name="cierre-clasificar-tipo" value="${k}">
-                <span><strong>${escapeHtml(v)}</strong><small>${escapeHtml(TIPOS_CIERRE_AYUDA[k] || '')}</small></span>
-              </label>`).join('')}
-            </div>
-            <button type="button" class="btn btn-primary btn-sm" id="btn-clasificar-cierre">Clasificar</button>
-          </div>`
-        : '<div>Tipo: Sin clasificar</div>';
+    // Tipo del cierre (087/089). Un cierre anterior queda "Sin clasificar".
+    // El Validador puede clasificarlo o CAMBIARLO desde aquí (queda auditado).
+    const sinTipo = !cierreForzadoOrden.tipo;
+    const puedeCambiar = esValidador();
+    const fechaTroyaTxt = cierreForzadoOrden.fechaTroya
+      ? ` · salió en Troya el ${escapeHtml(String(cierreForzadoOrden.fechaTroya).split('-').reverse().join('/'))}` : '';
+    const tipoHtml = `
+      <div>Tipo: <strong>${escapeHtml(etiquetaTipoCierre(cierreForzadoOrden.tipo))}</strong>${fechaTroyaTxt}
+        ${puedeCambiar && !sinTipo ? '<button type="button" class="btn btn-secondary btn-sm" id="btn-cambiar-tipo-cierre" style="margin-left:8px;">Cambiar tipo</button>' : ''}
+      </div>
+      ${puedeCambiar ? `
+      <div class="form-group" id="cierre-cambiar-panel" style="${sinTipo ? '' : 'display:none;'}">
+        <label>${sinTipo ? '¿Por qué se cerró? (obligatorio)' : 'Nuevo tipo de cierre'}</label>
+        <div class="cierre-clasificar-opciones" id="cierre-clasificar-opciones">
+          ${Object.entries(TIPOS_CIERRE).map(([k, v]) => `
+          <label class="cierre-tipo-opcion">
+            <input type="radio" name="cierre-clasificar-tipo" value="${k}"${k === cierreForzadoOrden.tipo ? ' checked' : ''}>
+            <span><strong>${escapeHtml(v)}</strong><small>${escapeHtml(TIPOS_CIERRE_AYUDA[k] || '')}</small></span>
+          </label>`).join('')}
+        </div>
+        <div id="cierre-clasificar-troya" class="troya-detalle"></div>
+        <button type="button" class="btn btn-primary btn-sm" id="btn-clasificar-cierre">${sinTipo ? 'Clasificar' : 'Guardar cambio'}</button>
+      </div>` : ''}`;
     el.innerHTML = `
       <div class="banner-cierre-forzado">
         <strong>Cerrada a la fuerza</strong>${cierreForzadoOrden.cerradoPor ? ` por ${escapeHtml(cierreForzadoOrden.cerradoPor)}` : ''}${cuando ? ` · ${cuando}` : ''}
@@ -342,24 +347,45 @@ function renderProcesarLoteHeader() {
       </div>
       <div class="orden-divider"></div>`;
 
+    const ordenActual = getState().selectedOrderNumber;
+    const zonaTroya = document.getElementById('cierre-clasificar-troya');
+    const tipoElegido = () => document.querySelector('input[name="cierre-clasificar-tipo"]:checked')?.value || null;
+    document.getElementById('btn-cambiar-tipo-cierre')?.addEventListener('click', () => {
+      document.getElementById('cierre-cambiar-panel').style.display = '';
+      montarReparto(zonaTroya, ordenActual, tipoElegido(), { fechaTroya: cierreForzadoOrden.fechaTroya });
+    });
+    document.getElementById('cierre-clasificar-opciones')?.addEventListener('change', () => {
+      montarReparto(zonaTroya, ordenActual, tipoElegido(), { fechaTroya: cierreForzadoOrden.fechaTroya });
+    });
     document.getElementById('btn-clasificar-cierre')?.addEventListener('click', async () => {
-      const tipo = document.querySelector('input[name="cierre-clasificar-tipo"]:checked')?.value;
+      const tipo = tipoElegido();
       if (!tipo) {
         mostrarToast('Elige el tipo de cierre.', 'error');
         return;
       }
-      const orden = getState().selectedOrderNumber;
+      if (tipo === cierreForzadoOrden.tipo && tipo !== 'despachado_troya_parcial' && tipo !== 'despachado_troya_total') {
+        mostrarToast('Ese ya es el tipo actual del cierre.', 'error');
+        return;
+      }
+      let extra;
+      try {
+        extra = leerReparto(zonaTroya, tipo);
+      } catch (err) {
+        mostrarToast(err.message, 'error');
+        return;
+      }
       const btn = document.getElementById('btn-clasificar-cierre');
       btn.disabled = true;
       try {
-        await clasificarCierreForzado(orden, tipo);
-        mostrarToast('Cierre clasificado.', 'ok');
-        await abrirDetalleOrden(orden);
+        await cambiarTipoCierreForzado(ordenActual, tipo, extra);
+        mostrarToast('Tipo de cierre guardado.', 'ok');
+        await abrirDetalleOrden(ordenActual);
       } catch (err) {
         mostrarToast(err.message, 'error');
         btn.disabled = false;
       }
     });
+    if (sinTipo && puedeCambiar) montarReparto(zonaTroya, ordenActual, null);
     return;
   }
 

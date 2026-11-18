@@ -13,14 +13,21 @@ import { supabase } from '../config/supabaseClient.js';
 export const TIPOS_CIERRE = {
   cancelado: 'Cancelado',
   no_terminado: 'No se terminó de despachar',
-  operativo: 'Otro motivo operativo'
+  operativo: 'Otro motivo operativo',
+  despachado_troya_total: 'Cerrado y despachado en Troya (total)',
+  despachado_troya_parcial: 'Cerrado y despachado en Troya (parcial)'
 };
+
+/** Los dos tipos "despachado en Troya" (089). */
+export const TIPOS_TROYA = ['despachado_troya_total', 'despachado_troya_parcial'];
 
 /** Explicación corta de cada tipo (la misma de la ventana de cierre). */
 export const TIPOS_CIERRE_AYUDA = {
   cancelado: 'El pedido se canceló. No cuenta como pendiente en el Dashboard.',
-  no_terminado: 'No se despachó completo y ya no se va a despachar más. Sí cuenta como pendiente.',
-  operativo: 'Cualquier otra razón de la operación. Sí cuenta como pendiente.'
+  no_terminado: 'No se despachó completo y ya no se va a despachar más. NO cuenta como pendiente.',
+  operativo: 'Cualquier otra razón de la operación. Sí cuenta como pendiente.',
+  despachado_troya_total: 'Todo lo que faltaba salió en Troya. Cuenta como despachado, no como pendiente.',
+  despachado_troya_parcial: 'Una parte salió en Troya; tú repartes lo que faltaba por talla: despachado en Troya, sigue pendiente o ya no se despachará.'
 };
 
 /** Texto de un tipo de cierre; "Sin clasificar" si es un cierre anterior a 087. */
@@ -28,11 +35,17 @@ export function etiquetaTipoCierre(tipo) {
   return TIPOS_CIERRE[tipo] || 'Sin clasificar';
 }
 
-export async function cerrarPedidoForzado(orderNumber, motivo, tipo) {
+/**
+ * @param {{ fechaTroya?: string|null, lineas?: Array<{item_id:string, despachado_troya:number, no_se_despacha:number}> }} [extra]
+ *   Solo para los tipos "despachado en Troya" (089).
+ */
+export async function cerrarPedidoForzado(orderNumber, motivo, tipo, extra = {}) {
   const { error } = await supabase.rpc('cerrar_pedido_forzado', {
     p_order_number: String(orderNumber),
     p_motivo: motivo,
-    p_tipo: tipo
+    p_tipo: tipo,
+    p_fecha_troya: TIPOS_TROYA.includes(tipo) ? (extra.fechaTroya || null) : null,
+    p_lineas: tipo === 'despachado_troya_parcial' ? (extra.lineas || []) : null
   });
   if (error) {
     console.error('[cierreForzadoService] Error cerrando pedido:', error);
@@ -66,6 +79,44 @@ export async function fetchTiposCierre() {
   }
   (data || []).forEach((f) => mapa.set(String(f.order_number), f.tipo_cierre || null));
   return mapa;
+}
+
+/** Cambia el tipo de un cierre ya hecho (089). Deja huella en la auditoría. */
+export async function cambiarTipoCierreForzado(orderNumber, tipo, extra = {}) {
+  const { error } = await supabase.rpc('cambiar_tipo_cierre_forzado', {
+    p_order_number: String(orderNumber),
+    p_tipo: tipo,
+    p_fecha_troya: TIPOS_TROYA.includes(tipo) ? (extra.fechaTroya || null) : null,
+    p_lineas: tipo === 'despachado_troya_parcial' ? (extra.lineas || []) : null
+  });
+  if (error) {
+    console.error('[cierreForzadoService] Error cambiando el tipo del cierre:', error);
+    throw new Error(error.message || 'No se pudo cambiar el tipo del cierre.');
+  }
+}
+
+/**
+ * Tallas de un pedido con lo que falta por despachar y, si ya hay un cierre
+ * parcial, lo guardado. Para la tabla del cierre "despachado en Troya".
+ * @returns {Promise<Array<{ item_id: string, talla: string, falta: number, despachado_troya: number, no_se_despacha: number }>>}
+ */
+export async function fetchTallasParaCierre(orderNumber) {
+  const { data, error } = await supabase
+    .from('vw_dashboard_lineas')
+    .select('item_id, talla, solicitado, despachado, troya_despachado, troya_no_se_despacha')
+    .eq('order_number', String(orderNumber))
+    .order('talla', { ascending: true });
+  if (error) {
+    console.error('[cierreForzadoService] Error leyendo las tallas del pedido:', error);
+    throw new Error('No se pudieron leer las tallas del pedido.');
+  }
+  return (data || []).map((l) => ({
+    item_id: l.item_id,
+    talla: String(l.talla ?? ''),
+    falta: Math.max((Number(l.solicitado) || 0) - (Number(l.despachado) || 0), 0),
+    despachado_troya: Number(l.troya_despachado) || 0,
+    no_se_despacha: Number(l.troya_no_se_despacha) || 0
+  }));
 }
 
 export async function reabrirPedidoForzado(orderNumber) {
@@ -113,7 +164,7 @@ export async function fetchCierreForzadoDePedido(orderNumber) {
   // El tipo (087) vive en la tabla del cierre; si no se puede leer, queda sin clasificar.
   const { data: fila } = await supabase
     .from('pedido_cierre_forzado')
-    .select('tipo_cierre')
+    .select('tipo_cierre, fecha_despacho_troya')
     .eq('order_number', String(orderNumber))
     .maybeSingle();
 
@@ -121,6 +172,7 @@ export async function fetchCierreForzadoDePedido(orderNumber) {
     motivo: data.cierre_forzado_motivo || '',
     cerradoAt: data.cierre_forzado_at,
     cerradoPor: data.cierre_forzado_por || '',
-    tipo: fila?.tipo_cierre || null
+    tipo: fila?.tipo_cierre || null,
+    fechaTroya: fila?.fecha_despacho_troya || null
   };
 }
