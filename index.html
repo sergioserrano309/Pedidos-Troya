@@ -1118,6 +1118,21 @@
       background: var(--purple-text);
     }
 
+    /* Sin confirmar el destino: toggle en gris opaco y sin poder usarse. */
+    .filtro-toggle.toggle-pasa-refilado.toggle-deshabilitado {
+      background: var(--bg);
+      color: var(--text3);
+      border-color: var(--border2);
+      cursor: not-allowed;
+    }
+
+    .toggle-pasa-refilado.toggle-deshabilitado .propuesta-switch input:checked + .propuesta-switch-slider,
+    .toggle-pasa-refilado.toggle-deshabilitado .propuesta-switch-slider {
+      background: var(--border2);
+      opacity: 1;
+      cursor: not-allowed;
+    }
+
     /* Apagado: el mismo morado, más suave, para distinguir el estado. */
     .toggle-pasa-refilado .propuesta-switch input:not(:checked) + .propuesta-switch-slider {
       opacity: 0.55;
