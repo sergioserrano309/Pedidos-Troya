@@ -1087,6 +1087,42 @@
       background: #1d4ed8;
     }
 
+    /* Con "Pasa por Refilado" apagado, procesar no está disponible: gris opaco. */
+    .btn-procesar-todo:disabled,
+    .btn-procesar-parcial:disabled,
+    .btn-procesar-todo:disabled:hover,
+    .btn-procesar-parcial:disabled:hover {
+      background: var(--border2);
+      color: var(--text2);
+      cursor: not-allowed;
+    }
+
+    .btn-procesar-todo:disabled svg circle,
+    .btn-procesar-todo:disabled svg path {
+      stroke: var(--text2);
+    }
+
+    /* Toggle "Pasa por Refilado" (envío enrutado): morado oscuro / fondo morado claro. */
+    .filtro-toggle.toggle-pasa-refilado {
+      background: #f5f3ff;
+      color: var(--purple-text);
+      border: 1.5px solid var(--purple-text);
+    }
+
+    .filtro-toggle.toggle-pasa-refilado:hover {
+      background: #ede9fe;
+    }
+
+    .toggle-pasa-refilado .propuesta-switch-slider,
+    .toggle-pasa-refilado .propuesta-switch input:checked + .propuesta-switch-slider {
+      background: var(--purple-text);
+    }
+
+    /* Apagado: el mismo morado, más suave, para distinguir el estado. */
+    .toggle-pasa-refilado .propuesta-switch input:not(:checked) + .propuesta-switch-slider {
+      opacity: 0.55;
+    }
+
     .stat-item {
       font-size: 12px;
     }

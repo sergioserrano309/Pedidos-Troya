@@ -1,6 +1,6 @@
 import { fetchOrderDetail, fetchOrderDetailInyeccion, fetchMovimientosOrden } from '../services/ordersService.js';
 import { formatearFechaPedido } from '../lib/fechas.js';
-import { fetchDestinoOrden, confirmarDestinoOrden, cambiarDestinoOrden } from '../services/destinoService.js';
+import { fetchDestinoOrden, confirmarDestinoOrden, cambiarDestinoOrden, enrutarPedido, deshacerEnvioEnrutado } from '../services/destinoService.js';
 import { getState, setState } from '../state/appState.js';
 import { estadoPorPorcentaje } from '../lib/calculations.js';
 import { nombreProcesoDeRol, esRolDeProceso, ICONO_PROCESO } from '../lib/roles.js';
@@ -8,11 +8,13 @@ import { calcularPendientePorProceso, calcularMaximoProcesable, calcularProcesad
 import { abrirModalProcesar } from './processModal.js';
 import { abrirModalDevolucion } from './returnModal.js';
 import { mostrarToast } from './toast.js';
-import { usuarioEfectivo, esVistaInyeccion, esValidador } from '../services/validatorService.js';
+import { usuarioEfectivo, esVistaInyeccion, esValidador, registrarAuditValidador } from '../services/validatorService.js';
 import { fetchCierreForzadoDePedido, cambiarTipoCierreForzado, etiquetaTipoCierre, TIPOS_CIERRE, TIPOS_CIERRE_AYUDA } from '../services/cierreForzadoService.js';
 import { montarReparto, leerReparto } from './troyaReparto.js';
+import { confirmarEnApp } from './confirmModal.js';
 import { fetchCambiosDePedido } from '../services/cambiosErpService.js';
 import { resumenNota } from '../lib/cambiosErp.js';
+import { cargarOrdenes, cargarFacetasOrdenes } from './dashboard.js';
 
 export function inicializarModalDetalle() {
   // Formateo en vivo del campo "Procesar": solo dígitos, máximo 5, con
@@ -389,13 +391,79 @@ function renderProcesarLoteHeader() {
     return;
   }
 
+  // Pedido enviado con "Envío Enrutado" (091): Refilado y el Validador lo ven en
+  // Completadas y pueden DESHACER el envío mientras ningún proceso siguiente haya
+  // registrado nada (la base lo valida y explica el motivo si no se puede).
+  const ordenActualNum = getState().selectedOrderNumber;
+  if (destinoConfirmadoOrden?.enrutado_por && (effectiveUser.role === 'refilado' || esValidador())) {
+    const cuando = destinoConfirmadoOrden.enrutado_at ? new Date(destinoConfirmadoOrden.enrutado_at).toLocaleString('es-CO') : '';
+    el.innerHTML = `
+      <div class="banner-cierre-forzado" style="border-left-color:var(--blue);">
+        <strong>Enviado por enrutamiento a ${escapeHtml(destinoConfirmadoOrden.destino)}</strong>${cuando ? ` · ${escapeHtml(cuando)}` : ''}
+        <div>El pedido completo salió de Refilado sin pasar por Refilado: no cuenta como trabajo ni compensación de Refilado.</div>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-deshacer-envio" style="margin-top:6px;">Deshacer envío</button>
+      </div>
+      <div class="orden-divider"></div>`;
+    document.getElementById('btn-deshacer-envio').addEventListener('click', async () => {
+      const seguro = await confirmarEnApp({
+        titulo: `¿Está seguro que va a deshacer el envío enrutado del pedido <span style="color:var(--purple);">${escapeHtml(ordenActualNum)}</span>?`,
+        detalle: `Solo es posible si ${destinoConfirmadoOrden.destino} y los procesos siguientes aún no han registrado nada. El pedido volverá a Activas.`,
+        textoConfirmar: 'Deshacer envío',
+        estiloConfirmar: 'danger'
+      });
+      if (!seguro) return;
+      const btn = document.getElementById('btn-deshacer-envio');
+      btn.disabled = true;
+      try {
+        await deshacerEnvioEnrutado(ordenActualNum);
+        if (esValidador()) {
+          try { await registrarAuditValidador('deshacer_envio_enrutado', 'Refilado', ordenActualNum, null, { destino: destinoConfirmadoOrden.destino }, null); } catch (e) { console.error(e); }
+        }
+        mostrarToast('Envío deshecho: el pedido vuelve a Activas.', 'ok');
+        cerrarDetalle();
+        await cargarOrdenes();
+        cargarFacetasOrdenes({ forzar: true });
+      } catch (err) {
+        mostrarToast(err.message, 'error');
+        btn.disabled = false;
+      }
+    });
+    return;
+  }
+
+  // Pedido enrutado automáticamente por una regla antigua: Refilado no lo procesa.
+  if (effectiveUser.role === 'refilado' && destinoConfirmadoOrden?.es_automatico) {
+    el.innerHTML = `
+      <div class="banner-cierre-forzado" style="border-left-color:var(--blue);">
+        <strong>Enrutado automáticamente a ${escapeHtml(destinoConfirmadoOrden.destino)}</strong>
+        <div>Este pedido ya salió por una regla de enrutamiento: Refilado no lo procesa.</div>
+      </div>
+      <div class="orden-divider"></div>`;
+    return;
+  }
+
   if (!esRolDeProceso(effectiveUser.role) || (effectiveUser.role === 'refilado' && !destinoConfirmadoOrden)) {
     el.innerHTML = '';
     return;
   }
 
+  // Toggle "Pasa por Refilado" (091): solo mientras el pedido no tenga ningún registro.
+  // Se enruta completo o no se hace: con registros el toggle ya no se ofrece.
+  const sinRegistros = (getState().selectedOrderMovimientos || []).length === 0;
+  const mostrarToggle = effectiveUser.role === 'refilado' && !!destinoConfirmadoOrden && sinRegistros;
+
   el.innerHTML = `
     <div class="procesamiento-titulo">Procesamiento</div>
+    ${mostrarToggle ? `
+    <label class="filtro-toggle toggle-pasa-refilado" id="toggle-pasa-refilado-fila" style="margin-bottom:10px;" title="Apágalo si el pedido NO pasa por Refilado: se envía completo al proceso confirmado">
+      <span class="filtro-toggle-lbl">Pasa por Refilado</span>
+      <span class="propuesta-switch">
+        <input type="checkbox" id="toggle-pasa-refilado" checked>
+        <span class="propuesta-switch-slider"></span>
+      </span>
+    </label>
+    <button class="btn-procesar-parcial" id="btn-envio-enrutado" type="button"
+            style="display:none; margin-bottom:8px; background:var(--purple); color:#fff; border:none;">Envío Enrutado</button>` : ''}
     <button class="btn-procesar-todo" id="btn-procesar-todo">
       <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <circle cx="12" cy="12" r="9" stroke="white" stroke-width="1.6"/>
@@ -407,6 +475,61 @@ function renderProcesarLoteHeader() {
     <div class="orden-divider"></div>`;
 
   document.getElementById('btn-procesar-lote').addEventListener('click', () => abrirResumenLote(false));
+
+  const toggle = document.getElementById('toggle-pasa-refilado');
+  if (toggle) {
+    const btnEnvio = document.getElementById('btn-envio-enrutado');
+    const btnTodo = document.getElementById('btn-procesar-todo');
+    const btnParcial = document.getElementById('btn-procesar-lote');
+    const aplicarToggle = () => {
+      const pasa = toggle.checked;
+      // Apagado: todo por talla en 0, sin poder digitar ni procesar.
+      document.querySelectorAll('#detalle-contenido .input-cantidad-procesar').forEach((input) => {
+        input.disabled = !pasa;
+        if (!pasa) input.value = '0';
+        else if (input.value === '0') input.value = '';
+      });
+      [btnTodo, btnParcial].forEach((b) => {
+        // El gris opaco lo pone el CSS (:disabled) en index.html.
+        b.disabled = !pasa;
+      });
+      btnEnvio.style.display = pasa ? 'none' : '';
+    };
+    toggle.addEventListener('change', aplicarToggle);
+
+    btnEnvio.addEventListener('click', async () => {
+      const ordenNum = getState().selectedOrderNumber;
+      const destino = getState().destinoConfirmadoOrden?.destino;
+      if (!destino) {
+        mostrarToast('Primero confirma el destino del pedido.', 'error');
+        return;
+      }
+      const seguro = await confirmarEnApp({
+        titulo: `¿Está seguro que va a enviar <span style="color:var(--purple);">TODO el pedido ${escapeHtml(ordenNum)}</span> sin pasar por Refilado?`,
+        detalle: `Se enruta completo y no contará como trabajo ni compensación de Refilado. Podrás deshacerlo desde Completadas mientras ${destino} no haya registrado nada.`,
+        infoEtiqueta: 'Se enviará a:',
+        infoValor: `${destino} ${ICONO_PROCESO[destino] || ''}`.trim(),
+        nota: 'Verifica siempre los datos registrados antes de validar.',
+        textoConfirmar: 'Confirmar Envío',
+        estiloConfirmar: 'purple'
+      });
+      if (!seguro) return;
+      btnEnvio.disabled = true;
+      try {
+        const n = await enrutarPedido(ordenNum, destino);
+        if (esValidador()) {
+          try { await registrarAuditValidador('enrutar_pedido', 'Refilado', ordenNum, null, { destino, tallas: n }, null); } catch (e) { console.error(e); }
+        }
+        mostrarToast(`Pedido enviado a ${destino}. Pasó a Completadas.`, 'ok');
+        cerrarDetalle();
+        await cargarOrdenes();
+        cargarFacetasOrdenes({ forzar: true });
+      } catch (err) {
+        mostrarToast(err.message, 'error');
+        btnEnvio.disabled = false;
+      }
+    });
+  }
   document.getElementById('btn-procesar-todo').addEventListener('click', () => {
     const contenedor = document.getElementById('detalle-contenido');
     contenedor.querySelectorAll('.input-cantidad-procesar').forEach((input) => {
@@ -587,7 +710,10 @@ function renderDetalleItems(items, movimientos) {
       // Refilado debe confirmar primero el destino de TODO el pedido en
       // el encabezado (ver renderDestinoHeader) antes de poder procesar
       // cualquier item; los demas roles de proceso no lo necesitan.
-      const puedeProcesar = !cierreForzadoOrden && esProceso && maximoEnMiProceso > 0 && (effectiveUser.role !== 'refilado' || !!destinoConfirmadoOrden);
+      // Un pedido ya enrutado (Envío Enrutado o regla antigua) salió completo de
+      // Refilado: no se vuelve a procesar ni siquiera el margen extra.
+      const enrutadoFueraDeRefilado = effectiveUser.role === 'refilado' && !!destinoConfirmadoOrden?.es_automatico;
+      const puedeProcesar = !cierreForzadoOrden && esProceso && maximoEnMiProceso > 0 && !enrutadoFueraDeRefilado && (effectiveUser.role !== 'refilado' || !!destinoConfirmadoOrden);
       // Devoluciones quedan atadas al rol REAL (no al rol emulado): es
       // una función exclusiva de Comercial, fuera del alcance de "actuar
       // como" que tiene Validador.
