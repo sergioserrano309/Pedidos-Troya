@@ -647,6 +647,22 @@ function renderBadgesPorProceso(orden) {
   `;
 }
 
+/**
+ * "7/7 Tallas": tallas del pedido con el proceso cubierto (lo pedido o más) sobre
+ * el total de tallas. Explica por qué una barra aún no llega a 100%: el pedido
+ * solo está completo cuando TODAS sus tallas lo están. Texto negro, sin color.
+ * Se omite en la vista Inyección y mientras la base de datos (SQL 090) no entregue las columnas.
+ */
+function textoTallas(orden, modoInyeccion) {
+  if (modoInyeccion) return '';
+  // Roles de proceso: ya viene remapeado a su proceso (tallas_ok). Los demás
+  // (Validador, Propuesta...) usan Empaque, igual que su % global.
+  const ok = orden.tallas_ok ?? orden.tallas_ok_empaque;
+  const total = orden.tallas_total;
+  if (ok === undefined || ok === null || total === undefined || total === null) return '';
+  return `<span style="font-size:11px; color:#000; font-weight:500; white-space:nowrap;" title="Tallas completas / total de tallas del pedido">${ok}/${total} Tallas</span>`;
+}
+
 function renderOrdenes(orders) {
   const contenedor = document.getElementById('ordenes-lista');
 
@@ -733,7 +749,10 @@ function renderOrdenes(orders) {
 
           <div class="col-estado" title="${modoMaestroValidador ? 'Progreso independiente por proceso' : 'Completado: procesado 100% | En Proceso: aún hay pendientes'}">
             ${modoMaestroValidador ? renderBadgesPorProceso(orden) : `
-              <span class="estado-badge estado-${orden.estatus_general === 'Completado' ? 'completado' : 'en-proceso'}">${orden.estatus_general}</span>
+              <div class="estado-con-tallas" style="display:flex; align-items:center; gap:8px;">
+                <span class="estado-badge estado-${orden.estatus_general === 'Completado' ? 'completado' : 'en-proceso'}">${orden.estatus_general}</span>
+                ${textoTallas(orden, modoInyeccion)}
+              </div>
               <div class="progreso-contenedor">
                 <div class="progreso-barra"><div class="progreso-lleno" style="width:${progreso}%"></div></div>
                 <span class="progreso-pct">${progreso}%</span>

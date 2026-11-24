@@ -34,6 +34,22 @@ export function calcularProgresoItem(requerido = 0, procesado = 0, devuelto = 0)
 }
 
 /**
+ * % REAL de lo hecho sobre lo pedido, SIN tope de 100 (110 de 100 = 110%).
+ * Se usa donde importa el dato real (Control Central y el Excel); las barras de
+ * Activas/Completadas siguen topadas en 100 (vienen de las vistas).
+ * Si todavía falta algo nunca se redondea hacia 100: 99,67% se muestra 99%.
+ * @param {number} parte  pares hechos (procesados, inyectados, despachados)
+ * @param {number} total  pares pedidos
+ */
+export function porcentajeReal(parte, total) {
+  const t = Number(total) || 0;
+  if (t <= 0) return 0;
+  const p = Number(parte) || 0;
+  const r = Math.round((p / t) * 100);
+  return p < t ? Math.min(r, 99) : r;
+}
+
+/**
  * Agrega los progresos de varios ítems de un mismo pedido (PedidoNo) para
  * obtener las cifras totales que se muestran en la card del dashboard.
  * @param {Array<{requerido:number, procesado:number, devuelto:number}>} items

@@ -7,9 +7,10 @@ import { esValidador } from '../services/validatorService.js';
 import { montarMultiSelect } from './multiSelect.js';
 import { ESTADOS_PEDIDO, condicionEstados, cumpleEstados } from '../lib/estadosPedido.js';
 import { calcularOpciones } from '../lib/facetas.js';
+import { porcentajeReal } from '../lib/calculations.js';
 import { getState } from '../state/appState.js';
 import { fetchInyectadoPorPedidos, fetchEstadoSincronizacion } from '../services/inyeccionService.js';
-import { aplicaInyeccion, porcentajeInyectado, estadoSincronizacion } from '../lib/inyeccion.js';
+import { aplicaInyeccion, estadoSincronizacion } from '../lib/inyeccion.js';
 import { fetchEstadoPedidos } from '../services/despachosService.js';
 import { fetchTroyaPorPedidos } from '../services/cierreForzadoService.js';
 
@@ -547,11 +548,6 @@ function actualizarOpcionesFiltros() {
   });
 }
 
-/** % entero sin tope (si salió más de lo solicitado se ve el real). */
-function porcentajeSobre(parte, total) {
-  return total > 0 ? Math.round((parte / total) * 100) : 0;
-}
-
 /** Suma las tarjetas sobre los pedidos filtrados (sin consultar nada). */
 function pintarResumenActual() {
   if (!document.getElementById('validador-resumen')) return;
@@ -582,7 +578,7 @@ function pintarResumenActual() {
           sumaIny += iny.get(String(p.order_number)) ?? 0;
         });
         inyectado = sumaIny;
-        pctI = porcentajeSobre(sumaIny, solicitadoIny);
+        pctI = porcentajeReal(sumaIny, solicitadoIny);
       } else {
         inyectado = null; // falló
         pctI = null;
@@ -590,7 +586,7 @@ function pintarResumenActual() {
     }
     if (despachadas) {
       despachado = pedidos.reduce((t, p) => t + (despachadas.get(String(p.order_number))?.despachadas ?? 0), 0);
-      pctD = porcentajeSobre(despachado, solicitado);
+      pctD = porcentajeReal(despachado, solicitado);
     } else {
       despachado = null; // falló
       pctD = null;
@@ -715,7 +711,7 @@ function celdaInyeccion(orden, inyeccion) {
     return '<span style="color: var(--text3);">—</span>';
   }
   const pares = inyeccion.get(String(orden.order_number)) ?? 0;
-  return badgeAvance(pares, porcentajeInyectado(pares, orden.total_solicitado), 'var(--bg)', 'var(--text2)', 'border: 1px dashed var(--border2);');
+  return badgeAvance(pares, porcentajeReal(pares, orden.total_solicitado), 'var(--bg)', 'var(--text2)', 'border: 1px dashed var(--border2);');
 }
 
 /** Solo se usa para fecha_pedido (fecha de calendario a medianoche UTC): ver lib/fechas.js. */
@@ -791,10 +787,10 @@ function renderTablaValidador(ordenes, mapaUltimaFecha, inyeccion, despachadas) 
             <td style="padding: 8px; text-align: center;"><strong>${o.total_solicitado ?? 0}</strong></td>
             <td style="padding: 8px; text-align: center;">${celdaDespachadas(o, despachadas)}</td>
             ${verInyeccion ? `<td style="padding: 8px; text-align: center;">${celdaInyeccion(o, inyeccion)}</td>` : ''}
-            <td style="padding: 8px; text-align: center;">${badgeAvance(o.procesado_refilado, o.porcentaje_refilado, 'var(--blue-bg)', 'var(--blue)')}</td>
-            <td style="padding: 8px; text-align: center;">${badgeAvance(o.procesado_acabado, o.porcentaje_acabado, 'var(--green-bg)', 'var(--green-text)')}</td>
-            <td style="padding: 8px; text-align: center;">${badgeAvance(o.procesado_mateado, o.porcentaje_mateado, 'var(--purple-bg)', 'var(--purple-text)')}</td>
-            <td style="padding: 8px; text-align: center;">${badgeAvance(o.procesado_empaque, o.porcentaje_empaque, 'var(--amber-bg)', 'var(--amber-text)')}</td>
+            <td style="padding: 8px; text-align: center;">${badgeAvance(o.procesado_refilado, porcentajeReal(o.procesado_refilado, o.total_refilado), 'var(--blue-bg)', 'var(--blue)')}</td>
+            <td style="padding: 8px; text-align: center;">${badgeAvance(o.procesado_acabado, porcentajeReal(o.procesado_acabado, o.total_acabado), 'var(--green-bg)', 'var(--green-text)')}</td>
+            <td style="padding: 8px; text-align: center;">${badgeAvance(o.procesado_mateado, porcentajeReal(o.procesado_mateado, o.total_mateado), 'var(--purple-bg)', 'var(--purple-text)')}</td>
+            <td style="padding: 8px; text-align: center;">${badgeAvance(o.procesado_empaque, porcentajeReal(o.procesado_empaque, o.total_empaque), 'var(--amber-bg)', 'var(--amber-text)')}</td>
             <td style="padding: 8px; text-align: center;">${celdaDias(dias.dRefilado)}</td>
             <td style="padding: 8px; text-align: center;">${celdaDias(dias.dAcabado)}</td>
             <td style="padding: 8px; text-align: center;">${celdaDias(dias.dMateado)}</td>
