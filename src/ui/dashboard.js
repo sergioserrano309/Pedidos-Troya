@@ -116,7 +116,9 @@ export function configurarUIValidador() {
   actualizarFiltrosSiNo();
   actualizarFiltroEstado();
 
-  document.getElementById('tab-btn-reglas').style.display = 'inline-block';
+  // "Reglas de Enrutamiento" ya no se usa (091): el enrutamiento lo hace Refilado con
+  // "Envío Enrutado". Las tablas de reglas quedan intactas, solo se oculta la pestaña.
+  document.getElementById('tab-btn-reglas').style.display = 'none';
   document.getElementById('tab-btn-validador').style.display = 'inline-block';
   document.getElementById('tab-btn-cambios-erp').style.display = 'inline-block';
   document.getElementById('tab-btn-dashboard').style.display = 'inline-block';
@@ -750,8 +752,8 @@ function renderOrdenes(orders) {
           <div class="col-estado" title="${modoMaestroValidador ? 'Progreso independiente por proceso' : 'Completado: procesado 100% | En Proceso: aún hay pendientes'}">
             ${modoMaestroValidador ? renderBadgesPorProceso(orden) : `
               <div class="estado-con-tallas" style="display:flex; align-items:center; gap:8px;">
-                <span class="estado-badge estado-${orden.estatus_general === 'Completado' ? 'completado' : 'en-proceso'}">${orden.estatus_general}</span>
-                ${textoTallas(orden, modoInyeccion)}
+                <span class="estado-badge estado-${orden.estatus_general === 'Completado' ? 'completado' : 'en-proceso'}">${orden.enrutado_para_refilado ? `Enrutado a ${escapeHtml(orden.enrutado_destino || '')}` : orden.estatus_general}</span>
+                ${orden.enrutado_para_refilado ? '' : textoTallas(orden, modoInyeccion)}
               </div>
               <div class="progreso-contenedor">
                 <div class="progreso-barra"><div class="progreso-lleno" style="width:${progreso}%"></div></div>

@@ -74,6 +74,18 @@ function aplicarVisibilidad(query, user, tab) {
     // Los pedidos que una regla de enrutamiento envio automaticamente
     // (ver supabase/sql/013_auto_enrutamiento_trigger.sql) nunca le
     // llegan a Refilado: no debe verlos ni procesarlos.
+    if (tab === 'completadas') {
+      // Completadas de Refilado = lo suyo ya completo (o cerrado a la fuerza) MÁS los
+      // pedidos que ÉL envió con "Envío Enrutado" (SQL 091: enrutado_manual). Desde
+      // ahí puede deshacer el envío. Los enrutados por regla antigua siguen ocultos.
+      return query.or([
+        'enrutado_manual.eq.true',
+        'and(destino_es_automatico.is.null,porcentaje_refilado.eq.100)',
+        'and(destino_es_automatico.eq.false,porcentaje_refilado.eq.100)',
+        'and(destino_es_automatico.is.null,cierre_forzado.eq.true)',
+        'and(destino_es_automatico.eq.false,cierre_forzado.eq.true)'
+      ].join(','));
+    }
     query = query.or('destino_es_automatico.is.null,destino_es_automatico.eq.false');
   }
 
@@ -205,16 +217,34 @@ export async function fetchOrders(user, tab = 'activas', options = {}) {
   // total_procesado, total_pendiente, porcentaje_completado), para que
   // dashboard.js / orderDetail.js no necesiten saber de esta distincion.
   if (columnas) {
-    filteredData = filteredData.map((row) => ({
-      ...row,
-      total_solicitado: row[columnas.total],
-      total_procesado: row[columnas.procesado],
-      total_pendiente: row[columnas.pendiente],
-      porcentaje_completado: row[columnas.porcentaje],
-      // Tallas con ESTE proceso cubierto (090); undefined si la vista aún no las trae.
-      tallas_ok: row[columnas.tallasOk],
-      estatus_general: row[columnas.porcentaje] === 100 ? 'Completado' : 'En Proceso'
-    }));
+    filteredData = filteredData.map((row) => {
+      const base = {
+        ...row,
+        total_solicitado: row[columnas.total],
+        total_procesado: row[columnas.procesado],
+        total_pendiente: row[columnas.pendiente],
+        porcentaje_completado: row[columnas.porcentaje],
+        // Tallas con ESTE proceso cubierto (090); undefined si la vista aún no las trae.
+        tallas_ok: row[columnas.tallasOk],
+        estatus_general: row[columnas.porcentaje] === 100 ? 'Completado' : 'En Proceso'
+      };
+      // Pedido que Refilado envió con "Envío Enrutado" (091): para Refilado ya está
+      // resuelto (esos movimientos no cuentan como trabajo suyo, su % real es 0).
+      // Se muestra completo, con la etiqueta "Enrutado a <proceso>" en la tarjeta.
+      if (proceso === 'Refilado' && row.enrutado_manual) {
+        return {
+          ...base,
+          total_procesado: base.total_solicitado,
+          total_pendiente: 0,
+          porcentaje_completado: 100,
+          estatus_general: 'Completado',
+          tallas_ok: undefined,
+          tallas_total: undefined,
+          enrutado_para_refilado: true
+        };
+      }
+      return base;
+    });
   }
 
   return { orders: filteredData, hayMas };

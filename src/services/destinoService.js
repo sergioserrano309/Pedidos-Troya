@@ -12,11 +12,22 @@ import { supabase } from '../config/supabaseClient.js';
  * @returns {Promise<{ destino: string, confirmed_by: string|null, confirmed_at: string, es_automatico: boolean } | null>}
  */
 export async function fetchDestinoOrden(orderNumber) {
-  const { data, error } = await supabase
+  // enrutado_por/enrutado_at (SQL 091) dicen si el pedido se envió con "Envío
+  // Enrutado" de Refilado. Si la base aún no tiene esas columnas se reintenta
+  // sin ellas, para no perder el destino.
+  let { data, error } = await supabase
     .from('order_destino')
-    .select('destino, confirmed_by, confirmed_at, es_automatico')
+    .select('destino, confirmed_by, confirmed_at, es_automatico, enrutado_por, enrutado_at')
     .eq('order_number', orderNumber)
     .maybeSingle();
+
+  if (error) {
+    ({ data, error } = await supabase
+      .from('order_destino')
+      .select('destino, confirmed_by, confirmed_at, es_automatico')
+      .eq('order_number', orderNumber)
+      .maybeSingle());
+  }
 
   if (error) {
     console.error('[destinoService] Error obteniendo destino de la orden:', error);
@@ -24,6 +35,41 @@ export async function fetchDestinoOrden(orderNumber) {
   }
 
   return data;
+}
+
+/**
+ * "Envío Enrutado" (SQL 091): Refilado manda el pedido COMPLETO al destino ya
+ * confirmado, sin que cuente como trabajo de Refilado. Lo hace una función de la
+ * base (todo o nada) y solo funciona si el pedido no tiene ningún registro.
+ * @param {string} orderNumber
+ * @param {'Acabado'|'Mateado'|'Empaque'} destino
+ * @returns {Promise<number>} tallas enviadas
+ */
+export async function enrutarPedido(orderNumber, destino) {
+  const { data, error } = await supabase.rpc('enrutar_pedido_manual', {
+    p_order_number: String(orderNumber),
+    p_destino: destino
+  });
+  if (error) {
+    console.error('[destinoService] Error en Envío Enrutado:', error);
+    throw new Error(error.message || 'No se pudo enrutar el pedido.');
+  }
+  return data ?? 0;
+}
+
+/**
+ * Deshace un "Envío Enrutado" mientras ningún proceso siguiente haya registrado
+ * nada. El pedido vuelve a Activas con su destino confirmado.
+ * @param {string} orderNumber
+ */
+export async function deshacerEnvioEnrutado(orderNumber) {
+  const { error } = await supabase.rpc('deshacer_envio_enrutado', {
+    p_order_number: String(orderNumber)
+  });
+  if (error) {
+    console.error('[destinoService] Error deshaciendo el envío enrutado:', error);
+    throw new Error(error.message || 'No se pudo deshacer el envío.');
+  }
 }
 
 /**
