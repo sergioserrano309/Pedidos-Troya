@@ -16,6 +16,11 @@ import { fetchCambiosDePedido } from '../services/cambiosErpService.js';
 import { resumenNota } from '../lib/cambiosErp.js';
 import { cargarOrdenes, cargarFacetasOrdenes } from './dashboard.js';
 
+// Número de pedido cuyo destino Refilado confirmó en ESTA apertura de la tarjeta.
+// Mientras el destino sea editable (sin registros), Procesamiento queda en gris hasta
+// que Refilado pulse "Confirmar": así el destino que ve en pantalla es el que se usa.
+let destinoConfirmadoAhora = null;
+
 export function inicializarModalDetalle() {
   // Formateo en vivo del campo "Procesar": solo dígitos, máximo 5, con
   // punto de miles (1.000). Delegado en el contenedor, que es permanente.
@@ -47,6 +52,7 @@ export async function abrirDetalleOrden(orderNumber) {
   contenedor.innerHTML = '<div class="loading"><div class="spinner"></div> Cargando...</div>';
   modal.classList.add('open');
 
+  if (destinoConfirmadoAhora !== orderNumber) destinoConfirmadoAhora = null;
   setState({ selectedOrderNumber: orderNumber, selectedItem: null, destinoConfirmadoOrden: null, cierreForzadoOrden: null });
   actualizarBotonDevolucion();
 
@@ -109,6 +115,7 @@ export async function abrirDetalleOrden(orderNumber) {
     renderDestinoHeader(orderNumber, destino, movimientos);
     renderProcesarLoteHeader();
     renderDetalleItems(items, movimientos);
+    actualizarEstadoProcesamiento();
   } catch (err) {
     contenedor.innerHTML = `<div class="empty">${err.message}</div>`;
   }
@@ -255,11 +262,12 @@ function renderDestinoHeader(orderNumber, destino, movimientos) {
     return;
   }
 
-  const titulo = esCambio ? 'Cambiar destino del pedido' : 'Confirmar destino del pedido';
-  // Al cambiar un destino ya confirmado, se precarga el valor actual en
-  // el select — así el usuario ve de entrada qué queda seleccionado, en
-  // vez de un "Selecciona..." vacío que sugiere que no eligió nada.
-  const valorActual = esCambio ? destino.destino : '';
+  // Refilado debe confirmar el destino en cada apertura de la tarjeta: arranca en
+  // "Selecciona..." aunque el pedido ya tenga uno guardado. Una vez confirmado aquí,
+  // se muestra el valor vigente y se habilita Procesamiento.
+  const yaConfirmadoAhora = esCambio && destinoConfirmadoAhora === orderNumber;
+  const titulo = yaConfirmadoAhora ? 'Cambiar destino del pedido' : 'Confirmar destino del pedido';
+  const valorActual = yaConfirmadoAhora ? destino.destino : '';
 
   el.innerHTML = `
     <div style="padding-bottom:4px;">
@@ -274,6 +282,9 @@ function renderDestinoHeader(orderNumber, destino, movimientos) {
     </div>
     <div class="orden-divider"></div>`;
 
+  // Si elige otro destino sin confirmarlo, Procesamiento vuelve a quedar en gris.
+  document.getElementById('destino-header-select').addEventListener('change', actualizarEstadoProcesamiento);
+
   document.getElementById('btn-confirmar-destino').addEventListener('click', async () => {
     const select = document.getElementById('destino-header-select');
     const valor = select.value;
@@ -287,13 +298,17 @@ function renderDestinoHeader(orderNumber, destino, movimientos) {
     btn.disabled = true;
 
     try {
-      if (esCambio) {
+      if (esCambio && valor === destino.destino) {
+        // Mismo destino que ya tenía guardado: no hay nada que cambiar en la base.
+        mostrarToast('Destino confirmado para todo el pedido.', 'ok');
+      } else if (esCambio) {
         await cambiarDestinoOrden(orderNumber, valor, effectiveUser);
         mostrarToast('Destino actualizado.', 'ok');
       } else {
         await confirmarDestinoOrden(orderNumber, valor, effectiveUser);
         mostrarToast('Destino confirmado para todo el pedido.', 'ok');
       }
+      destinoConfirmadoAhora = orderNumber;
       await abrirDetalleOrden(orderNumber);
     } catch (err) {
       mostrarToast(err.message, 'error');
@@ -455,6 +470,7 @@ function renderProcesarLoteHeader() {
   el.innerHTML = `
     <div class="procesamiento-titulo">Procesamiento</div>
     ${mostrarToggle ? `
+    <div id="aviso-confirmar-destino" style="display:none; font-size:12px; color:var(--text2); margin-bottom:8px;">Confirma el destino del pedido arriba para habilitar el procesamiento.</div>
     <label class="filtro-toggle toggle-pasa-refilado" id="toggle-pasa-refilado-fila" style="margin-bottom:10px;" title="Apágalo si el pedido NO pasa por Refilado: se envía completo al proceso confirmado">
       <span class="filtro-toggle-lbl">Pasa por Refilado</span>
       <span class="propuesta-switch">
@@ -479,28 +495,12 @@ function renderProcesarLoteHeader() {
   const toggle = document.getElementById('toggle-pasa-refilado');
   if (toggle) {
     const btnEnvio = document.getElementById('btn-envio-enrutado');
-    const btnTodo = document.getElementById('btn-procesar-todo');
-    const btnParcial = document.getElementById('btn-procesar-lote');
-    const aplicarToggle = () => {
-      const pasa = toggle.checked;
-      // Apagado: todo por talla en 0, sin poder digitar ni procesar.
-      document.querySelectorAll('#detalle-contenido .input-cantidad-procesar').forEach((input) => {
-        input.disabled = !pasa;
-        if (!pasa) input.value = '0';
-        else if (input.value === '0') input.value = '';
-      });
-      [btnTodo, btnParcial].forEach((b) => {
-        // El gris opaco lo pone el CSS (:disabled) en index.html.
-        b.disabled = !pasa;
-      });
-      btnEnvio.style.display = pasa ? 'none' : '';
-    };
-    toggle.addEventListener('change', aplicarToggle);
+    toggle.addEventListener('change', actualizarEstadoProcesamiento);
 
     btnEnvio.addEventListener('click', async () => {
       const ordenNum = getState().selectedOrderNumber;
       const destino = getState().destinoConfirmadoOrden?.destino;
-      if (!destino) {
+      if (!destino || !procesamientoHabilitado()) {
         mostrarToast('Primero confirma el destino del pedido.', 'error');
         return;
       }
@@ -649,6 +649,56 @@ export async function refrescarDetalleActual() {
 }
 
 
+/**
+ * ¿Puede Refilado usar la sección Procesamiento? Mientras el destino sea editable
+ * (pedido sin registros, no automático, no cerrado) hay que haberlo CONFIRMADO en esta
+ * apertura y que el select siga mostrando ese mismo destino. Para los demás roles, o
+ * con el destino ya bloqueado por registros, siempre está habilitada.
+ */
+function procesamientoHabilitado() {
+  const { destinoConfirmadoOrden, selectedOrderNumber, selectedOrderMovimientos, cierreForzadoOrden } = getState();
+  if (usuarioEfectivo().role !== 'refilado' || !destinoConfirmadoOrden) return true;
+  const editable = !destinoConfirmadoOrden.es_automatico
+    && (selectedOrderMovimientos || []).length === 0
+    && !cierreForzadoOrden;
+  if (!editable) return true;
+  const select = document.getElementById('destino-header-select');
+  return destinoConfirmadoAhora === selectedOrderNumber
+    && (!select || select.value === destinoConfirmadoOrden.destino);
+}
+
+/**
+ * Pone la sección Procesamiento en su estado correcto según dos cosas: si el destino
+ * está confirmado y si "Pasa por Refilado" está encendido. Sin confirmar: todo en gris
+ * (toggle, botones y campos). Toggle apagado: campos en 0, sin Procesar y con "Envío
+ * Enrutado". El gris de los botones lo pone el CSS (:disabled) en index.html.
+ */
+function actualizarEstadoProcesamiento() {
+  const toggle = document.getElementById('toggle-pasa-refilado');
+  if (!toggle) return;
+
+  const habilitado = procesamientoHabilitado();
+  if (!habilitado) toggle.checked = true; // sin confirmar vuelve a "Pasa por Refilado"
+  const pasa = toggle.checked;
+
+  toggle.disabled = !habilitado;
+  document.getElementById('toggle-pasa-refilado-fila')?.classList.toggle('toggle-deshabilitado', !habilitado);
+  const aviso = document.getElementById('aviso-confirmar-destino');
+  if (aviso) aviso.style.display = habilitado ? 'none' : '';
+
+  document.querySelectorAll('#detalle-contenido .input-cantidad-procesar').forEach((input) => {
+    input.disabled = !habilitado || !pasa;
+    if (habilitado && !pasa) input.value = '0';
+    else if (input.value === '0') input.value = '';
+  });
+  ['btn-procesar-todo', 'btn-procesar-lote'].forEach((id) => {
+    const b = document.getElementById(id);
+    if (b) b.disabled = !habilitado || !pasa;
+  });
+  const btnEnvio = document.getElementById('btn-envio-enrutado');
+  if (btnEnvio) btnEnvio.style.display = habilitado && !pasa ? '' : 'none';
+}
+
 function renderDetalleItems(items, movimientos) {
   const { user, destinoConfirmadoOrden, cierreForzadoOrden } = getState();
   const effectiveUser = usuarioEfectivo();
@@ -788,6 +838,7 @@ function actualizarBotonDevolucion() {
 }
 
 export function cerrarDetalle() {
+  destinoConfirmadoAhora = null;
   document.getElementById('modal-detalle').classList.remove('open');
 }
 
