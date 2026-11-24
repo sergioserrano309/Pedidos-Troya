@@ -1,4 +1,5 @@
 import { serialExcelDeDia, diaPedidoLocal } from './fechas.js';
+import { porcentajeReal } from './calculations.js';
 
 /**
  * Inyección (ERP): dato INFORMATIVO que viene directo de Access (columna
@@ -117,7 +118,7 @@ export function filasInyeccionERP(lineas, estado = null) {
       'Detalle Vira': l.DetalleVira || '—',
       'Solicitado': l.CantidadP ?? 0,
       'Inyectado': l.Total01Iny ?? 0,
-      '% Inyectado': porcentajeInyectado(l.Total01Iny, l.CantidadP),
+      '% Inyectado': porcentajeReal(l.Total01Iny, l.CantidadP),
       'Fuente': 'ERP (Access)',
       // Hora de la última corrida del sincronizador (cuándo se confirmó que
       // este dato coincidía con Access) y si está al día o hay que mirarlo.

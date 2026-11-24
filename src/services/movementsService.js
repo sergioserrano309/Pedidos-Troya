@@ -41,7 +41,7 @@ export async function registrarMovimientosLote(seleccion, { destino, observacion
     const limite = pendiente !== undefined ? pendiente : item.cantidad_pendiente;
     if (qty > limite) {
       throw new Error(
-        `Talla ${item.talla}: no puedes procesar ${qty} unidades, solo quedan ${limite} pendientes en este proceso.`
+        `Talla ${item.talla}: no puedes procesar ${qty} unidades, el máximo permitido en este proceso es ${limite}.`
       );
     }
 

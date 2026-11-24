@@ -39,10 +39,10 @@ const ROLE_TO_PROCESS = {
 // (algo me fue enviado realmente); las cifras mostradas (total/procesado/
 // pendiente/porcentaje) se calculan contra el pedido completo.
 const PROCESO_COLUMNAS = {
-  Refilado: { total: 'total_refilado', procesado: 'procesado_refilado', pendiente: 'pendiente_refilado', porcentaje: 'porcentaje_refilado' },
-  Acabado: { entrada: 'entrada_acabado', total: 'total_acabado', procesado: 'procesado_acabado', pendiente: 'pendiente_acabado', porcentaje: 'porcentaje_acabado' },
-  Mateado: { entrada: 'entrada_mateado', total: 'total_mateado', procesado: 'procesado_mateado', pendiente: 'pendiente_mateado', porcentaje: 'porcentaje_mateado' },
-  Empaque: { entrada: 'entrada_empaque', total: 'total_empaque', procesado: 'procesado_empaque', pendiente: 'pendiente_empaque', porcentaje: 'porcentaje_empaque' }
+  Refilado: { total: 'total_refilado', procesado: 'procesado_refilado', pendiente: 'pendiente_refilado', porcentaje: 'porcentaje_refilado', tallasOk: 'tallas_ok_refilado' },
+  Acabado: { entrada: 'entrada_acabado', total: 'total_acabado', procesado: 'procesado_acabado', pendiente: 'pendiente_acabado', porcentaje: 'porcentaje_acabado', tallasOk: 'tallas_ok_acabado' },
+  Mateado: { entrada: 'entrada_mateado', total: 'total_mateado', procesado: 'procesado_mateado', pendiente: 'pendiente_mateado', porcentaje: 'porcentaje_mateado', tallasOk: 'tallas_ok_mateado' },
+  Empaque: { entrada: 'entrada_empaque', total: 'total_empaque', procesado: 'procesado_empaque', pendiente: 'pendiente_empaque', porcentaje: 'porcentaje_empaque', tallasOk: 'tallas_ok_empaque' }
 };
 
 const PAGE_SIZE = 30;
@@ -211,6 +211,8 @@ export async function fetchOrders(user, tab = 'activas', options = {}) {
       total_procesado: row[columnas.procesado],
       total_pendiente: row[columnas.pendiente],
       porcentaje_completado: row[columnas.porcentaje],
+      // Tallas con ESTE proceso cubierto (090); undefined si la vista aún no las trae.
+      tallas_ok: row[columnas.tallasOk],
       estatus_general: row[columnas.porcentaje] === 100 ? 'Completado' : 'En Proceso'
     }));
   }

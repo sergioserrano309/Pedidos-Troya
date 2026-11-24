@@ -4,7 +4,7 @@ import { fetchDestinoOrden, confirmarDestinoOrden, cambiarDestinoOrden } from '.
 import { getState, setState } from '../state/appState.js';
 import { estadoPorPorcentaje } from '../lib/calculations.js';
 import { nombreProcesoDeRol, esRolDeProceso, ICONO_PROCESO } from '../lib/roles.js';
-import { calcularPendientePorProceso, calcularProcesadoPorProceso, calcularRecibidoPorProceso, porcentajeRecibido } from '../lib/stageQuantities.js';
+import { calcularPendientePorProceso, calcularMaximoProcesable, calcularProcesadoPorProceso, calcularRecibidoPorProceso, porcentajeRecibido } from '../lib/stageQuantities.js';
 import { abrirModalProcesar } from './processModal.js';
 import { abrirModalDevolucion } from './returnModal.js';
 import { mostrarToast } from './toast.js';
@@ -495,15 +495,17 @@ function abrirResumenLote(esOrdenCompleta = false) {
     if (cantidad <= 0) continue;
 
     const idx = Number(input.dataset.idx);
-    const pendiente = Number(input.dataset.pendiente);
+    // Máximo que se puede registrar (para Refilado incluye el margen extra, ver
+    // calcularMaximoProcesable); el pendiente solo sirve para "Procesar toda la orden".
+    const maximo = Number(input.dataset.maximo ?? input.dataset.pendiente);
     const item = selectedOrderItems[idx];
 
-    if (cantidad > pendiente) {
-      mostrarToast(`Talla ${item.talla}: no puedes procesar ${cantidad}, solo quedan ${pendiente} pendientes en este proceso.`, 'error');
+    if (cantidad > maximo) {
+      mostrarToast(`Talla ${item.talla}: no puedes procesar ${cantidad}, el máximo permitido en este proceso es ${maximo}.`, 'error');
       return;
     }
 
-    seleccion.push({ item, cantidad, pendiente });
+    seleccion.push({ item, cantidad, pendiente: maximo });
   }
 
   if (seleccion.length === 0) {
@@ -544,11 +546,13 @@ function renderDetalleItems(items, movimientos) {
       let pendienteMostrado = item.cantidad_pendiente;
       let recibidoMostrado = 0;
       let pendienteEnMiProceso = 0;
+      let maximoEnMiProceso = 0;
       let sinEnviar = false;
       let estado;
 
       if (esProceso) {
         pendienteEnMiProceso = calcularPendientePorProceso(item, movimientos, procesoDelRol);
+        maximoEnMiProceso = calcularMaximoProcesable(item, movimientos, procesoDelRol);
         const procesadoEnMiProceso = calcularProcesadoPorProceso(item, movimientos, procesoDelRol);
         const entradaEnMiProceso = pendienteEnMiProceso + procesadoEnMiProceso;
 
@@ -583,7 +587,7 @@ function renderDetalleItems(items, movimientos) {
       // Refilado debe confirmar primero el destino de TODO el pedido en
       // el encabezado (ver renderDestinoHeader) antes de poder procesar
       // cualquier item; los demas roles de proceso no lo necesitan.
-      const puedeProcesar = !cierreForzadoOrden && esProceso && pendienteEnMiProceso > 0 && (effectiveUser.role !== 'refilado' || !!destinoConfirmadoOrden);
+      const puedeProcesar = !cierreForzadoOrden && esProceso && maximoEnMiProceso > 0 && (effectiveUser.role !== 'refilado' || !!destinoConfirmadoOrden);
       // Devoluciones quedan atadas al rol REAL (no al rol emulado): es
       // una función exclusiva de Comercial, fuera del alcance de "actuar
       // como" que tiene Validador.
@@ -612,7 +616,8 @@ function renderDetalleItems(items, movimientos) {
             <div class="stat-item stat-procesar">
               <div class="stat-label">Procesar</div>
               <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="6"
-                     class="input-cantidad-procesar" data-idx="${idx}" data-pendiente="${pendienteEnMiProceso}" placeholder="0">
+                     class="input-cantidad-procesar" data-idx="${idx}" data-pendiente="${pendienteEnMiProceso}" data-maximo="${maximoEnMiProceso}"
+                     title="${maximoEnMiProceso > pendienteEnMiProceso ? `Pendiente ${pendienteEnMiProceso}; puedes registrar hasta ${maximoEnMiProceso} (margen extra permitido)` : ''}" placeholder="0">
             </div>` : ''}
             ${puedeDevolver ? `
             <div class="stat-acciones" style="margin-left:auto; display:flex; gap:0.5rem;">

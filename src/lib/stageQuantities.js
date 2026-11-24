@@ -26,6 +26,44 @@ export function calcularPendientePorProceso(item, movimientos, proceso) {
 }
 
 /**
+ * Margen que Refilado puede procesar POR ENCIMA de lo pedido en una talla
+ * (porque se inyecta de más): 25% del pedido de la talla, redondeado hacia
+ * arriba, mínimo 2 pares. 5 -> 2, 10 -> 3, 100 -> 25.
+ * DEBE coincidir con fn_extra_refilado() de supabase/sql/090 (el candado de la
+ * base usa esa misma regla).
+ */
+export function extraPermitidoRefilado(solicitado) {
+  const s = Number(solicitado || 0);
+  if (s <= 0) return 0;
+  return Math.max(2, Math.ceil(s * 0.25));
+}
+
+/**
+ * Lo máximo que el proceso del rol puede registrar HOY para una talla.
+ *   - Acabado/Mateado/Empaque: lo que les enviaron menos lo que ya procesaron
+ *     (igual que el pendiente).
+ *   - Refilado: lo pedido (+ lo que le regresaron) más el margen de
+ *     extraPermitidoRefilado(), menos lo ya procesado. Puede ser mayor que el
+ *     pendiente: el pendiente llega a 0 al cubrir lo pedido, pero Refilado
+ *     todavía puede registrar el margen.
+ */
+export function calcularMaximoProcesable(item, movimientos, proceso) {
+  const pendiente = calcularPendientePorProceso(item, movimientos, proceso);
+  if (proceso !== 'Refilado') return pendiente;
+
+  const delItem = movimientos.filter((m) => m.item_id === item.item_id);
+  const entradas = delItem
+    .filter((m) => m.to_process === proceso)
+    .reduce((sum, m) => sum + Number(m.quantity || 0), 0);
+  const salidas = delItem
+    .filter((m) => m.from_process === proceso)
+    .reduce((sum, m) => sum + Number(m.quantity || 0), 0);
+  const solicitado = Number(item.cantidad_solicitada || 0);
+
+  return Math.max(solicitado + entradas + extraPermitidoRefilado(solicitado) - salidas, 0);
+}
+
+/**
  * Cantidad ya procesada (enviada hacia el siguiente proceso) DENTRO del
  * proceso del rol actual. Junto con calcularPendientePorProceso(), permite
  * mostrar "Procesado"/"Pendiente" específicos del proceso en vez de las

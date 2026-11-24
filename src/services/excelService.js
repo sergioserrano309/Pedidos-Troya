@@ -4,6 +4,7 @@ import { serialExcelDeDia, diaPedidoLocal } from '../lib/fechas.js';
 import { soloFecha, construirMapaUltimaFechaPorProceso, fechaFinProceso, calcularDiasPorProceso } from '../lib/procesoDias.js';
 import { fetchLineasInyeccionERP, fetchEstadoSincronizacion } from './inyeccionService.js';
 import { filasInyeccionERP } from '../lib/inyeccion.js';
+import { porcentajeReal } from '../lib/calculations.js';
 import { fetchTodosLosCambiosERP } from './cambiosErpService.js';
 import { fetchTiposCierre, etiquetaTipoCierre } from './cierreForzadoService.js';
 import { filasCambiosERP } from '../lib/cambiosErp.js';
@@ -148,7 +149,7 @@ async function fetchTodoElEstadoDespacho() {
   while (true) {
     const { data, error } = await supabase
       .from('vw_pedido_despacho_estado')
-      .select('order_number, unidades_despachadas, pedido_completo, fecha_ultimo_despacho, porcentaje_despachado')
+      .select('order_number, unidades_despachadas, unidades_solicitadas, pedido_completo, fecha_ultimo_despacho, porcentaje_despachado')
       .order('order_number', { ascending: false })
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
     if (error) return mapa;
@@ -277,7 +278,8 @@ async function fetchTodoElDetalleDespachos(registros, ordenes, estadoDespacho, i
         numero_bultos: asignados.length,
         kilos_despacho: d.peso_total ?? 0,
         unidades_despacho: d.total_unidades ?? 0,
-        porcentaje_despachado: estado?.porcentaje_despachado ?? 0,
+        // % real (sin tope de 100), desde las unidades.
+        porcentaje_despachado: porcentajeReal(estado?.unidades_despachadas, estado?.unidades_solicitadas),
         pedido_completo: estado?.pedido_completo ?? false,
         bultos_despacho: d.total_bultos
       });
@@ -568,7 +570,9 @@ export async function generarExcel() {
       'Total Solicita': orden.total_solicitado ?? 0,
       'Total Procese': orden.total_procesado ?? 0,
       'Total Pendier': orden.total_pendiente ?? 0,
-      '% Completad': orden.porcentaje_completado ?? 0,
+      // % reales (sin tope de 100): pares procesados / pares pedidos. Las columnas
+      // F_ (fecha al 100%) siguen usando el % por talla de la vista.
+      '% Completad': porcentajeReal(orden.total_procesado, orden.total_solicitado),
       'Total Items': orden.total_items ?? 0,
       'Regla': tieneRegla,
       'ReglaProceso': procesoProceso,
@@ -576,10 +580,10 @@ export async function generarExcel() {
       'P_Acabado': orden.procesado_acabado ?? 0,
       'P_Empaque': orden.procesado_empaque ?? 0,
       'P_Mateado': orden.procesado_mateado ?? 0,
-      '%_Refilado': orden.porcentaje_refilado ?? 0,
-      '%_Acabado': orden.porcentaje_acabado ?? 0,
-      '%_Empaque': orden.porcentaje_empaque ?? 0,
-      '%_Mateado': orden.porcentaje_mateado ?? 0,
+      '%_Refilado': porcentajeReal(orden.procesado_refilado, orden.total_refilado),
+      '%_Acabado': porcentajeReal(orden.procesado_acabado, orden.total_acabado),
+      '%_Empaque': porcentajeReal(orden.procesado_empaque, orden.total_empaque),
+      '%_Mateado': porcentajeReal(orden.procesado_mateado, orden.total_mateado),
       'F_Refilado': diaExcel(fechaFinProceso(orden, 'Refilado', 'porcentaje_refilado', mapaUltimaFecha)),
       'F_Acabado': diaExcel(fechaFinProceso(orden, 'Acabado', 'porcentaje_acabado', mapaUltimaFecha)),
       'F_Empaque': diaExcel(fechaFinProceso(orden, 'Empaque', 'porcentaje_empaque', mapaUltimaFecha)),
