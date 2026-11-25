@@ -324,10 +324,9 @@ function renderBultosImpresion(bultos) {
 }
 
 function renderCuerpoImpresion(ctx, fechaImpreso, consecutivo, opciones = {}) {
-  const { detalle, bultos, tallasPorPedido, ordenes, infoPorPedido, bultosDe, unidadesDe, pesoTotal, unidadesTotal, clientes } = ctx;
+  const { detalle, bultos, tallasPorPedido, ordenes, infoPorPedido, bultosDe, unidadesDe, pesoTotal, unidadesTotal } = ctx;
 
   const incluirComentario = opciones.incluirComentario !== false;
-  const clienteTxt = clientes.length ? escapeHtml(clientes.join(' · ')) : 'Cliente sin registrar';
   const labelBultos = `${bultos.length} ${bultos.length === 1 ? 'Bulto' : 'Bultos'}`;
   const labelUnd = `${unidadesTotal} ${unidadesTotal === 1 ? 'Unidad' : 'Unidades'}`;
 
@@ -345,8 +344,7 @@ function renderCuerpoImpresion(ctx, fechaImpreso, consecutivo, opciones = {}) {
     </div>
 
     <div class="detalle-despacho-print-linea-cliente">
-      <span class="detalle-despacho-print-cliente">${clienteTxt}</span>
-      <span class="detalle-despacho-print-totales">
+      <span class="detalle-despacho-print-totales" style="margin-left:auto;">
         <span>${formatearKilos(pesoTotal)} Kg</span>
         <span>${labelBultos}</span>
         <span>${labelUnd}</span>
