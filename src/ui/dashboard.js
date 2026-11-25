@@ -21,6 +21,7 @@ import { aplicaInyeccion, porcentajeInyectado } from '../lib/inyeccion.js';
 import { iniciarInsigniaCambiosErp, detenerInsigniaCambiosErp } from './cambiosErpInsignia.js';
 import { cargarAuditPage } from './auditPage.js';
 import { cargarDespachosTab, configurarUIDespachos } from './despachosPage.js';
+import { cargarSalidasATab, configurarUISalidasA } from './salidasAcabadoPage.js';
 import { cargarEliminaciones } from './eliminacionesPage.js';
 import { cargarCompensacion } from './compensacionPage.js';
 import { alternarCierreForzado } from './cierreForzado.js';
@@ -159,6 +160,7 @@ export function configurarUIValidador() {
       // La pestaña "Despachos" depende de rolEfectivo(), no del rol real
       // — un Validador que deja de emular Empaque debe dejar de verla.
       configurarUIDespachos();
+      configurarUISalidasA();
 
       // Refresca la vista actual con el nuevo rol efectivo — antes el
       // selector solo guardaba el valor y no pasaba nada visible.
@@ -185,6 +187,8 @@ export function configurarUIValidador() {
         await cargarHistorial();
       } else if (currentTab === 'despachos') {
         await cargarDespachosTab();
+      } else if (currentTab === 'salidas-a') {
+        await cargarSalidasATab();
       } else if (!['validador', 'cambios-erp', 'dashboard', 'audit', 'reglas', 'eliminaciones'].includes(currentTab)) {
         await cargarOrdenes();
         await cargarFacetasOrdenes();
@@ -308,10 +312,11 @@ export function inicializarPaginaOrdenes() {
       const esPestanaValidador = tab === 'validador';
       const esAudit = tab === 'audit';
       const esDespachos = tab === 'despachos';
+      const esSalidasA = tab === 'salidas-a';
       const esEliminaciones = tab === 'eliminaciones';
       const esCambiosErp = tab === 'cambios-erp';
       const esDashboard = tab === 'dashboard';
-      const esOrdenes = !esRegistros && !esReglas && !esPestanaValidador && !esAudit && !esDespachos && !esEliminaciones && !esCambiosErp && !esDashboard;
+      const esOrdenes = !esRegistros && !esReglas && !esPestanaValidador && !esAudit && !esDespachos && !esSalidasA && !esEliminaciones && !esCambiosErp && !esDashboard;
 
       // La barra "Filtros (n) / Limpiar" de celular solo sirve en Activas
       // y Completadas. Al salir se cierra también el panel: su regla de
@@ -339,6 +344,7 @@ export function inicializarPaginaOrdenes() {
       document.getElementById('page-dashboard').style.display = esDashboard ? 'block' : 'none';
       document.getElementById('page-audit').style.display = esAudit ? 'block' : 'none';
       document.getElementById('despachos-seccion').style.display = esDespachos ? 'block' : 'none';
+      document.getElementById('salidas-a-seccion').style.display = esSalidasA ? 'block' : 'none';
       document.getElementById('eliminaciones-seccion').style.display = esEliminaciones ? 'block' : 'none';
 
       if (esRegistros) {
@@ -355,6 +361,8 @@ export function inicializarPaginaOrdenes() {
         cargarAuditPage();
       } else if (esDespachos) {
         cargarDespachosTab();
+      } else if (esSalidasA) {
+        cargarSalidasATab();
       } else if (esEliminaciones) {
         cargarEliminaciones();
       } else {

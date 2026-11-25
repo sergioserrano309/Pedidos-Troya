@@ -16,6 +16,7 @@ import { inicializarPaginaCompensacion, configurarUICompensacionValidador, carga
 import { inicializarPaginaDespachos, configurarUIDespachos, cargarDespachosTab } from './ui/despachosPage.js';
 import { inicializarPaginaRegistrosDespachos } from './ui/registrosDespachosPage.js';
 import { inicializarModalDetalleDespacho } from './ui/despachoDetalleModal.js';
+import { inicializarPaginaSalidasA, configurarUISalidasA, cargarSalidasATab } from './ui/salidasAcabadoPage.js';
 import { inicializarPaginaEliminaciones } from './ui/eliminacionesPage.js';
 import { inicializarPaginaPropuesta, configurarUIPropuesta, cargarPropuesta } from './ui/propuestaPage.js';
 import { iniciarRealtime } from './realtime.js';
@@ -55,6 +56,7 @@ function inicializarUI() {
   inicializarPaginaDespachos();
   inicializarPaginaRegistrosDespachos();
   inicializarModalDetalleDespacho();
+  inicializarPaginaSalidasA();
   inicializarPaginaEliminaciones();
   inicializarPaginaPropuesta();
   inicializarModalCierreForzado();
@@ -101,6 +103,7 @@ async function iniciarApp(user) {
   configurarUIValidador();
   configurarUICompensacionValidador();
   configurarUIDespachos();
+  configurarUISalidasA();
   configurarFiltroProcesoHistorial(user);
 
   await cargarOrdenes();
@@ -115,6 +118,7 @@ async function iniciarApp(user) {
     if (currentTab === 'registros') await cargarHistorial();
     else if (currentTab === 'validador') await refrescarValidadorSiVisible();
     else if (currentTab === 'despachos') await cargarDespachosTab();
+    else if (currentTab === 'salidas-a') await cargarSalidasATab();
     else if (!['audit', 'reglas', 'eliminaciones', 'cambios-erp', 'dashboard'].includes(currentTab)) {
       await cargarOrdenes();
       // Pedidos nuevos o que cambiaron de pestaña: las listas se actualizan.

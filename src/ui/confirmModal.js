@@ -14,6 +14,64 @@ function escapeHtml(value) {
 }
 
 /**
+ * Ventana dentro del programa con VARIAS opciones (más "Cancelar"). Devuelve el
+ * `valor` de la opción elegida, o null si cancela (botón, X, Esc o clic fuera).
+ *
+ * @param {{
+ *   titulo: string,
+ *   detalle?: string,
+ *   opciones: Array<{ valor: string, texto: string, estilo?: 'primary'|'purple'|'secondary' }>,
+ *   textoCancelar?: string
+ * }} config
+ * @returns {Promise<string|null>}
+ */
+export function elegirEnApp({ titulo, detalle = '', opciones, textoCancelar = 'Cancelar' }) {
+  return new Promise((resolve) => {
+    const clases = { primary: 'btn btn-primary', purple: 'btn', secondary: 'btn btn-secondary' };
+    const modal = document.createElement('div');
+    modal.className = 'modal open';
+    modal.style.zIndex = '1100';
+    modal.innerHTML = `
+      <div class="modal-content" role="dialog" aria-modal="true" style="max-width:480px;">
+        <div class="modal-header">
+          <div class="modal-title">${titulo}</div>
+          <button class="modal-close" type="button" data-cancelar="1" aria-label="Cerrar">×</button>
+        </div>
+        ${detalle ? `<div style="font-size:13px; color:var(--text2); margin-bottom:1rem;">${escapeHtml(detalle)}</div>` : ''}
+        <div style="margin-top:1.5rem; display:flex; gap:0.75rem; flex-wrap:wrap;">
+          <button class="btn btn-secondary" type="button" data-cancelar="1">${escapeHtml(textoCancelar)}</button>
+          ${opciones.map((o, i) => `
+            <button class="${clases[o.estilo] || clases.primary}" type="button" data-opcion="${i}"
+              style="${o.estilo === 'purple' ? 'background:var(--purple); color:#fff; border:none;' : ''}">${escapeHtml(o.texto)}</button>`).join('')}
+        </div>
+      </div>`;
+
+    const cerrar = (valor) => {
+      document.removeEventListener('keydown', alTeclear, true);
+      modal.remove();
+      resolve(valor);
+    };
+    const alTeclear = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        cerrar(null);
+      }
+    };
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) return cerrar(null);
+      const boton = e.target.closest?.('button');
+      if (!boton) return;
+      if (boton.dataset.cancelar) cerrar(null);
+      else if (boton.dataset.opcion !== undefined) cerrar(opciones[Number(boton.dataset.opcion)].valor);
+    });
+    document.addEventListener('keydown', alTeclear, true);
+
+    document.body.appendChild(modal);
+  });
+}
+
+/**
  * @param {{
  *   titulo: string,                 // HTML ya escapado por quien llama (puede llevar <span> de color)
  *   detalle?: string,               // texto gris bajo el título
