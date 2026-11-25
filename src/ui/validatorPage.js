@@ -5,14 +5,16 @@ import { fetchOpcionesCliente, fetchOpcionesNombreSuela, fetchOpcionesMaterial, 
 import { construirMapaUltimaFechaPorProceso, calcularDiasPorProceso } from '../lib/procesoDias.js';
 import { esValidador } from '../services/validatorService.js';
 import { montarMultiSelect } from './multiSelect.js';
-import { ESTADOS_PEDIDO, condicionEstados, cumpleEstados } from '../lib/estadosPedido.js';
+import { ESTADOS_CONTROL_CENTRAL, condicionEstados, cumpleEstados } from '../lib/estadosPedido.js';
 import { calcularOpciones } from '../lib/facetas.js';
 import { porcentajeReal } from '../lib/calculations.js';
 import { getState } from '../state/appState.js';
 import { fetchInyectadoPorPedidos, fetchEstadoSincronizacion } from '../services/inyeccionService.js';
 import { aplicaInyeccion, estadoSincronizacion } from '../lib/inyeccion.js';
 import { fetchEstadoPedidos } from '../services/despachosService.js';
-import { fetchTroyaPorPedidos } from '../services/cierreForzadoService.js';
+import { fetchTroyaPorPedidos, fetchTiposCierreONulo, etiquetaTipoCierre } from '../services/cierreForzadoService.js';
+import { fetchComentariosActivosPorPedidos, fetchResumenComentarios } from '../services/comentariosPedidoService.js';
+import { abrirComentariosPedido } from './comentariosPedidoModal.js';
 
 // Estado de la sincronización del Total Inyectado (solo Validador). Se refresca
 // con cada carga de la tabla y, mientras la pantalla esté abierta, cada minuto.
@@ -38,6 +40,39 @@ const multis = {};
 
 // Filtro por Estado (solo Validador): En proceso / Completado / Cerrado, varios a la vez.
 let estadosFiltro = [];
+// Map(pedido cerrado -> tipo|null) para "Cerrado · Clasificado / Sin clasificar"; null = no llegó.
+let tiposCierre = null;
+
+async function refrescarTiposCierre() {
+  const tipos = await fetchTiposCierreONulo();
+  if (tipos) tiposCierre = tipos;
+}
+
+// Filtro por Comentarios (093/094): varias opciones a la vez (se unen con O).
+//   todos -> órdenes con algún comentario activo
+//   con   -> órdenes con al menos un accionable SIN cerrar
+//   sin   -> órdenes con comentarios que NUNCA tuvieron un accionable (ni abierto ni cerrado)
+const OPCIONES_COMENTARIOS = [
+  { valor: 'todos', etiqueta: 'Comentarios (todos)' },
+  { valor: 'con', etiqueta: 'Con accionables' },
+  { valor: 'sin', etiqueta: 'Sin accionables' }
+];
+let comentariosFiltro = [];
+// Map(orden -> { abiertos }) de TODAS las órdenes con comentarios; null = aún no llega / falló.
+let resumenComentarios = null;
+
+function cumpleComentarios(numeroOrden) {
+  if (comentariosFiltro.length === 0 || !resumenComentarios) return true; // sin filtro (o sin datos todavía)
+  const r = resumenComentarios.get(String(numeroOrden));
+  if (!r) return false; // sin comentarios: no entra en ninguna de las 3 opciones
+  return comentariosFiltro.some((v) =>
+    v === 'todos' || (v === 'con' && r.abiertos > 0) || (v === 'sin' && r.accionables === 0));
+}
+
+async function refrescarResumenComentarios() {
+  const resumen = await fetchResumenComentarios();
+  if (resumen) resumenComentarios = resumen;
+}
 
 // Atributos Sí/No por pedido (alguna línea = Sí), ver SQL 082.
 const ATRIBUTOS_SI_NO = ['vira', 'acabado', 'esterilla', 'marquilla'];
@@ -68,6 +103,7 @@ export async function cargarValidadorPage() {
         <div id="validador-filtro-color" class="filtro-estado-celda"></div>
         <input type="date" id="validador-filtro-fecha" style="${ESTILO_INPUT}">
         ${esValidador() ? '<div id="validador-filtro-estado" class="filtro-estado-celda"></div>' : ''}
+        <div id="validador-filtro-comentarios" class="filtro-estado-celda"></div>
         ${['Vira', 'Acabado', 'Esterilla', 'Marquilla'].map((nombre) => `
         <label class="filtro-toggle" data-filtro-toggle="validador-filtro-${nombre.toLowerCase()}" title="Mostrar solo pedidos con ${nombre.toLowerCase()}">
           <span class="filtro-toggle-lbl">${nombre}</span>
@@ -101,6 +137,7 @@ export async function cargarValidadorPage() {
   // El HTML se reconstruye con todo vacío: el estado también.
   filtros = filtrosVacios();
   estadosFiltro = [];
+  comentariosFiltro = [];
 
   // Cada cambio de filtro: la tabla se vuelve a pedir al servidor y las
   // opciones de los desplegables y las tarjetas se recalculan al instante
@@ -116,9 +153,22 @@ export async function cargarValidadorPage() {
   if (celdaEstado) {
     montarMultiSelect(celdaEstado, {
       placeholder: 'Estado...',
-      opciones: ESTADOS_PEDIDO,
+      opciones: ESTADOS_CONTROL_CENTRAL,
       alCambiar: (valores) => {
         estadosFiltro = valores;
+        alCambiarFiltros();
+      }
+    });
+  }
+
+  const celdaComentarios = document.getElementById('validador-filtro-comentarios');
+  if (celdaComentarios) {
+    montarMultiSelect(celdaComentarios, {
+      placeholder: 'Comentarios...',
+      etiquetaPlural: 'opciones',
+      opciones: OPCIONES_COMENTARIOS,
+      alCambiar: (valores) => {
+        comentariosFiltro = valores;
         alCambiarFiltros();
       }
     });
@@ -310,8 +360,12 @@ function consultaPedidosFiltrados(columnas) {
   atributos.forEach((a) => {
     query = query.eq(a, true);
   });
-  const condEstados = condicionEstados(estadosFiltro);
+  const condEstados = condicionEstados(estadosFiltro, tiposCierre);
   if (condEstados) query = query.or(condEstados);
+  if (comentariosFiltro.length > 0 && resumenComentarios) {
+    const ordenes = [...resumenComentarios.keys()].filter(cumpleComentarios);
+    query = query.in('order_number', ordenes.length > 0 ? ordenes : ['__sin_comentarios__']);
+  }
 
   if (filtros.orden.trim()) {
     query = query.ilike('order_number', `%${filtros.orden.trim()}%`);
@@ -327,6 +381,10 @@ function consultaPedidosFiltrados(columnas) {
 }
 
 async function cargarValidador() {
+  // Con el filtro de Comentarios activo, la lista de órdenes sale del resumen: se refresca antes.
+  if (comentariosFiltro.length > 0) await refrescarResumenComentarios();
+  // Tipos de cierre: para el filtro Estado y el detalle del badge "Cerrada".
+  if (esValidador()) await refrescarTiposCierre();
   const query = consultaPedidosFiltrados('*');
 
   const { data, error } = await query.range(
@@ -375,6 +433,10 @@ async function cargarValidador() {
   // Unidades despachadas por pedido (Despachos + Troya). null = la consulta
   // falló ("—"); no debe tumbar el resto de la tabla.
   const despachadas = await despachadasPorPedidos(numerosOrden);
+
+  // Comentarios activos por orden (093). null = la consulta falló: los botones
+  // se ven apagados pero siguen abriendo el historial.
+  comentariosPorOrden = await fetchComentariosActivosPorPedidos(numerosOrden);
 
   renderTablaValidador(ordenes, mapaUltimaFecha, inyeccion, despachadas);
   renderPaginacionValidador();
@@ -495,8 +557,9 @@ async function cargarBase({ silencioso = false } = {}) {
     pintarResumen(null);
   }
   try {
-    const filas = await leerBaseDatos();
+    const [filas, resumen] = await Promise.all([leerBaseDatos(), fetchResumenComentarios(), esValidador() ? refrescarTiposCierre() : null]);
     if (version !== versionBase) return; // llegó una carga más nueva
+    if (resumen) resumenComentarios = resumen;
     baseCC = filas.map((f) => ({ ...f, fecha_pedido: f.fecha_pedido ? String(f.fecha_pedido).slice(0, 10) : '' }));
     actualizarOpcionesFiltros();
     pintarResumenActual();
@@ -520,7 +583,8 @@ async function cargarBase({ silencioso = false } = {}) {
 /** Interruptores Sí/No y Estado (lo que no entra en las listas en cascada). */
 function cumpleAtributosYEstado(fila) {
   return ATRIBUTOS_SI_NO.every((a) => filtros[a] !== 'Si' || fila[a] === true)
-    && cumpleEstados(fila, estadosFiltro);
+    && cumpleEstados(fila, estadosFiltro, tiposCierre)
+    && cumpleComentarios(fila.order_number);
 }
 
 /** Pedidos que cumplen TODOS los filtros actuales. */
@@ -676,9 +740,76 @@ function badgeEstado(o) {
   if (o.cierre_forzado) {
     const quien = o.cierre_forzado_por || 'el Validador';
     const motivo = o.cierre_forzado_motivo ? `: ${o.cierre_forzado_motivo}` : '';
-    return `<span class="estado-badge estado-cerrada" title="${escapeHtml(`Cerrada a la fuerza por ${quien}${motivo}`)}">Cerrada</span>`;
+    const tipo = tiposCierre ? ` · Tipo: ${etiquetaTipoCierre(tiposCierre.get(String(o.order_number)))}` : '';
+    return `<span class="estado-badge estado-cerrada" title="${escapeHtml(`Cerrada a la fuerza por ${quien}${motivo}${tipo}`)}">Cerrada</span>`;
   }
   return `<span class="estado-badge estado-${o.estatus_general === 'Completado' ? 'completado' : 'en-proceso'}">${o.estatus_general}</span>`;
+}
+
+/** Bocadillo de comentario: el mismo icono y estilos del botón de Despachos. */
+const ICONO_COMENTARIO = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
+
+// Comentarios activos por orden de la página visible (Map orden -> lista).
+let comentariosPorOrden = new Map();
+
+/**
+ * Botón de comentarios de la orden (093): amarillo con la cantidad si tiene
+ * comentarios activos, gris si no. Siempre se puede abrir (para agregar).
+ */
+function botonComentarioOrden(orden) {
+  const n = comentariosPorOrden?.get(String(orden.order_number))?.length ?? 0;
+  const num = escapeHtml(orden.order_number);
+  if (n > 0) {
+    const titulo = `${n} comentario${n === 1 ? '' : 's'}`;
+    return `<button type="button" class="btn-comentario-registro con-comentario" data-comentarios-orden="${num}" title="${titulo}" aria-label="${titulo}">${ICONO_COMENTARIO}<span class="btn-comentario-badge" aria-hidden="true">${n}</span></button>`;
+  }
+  return `<button type="button" class="btn-comentario-registro sin-comentario" data-comentarios-orden="${num}" style="cursor:pointer;" title="Agregar comentario" aria-label="Agregar comentario">${ICONO_COMENTARIO}</button>`;
+}
+
+let tooltipComentarios = null;
+let botonTooltip = null;
+
+/** Cuadro de solo lectura (el mismo de Despachos) con todos los comentarios activos de la orden. */
+function mostrarTooltipComentarios(boton) {
+  cerrarTooltipComentarios();
+  const lista = comentariosPorOrden?.get(boton.dataset.comentariosOrden) ?? [];
+  if (lista.length === 0) return;
+
+  const bloques = lista.map((c) => {
+    const d = new Date(c.created_at);
+    const fecha = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+    return `
+      <div class="regd-comentario-popover-titulo" style="text-transform:none; letter-spacing:0;">${escapeHtml(c.autor_nombre)} · ${fecha}${c.accionable ? (c.cerrado ? ' · Hecho' : ' · Pendiente') : ''}</div>
+      <div class="regd-comentario-popover-texto">${escapeHtml(c.texto)}</div>`;
+  });
+
+  const pop = document.createElement('div');
+  pop.className = 'regd-comentario-popover';
+  pop.style.pointerEvents = 'none';
+  pop.style.maxHeight = '60vh';
+  pop.style.overflow = 'hidden';
+  pop.innerHTML = bloques.join('');
+  document.body.appendChild(pop);
+
+  const rect = boton.getBoundingClientRect();
+  const margen = 8;
+  let left = rect.left + rect.width / 2 - pop.offsetWidth / 2;
+  left = Math.max(margen, Math.min(left, window.innerWidth - pop.offsetWidth - margen));
+  let top = rect.bottom + 6;
+  if (top + pop.offsetHeight + margen > window.innerHeight && rect.top - pop.offsetHeight - 6 > margen) {
+    top = rect.top - pop.offsetHeight - 6;
+  }
+  pop.style.left = `${Math.round(left)}px`;
+  pop.style.top = `${Math.round(top)}px`;
+
+  tooltipComentarios = pop;
+  botonTooltip = boton;
+}
+
+function cerrarTooltipComentarios() {
+  tooltipComentarios?.remove();
+  tooltipComentarios = null;
+  botonTooltip = null;
 }
 
 function escapeHtml(value) {
@@ -771,6 +902,7 @@ function renderTablaValidador(ordenes, mapaUltimaFecha, inyeccion, despachadas) 
           <th style="padding: 8px; text-align: center;" title="Días Orden (total)">D.O</th>
           <th style="padding: 8px; text-align: center;">Etapa</th>
           <th style="padding: 8px; text-align: center;">Estado</th>
+          <th style="padding: 8px; text-align: center;" title="Comentarios de la orden">Comentarios</th>
         </tr>
       </thead>
       <tbody>
@@ -800,6 +932,9 @@ function renderTablaValidador(ordenes, mapaUltimaFecha, inyeccion, despachadas) 
             <td style="padding: 8px; text-align: center;">
               ${badgeEstado(o)}
             </td>
+            <td style="padding: 8px; text-align: center;">
+              <div class="regd-col-comentario">${botonComentarioOrden(o)}</div>
+            </td>
           </tr>
         `;
         }).join('')}
@@ -807,7 +942,29 @@ function renderTablaValidador(ordenes, mapaUltimaFecha, inyeccion, despachadas) 
     </table>
   `;
 
+  cerrarTooltipComentarios();
   tabla.innerHTML = html;
+
+  // Un solo escuchador para todos los botones de comentarios (la tabla se redibuja).
+  if (!tabla.dataset.comentariosListo) {
+    tabla.dataset.comentariosListo = '1';
+    tabla.addEventListener('click', (event) => {
+      const boton = event.target.closest?.('[data-comentarios-orden]');
+      if (!boton) return;
+      cerrarTooltipComentarios();
+      abrirComentariosPedido(boton.dataset.comentariosOrden, { alCambiar: () => cargarValidador() });
+    });
+    // Al pasar el cursor por un botón con comentarios: cuadro con autor, fecha y texto.
+    tabla.addEventListener('mouseover', (event) => {
+      const boton = event.target.closest?.('.btn-comentario-registro.con-comentario');
+      if (boton && boton !== botonTooltip) mostrarTooltipComentarios(boton);
+    });
+    tabla.addEventListener('mouseout', (event) => {
+      const boton = event.target.closest?.('.btn-comentario-registro.con-comentario');
+      if (boton && !boton.contains(event.relatedTarget)) cerrarTooltipComentarios();
+    });
+    tabla.addEventListener('scroll', cerrarTooltipComentarios, true);
+  }
 }
 
 function renderPaginacionValidador() {

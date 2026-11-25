@@ -26,6 +26,8 @@ export function iniciarRealtime(onChange) {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'despachos' }, dispararCambio)
     // Salidas(A) en vivo (092): crear, eliminar, visto bueno y comentario.
     .on('postgres_changes', { event: '*', schema: 'public', table: 'salidas_a' }, dispararCambio)
+    // Comentarios de ordenes en vivo (093): el boton de Control Central se actualiza solo.
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'pedido_comentarios' }, dispararCambio)
     .subscribe();
 }
 

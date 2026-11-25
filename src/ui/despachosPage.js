@@ -201,7 +201,18 @@ export function configurarUIDespachos() {
   // deja abierto en vez de obligar a un clic.
   const seccionDespachado = document.getElementById('desp-despachado-seccion');
   if (seccionDespachado && propuesta) seccionDespachado.open = true;
+
+  // Validador: al entrar por primera vez (por sesión, no en cada cambio de
+  // Rol Activo) "A Despachar" arranca comprimido y "Despachado" abierto.
+  const idUsuario = getState().user?.id ?? null;
+  if (esValidador() && idUsuario && idUsuario !== usuarioAperturaInicial) {
+    usuarioAperturaInicial = idUsuario;
+    if (seccionADespachar) seccionADespachar.open = false;
+    if (seccionDespachado) seccionDespachado.open = true;
+  }
 }
+
+let usuarioAperturaInicial = null;
 
 /** "A Despachar" y "Despachado" son acordeones independientes (<details> nativos) — ambos se cargan siempre, sin importar cuál esté abierto. */
 export function cargarDespachosTab() {

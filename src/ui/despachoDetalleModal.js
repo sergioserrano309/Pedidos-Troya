@@ -466,12 +466,24 @@ function renderFichaPedido(orden, info) {
     siNo('ESTERILLA', info?.esterilla),
     siNo('MARQUILLA', info?.marquilla)
   ].filter(Boolean);
+  const fechaPedido = fechaPedidoImpresion(info?.fechaPedido);
   return `
     <div class="detalle-despacho-ficha">
       <span class="detalle-despacho-ficha-orden">${escapeHtml(orden)}</span>
       <span class="detalle-despacho-ficha-attrs">${atributos.length ? escapeHtml(atributos.join(' · ')) : 'Sin referencia'}</span>
+      ${fechaPedido ? `<span style="margin-left:auto; flex-shrink:0; color:var(--text2);">${fechaPedido}</span>` : ''}
     </div>
   `;
+}
+
+/** dd/mm/aaaa de la fecha del pedido (solo se muestra en pantalla, no en el PDF) (fecha de calendario guardada a medianoche UTC). */
+function fechaPedidoImpresion(fecha) {
+  if (!fecha) return '';
+  try {
+    return new Date(fecha).toLocaleDateString('es-CO', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' });
+  } catch {
+    return '';
+  }
 }
 
 /**
