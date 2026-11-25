@@ -82,6 +82,22 @@ export async function fetchTiposCierre() {
   return mapa;
 }
 
+/**
+ * Igual que fetchTiposCierre, pero devuelve null si la consulta falla (para no
+ * mostrar todo como "Sin clasificar" por un error): lo usa el filtro Estado.
+ * @returns {Promise<Map<string, string|null>|null>}
+ */
+export async function fetchTiposCierreONulo() {
+  const mapa = new Map();
+  const { data, error } = await supabase.from('pedido_cierre_forzado').select('order_number, tipo_cierre');
+  if (error) {
+    console.error('[cierreForzadoService] Error leyendo los tipos de cierre:', error);
+    return null;
+  }
+  (data || []).forEach((f) => mapa.set(String(f.order_number), f.tipo_cierre || null));
+  return mapa;
+}
+
 /** Cambia el tipo de un cierre ya hecho (089). Deja huella en la auditoría. */
 export async function cambiarTipoCierreForzado(orderNumber, tipo, extra = {}) {
   const { error } = await supabase.rpc('cambiar_tipo_cierre_forzado', {

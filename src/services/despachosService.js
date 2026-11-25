@@ -223,7 +223,7 @@ export async function fetchInfoPedidos(orderNumbers) {
 
   const { data, error } = await supabase
     .from('vw_pedido_progreso')
-    .select('order_number, cliente, nombre_referencia, material, color')
+    .select('order_number, cliente, nombre_referencia, material, color, fecha_pedido')
     .in('order_number', orderNumbers);
 
   if (error) {
@@ -236,7 +236,8 @@ export async function fetchInfoPedidos(orderNumbers) {
       cliente: f.cliente || '',
       nombreSuela: f.nombre_referencia || '',
       material: f.material || '',
-      color: f.color || ''
+      color: f.color || '',
+      fechaPedido: f.fecha_pedido || null
     });
   });
 

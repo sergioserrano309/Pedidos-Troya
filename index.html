@@ -5080,6 +5080,16 @@
       transform: translateX(16px);
     }
 
+    /* Toggle "Accionable" del chat de comentarios: rojo = No, verde = Sí.
+       Mismo tamaño en ambos estados, así nada se mueve al cambiarlo. */
+    .acc-switch .propuesta-switch-slider {
+      background: var(--red);
+    }
+
+    .acc-switch input:checked + .propuesta-switch-slider {
+      background: var(--green);
+    }
+
     /* Toggle previo al PDF de despacho (incluir comentario o no). */
     .pdf-comentario-toggle-fila {
       display: flex;

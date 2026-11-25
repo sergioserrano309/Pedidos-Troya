@@ -211,7 +211,20 @@ export function configurarUISalidasA() {
   const rol = getState().user?.role;
   const mostrar = esValidador() || rol === 'acabado';
   if (tabBtn) tabBtn.style.display = mostrar ? 'inline-block' : 'none';
+
+  // Validador: al entrar por primera vez (por sesión, no en cada cambio de
+  // Rol Activo) "Por Salir" arranca comprimido y "Salida" abierto.
+  const idUsuario = getState().user?.id ?? null;
+  if (esValidador() && idUsuario && idUsuario !== usuarioAperturaInicial) {
+    usuarioAperturaInicial = idUsuario;
+    const porSalir = document.getElementById('sa-por-salir-seccion');
+    const salida = document.getElementById('sa-salida-seccion');
+    if (porSalir) porSalir.open = false;
+    if (salida) salida.open = true;
+  }
 }
+
+let usuarioAperturaInicial = null;
 
 /** Ambos acordeones se cargan siempre al entrar a la pestaña. */
 export function cargarSalidasATab() {
