@@ -1793,7 +1793,8 @@
       }
 
       /* Despachado tiene cuatro (fecha, cliente, orden, despacho): 2×2. */
-      #regd-filtros {
+      #regd-filtros,
+      #sa-regd-filtros {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
@@ -2400,12 +2401,14 @@
 
     /* Carga del listado Despachado (065): si ya hay filas, no se vacían.
        Overlay encima para que una petición vieja no pinte "no hay nada". */
-    #regd-lista {
+    #regd-lista,
+    #sa-regd-lista {
       position: relative;
       min-height: 4rem;
     }
 
-    #regd-lista.regd-lista-cargando {
+    #regd-lista.regd-lista-cargando,
+    #sa-regd-lista.regd-lista-cargando {
       pointer-events: none;
     }
 
@@ -5619,6 +5622,7 @@
               <button class="tab-btn active" data-tab="activas">Activas</button>
               <button class="tab-btn" data-tab="completadas">Completadas</button>
               <button class="tab-btn" data-tab="despachos" id="tab-btn-despachos" style="display:none;">Despachos</button>
+              <button class="tab-btn" data-tab="salidas-a" id="tab-btn-salidas-a" style="display:none;">Salidas(A)</button>
               <button class="tab-btn" data-tab="registros"><span class="cart-lbl-full">Registros</span><span class="cart-lbl-short">Reg.</span></button>
               <button class="tab-btn" data-tab="validador" id="tab-btn-validador" style="display:none;">Control Central</button>
               <button class="tab-btn" data-tab="dashboard" id="tab-btn-dashboard" style="display:none;">Dashboard</button>
@@ -6043,6 +6047,122 @@
               <div id="regd-paginacion" class="pagination"></div>
             </details>
           </div>
+
+          <div id="salidas-a-seccion" style="display:none;">
+            <details class="card desp-seccion" id="sa-por-salir-seccion" open>
+              <summary class="card-title">
+                Por Salir
+                <svg class="desp-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+              </summary>
+
+              <div id="sa-por-salir-toolbar" style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.75rem; flex-wrap:wrap;">
+                <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text2); cursor:pointer;">
+                  <input type="checkbox" id="sa-seleccionar-todos-visibles" class="checkbox-registro">
+                  Seleccionar todos
+                </label>
+                <button id="btn-sa-crear-salida" class="btn btn-primary" style="display:none;">Crear Salida</button>
+              </div>
+              <div id="sa-filtros" style="display:grid;grid-template-columns:80px minmax(0,1.2fr) minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr);gap:0.75rem;">
+                <input type="text" id="sa-filtro-orden" placeholder="No. Orden" maxlength="6" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-solo-digitos style="min-width:0;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+
+                <div class="filtro-custom-select" data-filtro-select="sa-filtro-cliente" data-buscable="1">
+                  <select id="sa-filtro-cliente" style="display:none;"><option value="">Cliente...</option></select>
+                  <button type="button" class="filtro-custom-btn">
+                    <span class="filtro-custom-label">Cliente...</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                  <div class="filtro-custom-dropdown"></div>
+                </div>
+
+                <div class="filtro-custom-select" data-filtro-select="sa-filtro-nombre-suela" data-buscable="1">
+                  <select id="sa-filtro-nombre-suela" style="display:none;"><option value="">Nombre Suela...</option></select>
+                  <button type="button" class="filtro-custom-btn">
+                    <span class="filtro-custom-label">Nombre Suela...</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                  <div class="filtro-custom-dropdown"></div>
+                </div>
+
+                <div class="filtro-custom-select" data-filtro-select="sa-filtro-material">
+                  <select id="sa-filtro-material" style="display:none;"><option value="">Material...</option></select>
+                  <button type="button" class="filtro-custom-btn">
+                    <span class="filtro-custom-label">Material...</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                  <div class="filtro-custom-dropdown"></div>
+                </div>
+
+                <div class="filtro-custom-select" data-filtro-select="sa-filtro-color">
+                  <select id="sa-filtro-color" style="display:none;"><option value="">Color...</option></select>
+                  <button type="button" class="filtro-custom-btn">
+                    <span class="filtro-custom-label">Color...</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                  <div class="filtro-custom-dropdown"></div>
+                </div>
+              </div>
+
+              <div id="sa-pedidos-lista" style="margin-top:1rem;"></div>
+              <div id="sa-por-salir-paginacion" class="pagination"></div>
+            </details>
+
+            <details class="card desp-seccion" id="sa-salida-seccion">
+              <summary class="card-title">
+                Salida
+                <svg class="desp-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+              </summary>
+
+              <p id="sa-salida-nota" style="font-size:12px; color:var(--text2); margin:0 0 0.75rem;">
+                Cada fila es una salida completa de Acabado. Es solo informativa: no afecta a Empaque ni a Despachos. Al eliminarla se borran sus pedidos, bultos y asignaciones, y sus unidades vuelven a "Por Salir".
+              </p>
+              <div id="sa-regd-filtros" class="filtros-etiquetados">
+                <label class="filtro-campo">
+                  <span class="filtro-campo-lbl">Fecha de salida</span>
+                  <input type="date" id="sa-regd-filtro-fecha" style="min-width:0;width:100%;box-sizing:border-box;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+                </label>
+                <label class="filtro-campo">
+                  <span class="filtro-campo-lbl">Cliente</span>
+                  <div class="filtro-custom-select" data-filtro-select="sa-regd-filtro-cliente" data-buscable="1">
+                    <select id="sa-regd-filtro-cliente" style="display:none;">
+                      <option value="">Cliente...</option>
+                    </select>
+                    <button type="button" class="filtro-custom-btn">
+                      <span class="filtro-custom-label">Cliente...</span>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <div class="filtro-custom-dropdown"></div>
+                  </div>
+                </label>
+                <label class="filtro-campo">
+                  <span class="filtro-campo-lbl">No. Orden</span>
+                  <input type="text" id="sa-regd-filtro-orden" placeholder="Ej. 3449" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-solo-digitos style="min-width:0;width:100%;box-sizing:border-box;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+                </label>
+                <label class="filtro-campo">
+                  <span class="filtro-campo-lbl">No. Salida</span>
+                  <input type="text" id="sa-regd-filtro-consecutivo" placeholder="Ej. 1001" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-solo-digitos style="min-width:0;width:100%;box-sizing:border-box;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;">
+                </label>
+              </div>
+
+              <div class="regd-encabezado regd-con-cliente" style="margin-top:1rem;">
+                <div>Salida</div>
+                <div>Fecha</div>
+                <div>Hora</div>
+                <div id="sa-regd-enc-cliente">Cliente</div>
+                <div>Órdenes</div>
+                <div class="regd-col-num">Bultos</div>
+                <div class="regd-col-num">Kilos</div>
+                <div class="regd-col-num">Unidades</div>
+                <div class="regd-col-num">Pedidos</div>
+                <div class="regd-col-num">Revisado</div>
+                <div></div>
+                <div></div>
+                <div></div>
+              </div>
+              <div id="sa-regd-lista"></div>
+              <div id="sa-regd-paginacion" class="pagination"></div>
+            </details>
+          </div>
+
 
           <div id="eliminaciones-seccion" style="display:none;">
             <div class="card">
@@ -6540,6 +6660,76 @@
       <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem;">
         <button class="btn btn-secondary" id="btn-cancelar-eliminar-despacho">Cancelar</button>
         <button class="btn btn-danger" id="btn-confirmar-eliminar-despacho">Eliminar Despacho</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Modal: Crear Salida Acabados (Salidas(A)) — solo informativa, ver salidasAcabadoPage.js -->
+  <div id="modal-crear-salida-a" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-title">Crear Salida Acabados</div>
+        <button class="modal-close" id="btn-cerrar-crear-salida-a">×</button>
+      </div>
+
+      <div class="form-group crear-despacho-campo-clave">
+        <label for="crear-salida-a-num-bultos">Número de bultos</label>
+        <input type="number" id="crear-salida-a-num-bultos" min="1" step="1">
+      </div>
+      <div id="crear-salida-a-pesos"></div>
+
+      <div class="form-group">
+        <label>Total de unidades</label>
+        <div id="crear-salida-a-total-unidades" class="crear-despacho-numero-grande"></div>
+      </div>
+
+      <div class="form-group">
+        <label>Total de kilos</label>
+        <div id="crear-salida-a-total-kilos" class="crear-despacho-numero-grande">0</div>
+      </div>
+
+      <div class="form-group">
+        <label id="crear-salida-a-pedidos-label">Pedidos seleccionados</label>
+        <div id="crear-salida-a-pedidos-filas" style="margin-top:0.75rem;"></div>
+      </div>
+
+      <div class="form-group">
+        <label for="crear-salida-a-comentario">Comentarios</label>
+        <textarea id="crear-salida-a-comentario" maxlength="255" rows="3"
+          placeholder="(Opcional) Algo que quieras dejar anotado sobre esta salida"></textarea>
+        <div id="crear-salida-a-comentario-contador" class="crear-despacho-contador">0 / 255</div>
+      </div>
+
+      <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem;">
+        <button class="btn btn-secondary" id="btn-cancelar-crear-salida-a">Cancelar</button>
+        <button class="btn btn-primary" id="btn-confirmar-crear-salida-a">Confirmar Salida (A)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Eliminar Salida completa (Salidas(A) > Salida) -->
+  <div id="modal-eliminar-salida-a" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-title">Eliminar Salida</div>
+        <button class="modal-close" id="btn-cerrar-eliminar-salida-a">×</button>
+      </div>
+
+      <div id="eliminar-salida-a-resumen" style="font-size:13px; color:var(--text2); margin-bottom:1rem;"></div>
+
+      <div class="form-group">
+        <label for="eliminar-salida-a-motivo">Motivo de la eliminación</label>
+        <textarea id="eliminar-salida-a-motivo" placeholder="Explica por qué eliminas esta salida (obligatorio)"></textarea>
+      </div>
+
+      <div style="font-size: 12px; color: var(--red-text); margin-top: -0.5rem; margin-bottom: 1rem;">
+        Se eliminará la salida completa con todos sus pedidos, bultos y asignaciones. Sus unidades volverán a "Por Salir". Esta acción no se puede deshacer y quedará guardada en el historial de eliminaciones.
+      </div>
+
+      <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem;">
+        <button class="btn btn-secondary" id="btn-cancelar-eliminar-salida-a">Cancelar</button>
+        <button class="btn btn-danger" id="btn-confirmar-eliminar-salida-a">Eliminar Salida</button>
       </div>
     </div>
   </div>

@@ -24,6 +24,8 @@ export function iniciarRealtime(onChange) {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'pedido_cierre_forzado' }, dispararCambio)
     // Despachos en vivo (079): crear, eliminar, visto bueno, comentario, factura.
     .on('postgres_changes', { event: '*', schema: 'public', table: 'despachos' }, dispararCambio)
+    // Salidas(A) en vivo (092): crear, eliminar, visto bueno y comentario.
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'salidas_a' }, dispararCambio)
     .subscribe();
 }
 
