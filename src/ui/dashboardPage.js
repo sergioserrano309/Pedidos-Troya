@@ -38,14 +38,16 @@ const CAMPOS_FACETAS = {
   cliente: { columna: 'cliente', modo: 'exacto', lista: true },
   nombreSuela: { columna: 'nombre_suela', modo: 'exacto', lista: true },
   material: { columna: 'material', modo: 'exacto', lista: true },
-  color: { columna: 'color', modo: 'exacto', lista: true }
+  color: { columna: 'color', modo: 'exacto', lista: true },
+  talla: { columna: 'talla', modo: 'exacto', lista: true }
 };
 
 const SELECT_POR_FACETA = {
   cliente: 'dash-f-cliente',
   nombreSuela: 'dash-f-suela',
   material: 'dash-f-material',
-  color: 'dash-f-color'
+  color: 'dash-f-color',
+  talla: 'dash-f-talla'
 };
 
 const TOGGLES = ['vira', 'acabado', 'esterilla', 'marquilla'];
@@ -70,7 +72,7 @@ const ESTILO_PAGINA = `
   .dash-lectura-ayuda { font-size:12px; color:var(--text2); }
   .dash-bloque { display:grid; gap:0.75rem; margin-bottom:0.75rem; }
   .dash-fila-agrupar { grid-template-columns:150px minmax(0,1.2fr) 150px minmax(0,1.2fr); align-items:center; }
-  .dash-fila-filtros { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .dash-fila-filtros { grid-template-columns:repeat(5,minmax(0,1fr)); }
   .dash-fila-filtros2 { grid-template-columns:repeat(4,minmax(0,1fr)); align-items:end; }
   .dash-etiqueta { font-size:12px; color:var(--text2); white-space:nowrap; }
   .dash-campo { display:flex; flex-direction:column; gap:4px; min-width:0; }
@@ -204,6 +206,7 @@ export async function cargarDashboardPage() {
         <select id="dash-f-suela" style="${ESTILO_INPUT}"><option value="">Nombre Suela...</option></select>
         <select id="dash-f-material" style="${ESTILO_INPUT}"><option value="">Material...</option></select>
         <select id="dash-f-color" style="${ESTILO_INPUT}"><option value="">Color...</option></select>
+        <select id="dash-f-talla" style="${ESTILO_INPUT}"><option value="">Talla...</option></select>
       </div>
 
       <div class="dash-bloque dash-fila-filtros2">
