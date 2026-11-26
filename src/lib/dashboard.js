@@ -38,6 +38,7 @@ export const DIMENSIONES = {
   nombreSuela: { etiqueta: 'Nombre suela', tipo: 'texto', campo: 'nombre_suela' },
   material: { etiqueta: 'Material', tipo: 'texto', campo: 'material' },
   color: { etiqueta: 'Color', tipo: 'texto', campo: 'color' },
+  talla: { etiqueta: 'Talla', tipo: 'texto', campo: 'talla' },
   vira: { etiqueta: 'Vira', tipo: 'si_no', campo: 'vira' },
   acabado: { etiqueta: 'Acabado', tipo: 'si_no', campo: 'acabado' },
   esterilla: { etiqueta: 'Esterilla', tipo: 'si_no', campo: 'esterilla' },
@@ -204,7 +205,7 @@ export function prepararDespachos(despachos) {
 // ---------------------------------------------------------------------
 
 export const FILTROS_VACIOS = {
-  cliente: '', nombreSuela: '', material: '', color: '',
+  cliente: '', nombreSuela: '', material: '', color: '', talla: '',
   vira: '', acabado: '', esterilla: '', marquilla: '',
   estado: '', desde: '', hasta: ''
 };
@@ -216,6 +217,7 @@ export function cumpleFiltros(fila, filtros) {
   if (f.nombreSuela && fila.nombre_suela !== f.nombreSuela) return false;
   if (f.material && fila.material !== f.material) return false;
   if (f.color && fila.color !== f.color) return false;
+  if (f.talla && String(fila.talla ?? '') !== String(f.talla)) return false;
   if (f.vira === 'Si' && !fila.vira) return false;
   if (f.acabado === 'Si' && !fila.acabado) return false;
   if (f.esterilla === 'Si' && !fila.esterilla) return false;
@@ -304,7 +306,15 @@ export function agrupar(datos, { medida, lectura, dimensiones = [], filtros = {}
   }));
 
   const esTiempo = (d) => d === 'mes' || d === 'dia';
+  // Dimensiones con orden propio (no por cantidad): tiempo, antigüedad y talla.
+  const esOrdenada = (d) => esTiempo(d) || d === 'antiguedad' || d === 'talla';
   const comparar = (dim, a, b) => {
+    // Talla: de la más grande a la más pequeña (numérico: 44, 43 … 22), "(sin dato)" al final.
+    if (dim === 'talla') {
+      if (a === SIN_DATO) return 1;
+      if (b === SIN_DATO) return -1;
+      return String(b).localeCompare(String(a), 'es', { numeric: true });
+    }
     if (dim === 'antiguedad') return ORDEN_ANTIGUEDAD.indexOf(a) - ORDEN_ANTIGUEDAD.indexOf(b);
     if (esTiempo(dim)) {
       if (a === SIN_DATO) return 1;
@@ -317,17 +327,17 @@ export function agrupar(datos, { medida, lectura, dimensiones = [], filtros = {}
   filas.sort((a, b) => {
     if (dims.length === 0) return 0;
     // Con tiempo o antigüedad se ordena cronológicamente; si no, de mayor a menor.
-    const primeraEsOrden = esTiempo(dims[0]) || dims[0] === 'antiguedad';
+    const primeraEsOrden = esOrdenada(dims[0]);
     if (primeraEsOrden) {
       const c = comparar(dims[0], a.claves[0], b.claves[0]);
       if (c !== 0) return c;
-      if (dims[1]) return esTiempo(dims[1]) || dims[1] === 'antiguedad'
+      if (dims[1]) return esOrdenada(dims[1])
         ? comparar(dims[1], a.claves[1], b.claves[1])
         : b.valor - a.valor;
       return 0;
     }
     if (dims[1] && a.claves[0] === b.claves[0]) {
-      return esTiempo(dims[1]) || dims[1] === 'antiguedad'
+      return esOrdenada(dims[1])
         ? comparar(dims[1], a.claves[1], b.claves[1])
         : b.valor - a.valor;
     }
@@ -335,14 +345,14 @@ export function agrupar(datos, { medida, lectura, dimensiones = [], filtros = {}
   });
 
   // Con dos dimensiones sin tiempo, los grupos de la primera se ordenan por su total.
-  if (dims.length === 2 && !(esTiempo(dims[0]) || dims[0] === 'antiguedad')) {
+  if (dims.length === 2 && !esOrdenada(dims[0])) {
     const totales = new Map();
     filas.forEach((f) => totales.set(f.claves[0], (totales.get(f.claves[0]) || 0) + f.valor));
     filas.sort((a, b) => {
       const d = totales.get(b.claves[0]) - totales.get(a.claves[0]);
       if (d !== 0) return d;
       if (a.claves[0] !== b.claves[0]) return String(a.claves[0]).localeCompare(String(b.claves[0]), 'es');
-      return esTiempo(dims[1]) || dims[1] === 'antiguedad'
+      return esOrdenada(dims[1])
         ? comparar(dims[1], a.claves[1], b.claves[1])
         : b.valor - a.valor;
     });
