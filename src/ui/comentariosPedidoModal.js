@@ -8,6 +8,14 @@ import {
   eliminarComentarioPedido,
   cerrarComentarioPedido
 } from '../services/comentariosPedidoService.js';
+import {
+  ROLES_ETIQUETABLES,
+  rolesDeTexto,
+  resaltarEtiquetasHtml,
+  hoyISO,
+  diasParaVencer,
+  formatearVencimiento
+} from '../lib/etiquetasRol.js';
 
 /**
  * Ventana de comentarios de una orden (Control Central): historial tipo chat.
@@ -59,11 +67,19 @@ export async function abrirComentariosPedido(orderNumber, { alCambiar } = {}) {
             <span class="propuesta-switch-slider"></span>
           </span>
         </label>
-        <textarea id="cpm-texto" maxlength="${MAX}" rows="2" placeholder="Escribe un comentario..."
-          style="flex:1; min-width:0; box-sizing:border-box; padding:8px 12px; border:1.5px solid var(--border2); border-radius:var(--r); font-size:13px; font-family:inherit; resize:none;"></textarea>
+        <div style="position:relative; flex:1; min-width:0;">
+          <div id="cpm-menu" role="listbox" style="display:none; position:absolute; left:0; bottom:100%; margin-bottom:4px; z-index:5; min-width:180px; background:var(--surface); border:1px solid var(--border2); border-radius:var(--r); box-shadow:var(--shadow-md); padding:4px; font-size:13px;"></div>
+          <textarea id="cpm-texto" maxlength="${MAX}" rows="2" placeholder="Escribe un comentario... (@ para etiquetar un rol)"
+            style="width:100%; box-sizing:border-box; padding:8px 12px; border:1.5px solid var(--border2); border-radius:var(--r); font-size:13px; font-family:inherit; resize:none; display:block;"></textarea>
+        </div>
         <button class="btn btn-primary" type="button" id="cpm-enviar" disabled style="flex-shrink:0;">Enviar</button>
       </div>
-      <div style="margin-top:6px; text-align:right;">
+      <div style="margin-top:6px; display:flex; justify-content:space-between; align-items:center; gap:8px;">
+        <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text2);">
+          Vence
+          <input type="date" id="cpm-vence" min="${hoyISO()}" disabled
+            style="padding:3px 6px; border:1.5px solid var(--border2); border-radius:var(--r); font-size:12px; font-family:inherit;">
+        </label>
         <span id="cpm-contador" style="font-size:12px; color:var(--text3);">0 / ${MAX}</span>
       </div>
     </div>`;
@@ -73,6 +89,10 @@ export async function abrirComentariosPedido(orderNumber, { alCambiar } = {}) {
   const contador = modal.querySelector('#cpm-contador');
   const botonEnviar = modal.querySelector('#cpm-enviar');
   const interruptorAcc = modal.querySelector('#cpm-accionable');
+  const campoVence = modal.querySelector('#cpm-vence');
+  const menu = modal.querySelector('#cpm-menu');
+  let opcionesMenu = [];
+  let indiceMenu = 0;
 
   // En vivo: si otro usuario comenta o elimina mientras está abierta, se actualiza sola.
   const canal = supabase
@@ -88,9 +108,19 @@ export async function abrirComentariosPedido(orderNumber, { alCambiar } = {}) {
   const alTeclear = (e) => {
     if (e.key === 'Escape') {
       e.stopPropagation();
-      cerrar();
+      // Con la lista de @ abierta, Esc solo la cierra.
+      if (menu.style.display !== 'none') ocultarMenu();
+      else cerrar();
     }
   };
+
+  /** " · vence dd/mm/aaaa" (en rojo si ya venció). */
+  function textoVencimiento(c) {
+    if (!c.fecha_vencimiento) return '';
+    const dias = diasParaVencer(c.fecha_vencimiento);
+    const color = dias !== null && dias < 0 ? 'var(--red-text)' : 'var(--text2)';
+    return ` <span style="color:${color};">· vence ${formatearVencimiento(c.fecha_vencimiento)}</span>`;
+  }
 
   function burbuja(c) {
     const rol = ROL_ETIQUETA[String(c.autor_rol).toLowerCase()] || c.autor_rol;
@@ -108,7 +138,7 @@ export async function abrirComentariosPedido(orderNumber, { alCambiar } = {}) {
       return `
         <div style="${base} background:transparent; border-style:dashed; border-color:var(--border2);">
           ${cabecera}
-          <div style="font-size:13px; color:var(--text3); text-decoration:line-through; white-space:pre-wrap; word-break:break-word;">${escapeHtml(c.texto)}</div>
+          <div style="font-size:13px; color:var(--text3); text-decoration:line-through; white-space:pre-wrap; word-break:break-word;">${resaltarEtiquetasHtml(escapeHtml(c.texto))}</div>
           ${c.accionable ? '<div style="font-size:11px; color:var(--text3); margin-top:4px;">Era un accionable</div>' : ''}
           <div style="font-size:11px; color:var(--red-text); margin-top:4px;">Eliminado por ${escapeHtml(c.eliminado_nombre || '—')} · ${formatearMarca(c.eliminado_at)}</div>
         </div>`;
@@ -118,7 +148,7 @@ export async function abrirComentariosPedido(orderNumber, { alCambiar } = {}) {
       pie = c.cerrado
         ? `<div style="margin-top:8px; font-size:11px;"><span style="background:var(--green-bg); color:var(--green-text); padding:2px 8px; border-radius:10px; font-weight:600;">Hecho</span> <span style="color:var(--text2);">por ${escapeHtml(c.cerrado_nombre || '—')} · ${formatearMarca(c.cerrado_at)}</span></div>`
         : `<div style="margin-top:8px; font-size:11px; display:flex; align-items:center; justify-content:space-between; gap:8px;">
-             <span style="background:var(--amber-bg); color:var(--amber-text); padding:2px 8px; border-radius:10px; font-weight:600;">Pendiente</span>
+             <span><span style="background:var(--amber-bg); color:var(--amber-text); padding:2px 8px; border-radius:10px; font-weight:600;">Pendiente</span>${textoVencimiento(c)}</span>
              <button type="button" class="btn btn-sm btn-secondary" data-cerrar-acc="${escapeHtml(c.id)}">Hecho</button>
            </div>`;
     }
@@ -126,7 +156,7 @@ export async function abrirComentariosPedido(orderNumber, { alCambiar } = {}) {
       <div style="${base} ${fondo}">
         ${cabecera}
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
-          <div style="font-size:13px; white-space:pre-wrap; word-break:break-word;">${escapeHtml(c.texto)}</div>
+          <div style="font-size:13px; white-space:pre-wrap; word-break:break-word;">${resaltarEtiquetasHtml(escapeHtml(c.texto))}</div>
           ${puedeEliminar ? `<button type="button" class="btn-eliminar-registro" data-eliminar="${escapeHtml(c.id)}" title="Eliminar comentario" aria-label="Eliminar comentario" style="width:22px; height:22px; padding:0; font-size:14px; flex-shrink:0;">×</button>` : ''}
         </div>
         ${pie}
@@ -149,7 +179,45 @@ export async function abrirComentariosPedido(orderNumber, { alCambiar } = {}) {
   function actualizarEntrada() {
     const largo = campo.value.length;
     contador.textContent = `${largo} / ${MAX}`;
-    botonEnviar.disabled = campo.value.trim() === '';
+    campoVence.disabled = !interruptorAcc.checked;
+    if (!interruptorAcc.checked) campoVence.value = '';
+    const faltaFecha = interruptorAcc.checked && !campoVence.value;
+    botonEnviar.disabled = campo.value.trim() === '' || largo > MAX || faltaFecha;
+    botonEnviar.title = faltaFecha ? 'Elige la fecha de vencimiento del accionable' : '';
+  }
+
+  // ---- Etiquetas con "@" ----
+  function ocultarMenu() {
+    menu.style.display = 'none';
+    opcionesMenu = [];
+  }
+
+  function pintarMenu() {
+    menu.innerHTML = opcionesMenu.map((r, i) => `
+      <div role="option" data-etiqueta="${r.etiqueta}" style="padding:5px 10px; border-radius:4px; cursor:pointer; ${i === indiceMenu ? 'background:var(--blue-bg); color:var(--blue);' : ''}">@${r.etiqueta}</div>`).join('');
+    menu.style.display = '';
+  }
+
+  /** Muestra la lista si justo antes del cursor hay "@" + letras. */
+  function actualizarMenu() {
+    const antes = campo.value.slice(0, campo.selectionStart);
+    const m = antes.match(/(^|\s)@([\p{L}]*)$/u);
+    if (!m) return ocultarMenu();
+    const frag = m[2].toLowerCase();
+    opcionesMenu = ROLES_ETIQUETABLES.filter((r) => r.etiqueta.toLowerCase().startsWith(frag));
+    if (opcionesMenu.length === 0) return ocultarMenu();
+    indiceMenu = Math.min(indiceMenu, opcionesMenu.length - 1);
+    pintarMenu();
+  }
+
+  function insertarEtiqueta(etiqueta) {
+    const pos = campo.selectionStart;
+    const antes = campo.value.slice(0, pos).replace(/@[\p{L}]*$/u, `@${etiqueta} `);
+    campo.value = antes + campo.value.slice(pos);
+    campo.setSelectionRange(antes.length, antes.length);
+    ocultarMenu();
+    actualizarEntrada();
+    campo.focus();
   }
 
   async function enviar() {
@@ -157,9 +225,10 @@ export async function abrirComentariosPedido(orderNumber, { alCambiar } = {}) {
     if (!texto) return;
     botonEnviar.disabled = true;
     try {
-      await agregarComentarioPedido(orderNumber, texto, interruptorAcc.checked);
+      await agregarComentarioPedido(orderNumber, texto, interruptorAcc.checked, campoVence.value || null, rolesDeTexto(texto));
       campo.value = '';
       interruptorAcc.checked = false;
+      campoVence.value = '';
       actualizarEntrada();
       await cargar();
       historial.scrollTop = historial.scrollHeight;
@@ -213,8 +282,35 @@ export async function abrirComentariosPedido(orderNumber, { alCambiar } = {}) {
     else if (boton.dataset.cerrarAcc) cerrarAccionable(boton.dataset.cerrarAcc);
     else if (boton.dataset.eliminar) eliminar(boton.dataset.eliminar);
   });
-  campo.addEventListener('input', actualizarEntrada);
+  campo.addEventListener('input', () => {
+    actualizarEntrada();
+    indiceMenu = 0;
+    actualizarMenu();
+  });
+  campo.addEventListener('click', actualizarMenu);
+  campo.addEventListener('blur', () => setTimeout(ocultarMenu, 150));
+  interruptorAcc.addEventListener('change', actualizarEntrada);
+  campoVence.addEventListener('input', actualizarEntrada);
+  campoVence.addEventListener('change', actualizarEntrada);
+  menu.addEventListener('mousedown', (e) => {
+    e.preventDefault(); // no quitar el foco del texto
+    const op = e.target.closest?.('[data-etiqueta]');
+    if (op) insertarEtiqueta(op.dataset.etiqueta);
+  });
   campo.addEventListener('keydown', (e) => {
+    if (menu.style.display !== 'none' && opcionesMenu.length) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        indiceMenu = (indiceMenu + (e.key === 'ArrowDown' ? 1 : -1) + opcionesMenu.length) % opcionesMenu.length;
+        pintarMenu();
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        insertarEtiqueta(opcionesMenu[indiceMenu].etiqueta);
+        return;
+      }
+    }
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       enviar();
