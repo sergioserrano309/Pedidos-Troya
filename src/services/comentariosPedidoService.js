@@ -20,7 +20,7 @@ export async function fetchComentariosActivosPorPedidos(numerosOrden) {
     const lote = ordenes.slice(i, i + LOTE);
     const { data, error } = await supabase
       .from('pedido_comentarios')
-      .select('order_number, texto, autor_nombre, created_at, accionable, cerrado')
+      .select('order_number, texto, autor_nombre, created_at, accionable, cerrado, fecha_vencimiento')
       .eq('eliminado', false)
       .in('order_number', lote)
       .order('created_at', { ascending: true })
@@ -41,7 +41,7 @@ export async function fetchComentariosActivosPorPedidos(numerosOrden) {
 export async function fetchHistorialComentarios(orderNumber) {
   const { data, error } = await supabase
     .from('pedido_comentarios')
-    .select('id, texto, created_by, autor_nombre, autor_rol, created_at, accionable, cerrado, cerrado_nombre, cerrado_at, eliminado, eliminado_nombre, eliminado_at')
+    .select('id, texto, created_by, autor_nombre, autor_rol, created_at, accionable, fecha_vencimiento, cerrado, cerrado_nombre, cerrado_at, eliminado, eliminado_nombre, eliminado_at')
     .eq('order_number', String(orderNumber))
     .order('created_at', { ascending: true });
   if (error) {
@@ -51,11 +51,13 @@ export async function fetchHistorialComentarios(orderNumber) {
   return data || [];
 }
 
-export async function agregarComentarioPedido(orderNumber, texto, accionable = false) {
+export async function agregarComentarioPedido(orderNumber, texto, accionable = false, fechaVencimiento = null, rolesEtiquetados = []) {
   const { error } = await supabase.rpc('agregar_comentario_pedido', {
     p_order_number: String(orderNumber),
     p_texto: String(texto ?? '').trim(),
-    p_accionable: Boolean(accionable)
+    p_accionable: Boolean(accionable),
+    p_fecha_vencimiento: accionable ? (fechaVencimiento || null) : null,
+    p_roles_etiquetados: rolesEtiquetados
   });
   if (error) {
     console.error('[comentariosPedidoService] Error agregando el comentario:', error);
@@ -86,7 +88,7 @@ export async function cerrarComentarioPedido(comentarioId) {
 
 /**
  * Resumen de TODAS las órdenes con comentarios activos, para el filtro de Control Central.
- * Map(orden -> { abiertos, accionables }): abiertos = accionables sin cerrar; accionables = todos los que ha tenido (abiertos o cerrados). null si la consulta falló.
+ * Map(orden -> { abiertos, accionables, roles, minVence }): abiertos = accionables sin cerrar; accionables = todos los que ha tenido; roles = Set de roles etiquetados; minVence = fecha del pendiente que vence antes. null si la consulta falló.
  */
 export async function fetchResumenComentarios() {
   const resumen = new Map();
@@ -94,7 +96,7 @@ export async function fetchResumenComentarios() {
   for (let desde = 0; ; desde += TAM) {
     const { data, error } = await supabase
       .from('pedido_comentarios')
-      .select('order_number, accionable, cerrado')
+      .select('order_number, accionable, cerrado, fecha_vencimiento, roles_etiquetados')
       .eq('eliminado', false)
       .order('created_at', { ascending: true })
       .range(desde, desde + TAM - 1);
@@ -103,9 +105,14 @@ export async function fetchResumenComentarios() {
       return null;
     }
     (data || []).forEach((f) => {
-      const r = resumen.get(f.order_number) || { abiertos: 0, accionables: 0 };
+      const r = resumen.get(f.order_number) || { abiertos: 0, accionables: 0, roles: new Set(), minVence: null };
       if (f.accionable) r.accionables += 1;
-      if (f.accionable && !f.cerrado) r.abiertos += 1;
+      if (f.accionable && !f.cerrado) {
+        r.abiertos += 1;
+        // Vencimiento más próximo entre los accionables pendientes (AAAA-MM-DD ordena como texto).
+        if (f.fecha_vencimiento && (!r.minVence || f.fecha_vencimiento < r.minVence)) r.minVence = f.fecha_vencimiento;
+      }
+      (f.roles_etiquetados || []).forEach((rol) => r.roles.add(rol));
       resumen.set(f.order_number, r);
     });
     if ((data || []).length < TAM) break;
