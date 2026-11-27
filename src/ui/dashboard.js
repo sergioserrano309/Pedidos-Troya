@@ -102,7 +102,8 @@ export function configurarUIValidador() {
     document.getElementById('tab-btn-audit').style.display = 'none';
     document.getElementById('tab-btn-eliminaciones').style.display = 'none';
     document.getElementById('tab-btn-cambios-erp').style.display = 'none';
-    document.getElementById('tab-btn-dashboard').style.display = 'none';
+    // Dashboard: Empaque lo ve en versión reducida (solo Despachado); los demás no.
+    document.getElementById('tab-btn-dashboard').style.display = getState().user?.role === 'empaque' ? 'inline-block' : 'none';
     detenerInsigniaCambiosErp();
     // Sin "Rol Activo": es exclusivo del Validador.
     document.getElementById('rol-selector-container').style.display = 'none';

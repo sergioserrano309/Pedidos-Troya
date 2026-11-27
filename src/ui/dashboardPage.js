@@ -1,17 +1,19 @@
+import { getState } from '../state/appState.js';
 import { esValidador } from '../services/validatorService.js';
 import {
-  fetchLineasDashboard, fetchDespachosDashboard, fetchPedidosConCambiosPendientes
+  fetchLineasDashboard, fetchDespachosDashboard, fetchPedidosConCambiosPendientes, fetchInfoDespachosDashboard,
+  fetchBultosPorOrdenDespacho, fetchLineasTroyaDashboard
 } from '../services/dashboardService.js';
 import {
   MEDIDAS, LECTURAS, DIMENSIONES, FILTROS_VACIOS, prepararLineas, prepararDespachos,
-  agrupar, totalesTarjetas, notasDashboard, fechaDeLectura, formatearPares, diaColombia
+  agrupar, totalesTarjetas, notasDashboard, fechaDeLectura, formatearPares, diaColombia, bultosPorCliente
 } from '../lib/dashboard.js';
 import { calcularOpciones } from '../lib/facetas.js';
 import { abrirDetalleOrden } from './orderDetail.js';
 import { mostrarToast } from './toast.js';
 
 /**
- * Pestaña "Dashboard" (solo Validador): pares (unidades) solicitados,
+ * Pestaña "Dashboard" (Validador completo; Empaque solo Despachado): pares (unidades) solicitados,
  * despachados y pendientes por despachar, agrupables por una o dos
  * categorías y filtrables. Solo lectura: no escribe nada ni toca el resto
  * de la plataforma. Las reglas de fechas y de qué cuenta están en
@@ -24,8 +26,23 @@ import { mostrarToast } from './toast.js';
 const ESTILO_INPUT = 'padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r);font-size:13px;width:100%;min-width:0;box-sizing:border-box;background:var(--surface);color:var(--text);';
 const MAX_MS_DATOS = 10 * 60 * 1000;
 
+// Controles de la versión reducida (Empaque): todos con la misma altura, el botón incluido.
+const ESTILO_RED = ESTILO_INPUT + 'height:36px;';
+
+/** Empaque ve solo lo despachado (sin solicitado ni pendiente); el Validador lo ve todo. */
+function soloDespachado() {
+  return !esValidador();
+}
+
+/** ¿"Bultos (por despacho)" tiene sentido con lo elegido? Solo en Despachado por fecha de despacho. */
+function despachoPermitido() {
+  return medida === 'despachado' && lectura === 'flujo';
+}
+
 // Estado que se conserva mientras la sesión siga abierta.
-let datos = null;          // { lineas, despachos } ya preparados
+let datos = null;          // { lineas, despachos, infoDespachos, asignaciones } ya preparados (los dos últimos pueden ser null hasta que se pidan)
+let datosReducidos = false; // true = datos de la versión liviana (Empaque)
+let pidiendoExtras = false;
 let cargadoEn = null;      // Date
 let cambiosPendientes = [];
 let cargando = false;
@@ -74,6 +91,9 @@ const ESTILO_PAGINA = `
   .dash-fila-agrupar { grid-template-columns:150px minmax(0,1.2fr) 150px minmax(0,1.2fr); align-items:center; }
   .dash-fila-filtros { grid-template-columns:repeat(5,minmax(0,1fr)); }
   .dash-fila-filtros2 { grid-template-columns:repeat(4,minmax(0,1fr)); align-items:end; }
+  .dash-fila-red1 { grid-template-columns:minmax(0,1.5fr) minmax(0,1fr); align-items:center; }
+  .dash-fila-red2 { grid-template-columns:repeat(4,minmax(0,1fr)) 90px; align-items:end; }
+  .dash-agrupar-red { display:flex; align-items:center; gap:0.75rem; min-width:0; }
   .dash-etiqueta { font-size:12px; color:var(--text2); white-space:nowrap; }
   .dash-campo { display:flex; flex-direction:column; gap:4px; min-width:0; }
   .dash-fechas { font-size:12px; color:var(--text2); background:var(--bg); border:1px solid var(--border2); border-radius:var(--r);
@@ -99,7 +119,7 @@ const ESTILO_PAGINA = `
   .dash-nota.info { background:var(--bg); color:var(--text2); border:1px solid var(--border2); }
   .dash-nota button { background:none; border:0; padding:0; font:inherit; font-weight:700; color:inherit; text-decoration:underline; cursor:pointer; }
   @media (max-width: 768px) {
-    .dash-tarjetas, .dash-fila-agrupar, .dash-fila-filtros, .dash-fila-filtros2 { grid-template-columns:1fr; }
+    .dash-tarjetas, .dash-fila-agrupar, .dash-fila-filtros, .dash-fila-filtros2, .dash-fila-red1, .dash-fila-red2 { grid-template-columns:1fr; }
     .dash-tarjeta-valor { font-size:24px; }
   }
 `;
@@ -118,23 +138,64 @@ function hoyColombia() {
 // Carga
 // ---------------------------------------------------------------------
 
+let recargarPendiente = false;
+let usuarioFechaInicial = null;
+
+/** Despachos y consecutivos ya cargados, para pedir los bultos solo de esos (null = todos). */
+function despachosCargados() {
+  if (!datos?.dia) return { ids: null, consecutivos: null };
+  return {
+    ids: [...new Set(datos.despachos.map((d) => d.despacho_id))],
+    consecutivos: [...new Set(datos.despachos.map((d) => d.consecutivo).filter(Boolean))]
+  };
+}
+
 async function cargarDatos(forzar = false) {
-  if (cargando) return;
-  const vigente = datos && cargadoEn && Date.now() - cargadoEn.getTime() < MAX_MS_DATOS;
+  if (cargando) {
+    // Cambió la fecha mientras se cargaba otra: se vuelve a cargar al terminar.
+    if (forzar) recargarPendiente = true;
+    return;
+  }
+  const reducido = soloDespachado();
+  // Empaque trabaja de a un día: los datos son de UN día (los que dice la fecha del despacho).
+  const dia = reducido ? (filtros.desde || '') : '';
+  // Los datos de Empaque (versión liviana) no sirven para el Validador y al revés.
+  const vigente = datos && cargadoEn && datosReducidos === reducido && (datos.dia || '') === dia
+    && Date.now() - cargadoEn.getTime() < MAX_MS_DATOS;
   if (vigente && !forzar) return;
 
   cargando = true;
+  if (reducido && datos && (datos.dia || '') !== dia) datos = null; // otro día: se muestra "Cargando..."
   pintarCargando(true);
   try {
-    const [lineas, despachos, pendientes] = await Promise.all([
-      fetchLineasDashboard(),
-      fetchDespachosDashboard(),
-      fetchPedidosConCambiosPendientes()
-    ]);
+    // Empaque: solo los despachos de ese día (filtrados en la base), solo las líneas de Troya y sin la
+    // nota de cambios de Access. Los bultos (por despacho / por cliente) solo si esa agrupación está
+    // elegida y solo de esos despachos; si se elige después, se piden en ese momento.
+    const despachosP = fetchDespachosDashboard({ dia });
+    const lineasP = reducido ? fetchLineasTroyaDashboard({ dia }) : fetchLineasDashboard();
+    const pendientesP = reducido ? Promise.resolve([]) : fetchPedidosConCambiosPendientes();
+    const extrasP = (async () => {
+      const quiereInfo = dimensiones.includes('despacho');
+      const quiereBultos = dimensiones.includes('bultosCliente');
+      if (!quiereInfo && !quiereBultos) return [null, null];
+      const filas = dia ? await despachosP : null; // con día, los bultos se piden solo de esos despachos
+      const ids = filas ? [...new Set(filas.map((d) => d.despacho_id))] : null;
+      const consecutivos = filas ? [...new Set(filas.map((d) => d.consecutivo).filter(Boolean))] : null;
+      return Promise.all([
+        quiereInfo ? fetchInfoDespachosDashboard({ consecutivos }) : null,
+        quiereBultos ? fetchBultosPorOrdenDespacho({ despachoIds: ids }) : null
+      ]);
+    })();
+    const [lineas, despachos, pendientes, [infoDespachos, asignaciones]] =
+      await Promise.all([lineasP, despachosP, pendientesP, extrasP]);
     datos = {
       lineas: prepararLineas(lineas, hoyColombia()),
-      despachos: prepararDespachos(despachos)
+      despachos: prepararDespachos(despachos),
+      infoDespachos,
+      asignaciones,
+      dia
     };
+    datosReducidos = reducido;
     cambiosPendientes = pendientes;
     cargadoEn = new Date();
   } catch (err) {
@@ -142,9 +203,15 @@ async function cargarDatos(forzar = false) {
     const cont = document.getElementById('dash-resultado');
     if (cont) cont.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
     datos = null;
+    recargarPendiente = false;
   } finally {
     cargando = false;
     pintarCargando(false);
+  }
+  if (recargarPendiente) {
+    recargarPendiente = false;
+    await cargarDatos(true);
+    return;
   }
   if (datos) pintar();
 }
@@ -167,7 +234,29 @@ function pintarCargando(si) {
 
 export async function cargarDashboardPage() {
   const contenedor = document.getElementById('page-dashboard');
-  if (!contenedor || !esValidador()) return;
+  if (!contenedor) return;
+  // Validador (todo) y Empaque (solo Despachado). Cualquier otro rol no llega aquí.
+  if (soloDespachado()) {
+    if (getState().user?.role !== 'empaque') return;
+    medida = 'despachado';
+    // La antigüedad es solo del pendiente: si venía elegida de otra sesión, se quita.
+    dimensiones = dimensiones.map((d) => (d === 'antiguedad' ? '' : d));
+    // Versión reducida: siempre por fecha de despacho, una sola agrupación, un solo día,
+    // sin Estado del pedido ni Vira/Acabado/Esterilla/Marquilla.
+    lectura = 'flujo';
+    dimensiones = [dimensiones[0] || 'bultosCliente', ''];
+    filtros.talla = '';
+    filtros.estado = '';
+    TOGGLES.forEach((t) => { filtros[t] = ''; });
+    // Primera vez en la sesión: la fecha del despacho arranca en HOY (se puede cambiar).
+    const idUsuario = getState().user?.id ?? null;
+    if (idUsuario !== usuarioFechaInicial) {
+      usuarioFechaInicial = idUsuario;
+      filtros.desde = hoyColombia();
+    }
+    filtros.hasta = filtros.desde;
+  }
+  const reducido = soloDespachado();
 
   const opcionesDim = (n) => `<option value="">${n === 0 ? 'Sin agrupar (solo el total)' : 'Nada más'}</option>` +
     Object.entries(DIMENSIONES).map(([k, d]) => `<option value="${k}" data-dim="${k}">${escapeHtml(d.etiqueta)}</option>`).join('');
@@ -176,29 +265,47 @@ export async function cargarDashboardPage() {
     <style>${ESTILO_PAGINA}</style>
     <div class="card">
       <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; margin-bottom:1rem; flex-wrap:wrap;">
-        <h2>📊 Dashboard de unidades</h2>
+        <h2 style="display:flex; align-items:center; gap:8px;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Dashboard de unidades</h2>
         <div style="display:flex; align-items:center; gap:0.75rem;">
           <span id="dash-actualizado" style="font-size:12px; color:var(--text3);"></span>
           <button id="dash-refrescar" class="btn btn-secondary btn-sm">🔄 Actualizar</button>
         </div>
       </div>
-      <div class="dash-sub">Pares (unidades) de los pedidos desde el 3095. Toque una tarjeta para elegir qué mirar.</div>
+      ${soloDespachado() ? '' : '<div class="dash-sub">Pares (unidades) de los pedidos desde el 3095. Toque una tarjeta para elegir qué mirar.</div>'}
 
       <div class="dash-tarjetas" id="dash-tarjetas"></div>
 
-      <div class="dash-lectura" id="dash-lectura" style="display:none;">
+      ${reducido ? '' : `      <div class="dash-lectura" id="dash-lectura" style="display:none;">
         <span class="dash-lectura-lbl">Cómo leer lo despachado:</span>
         <div class="dash-segmentado" id="dash-segmentado">
           ${Object.entries(LECTURAS).map(([k, l]) => `<button type="button" data-lectura="${k}">${escapeHtml(l.etiqueta)}</button>`).join('')}
         </div>
         <span class="dash-lectura-ayuda" id="dash-lectura-ayuda"></span>
+      </div>`}
+
+      ${reducido ? `
+      <div class="dash-bloque dash-fila-red1">
+        <div class="dash-agrupar-red">
+          <label class="dash-etiqueta" for="dash-dim1">Agrupar por</label>
+          <select id="dash-dim1" style="${ESTILO_RED}">${opcionesDim(0)}</select>
+        </div>
+        <select id="dash-f-cliente" style="${ESTILO_RED}"><option value="">Cliente...</option></select>
       </div>
 
-      <div class="dash-bloque dash-fila-agrupar">
+      <div class="dash-bloque dash-fila-red2">
+        <label class="dash-campo"><span class="dash-etiqueta">Fecha del despacho</span>
+          <input type="date" id="dash-fecha" style="${ESTILO_RED}"></label>
+        <select id="dash-f-suela" style="${ESTILO_RED}"><option value="">Nombre Suela...</option></select>
+        <select id="dash-f-material" style="${ESTILO_RED}"><option value="">Material...</option></select>
+        <select id="dash-f-color" style="${ESTILO_RED}"><option value="">Color...</option></select>
+        <button type="button" id="dash-limpiar" class="btn btn-secondary" style="${ESTILO_RED}cursor:pointer;">Limpiar</button>
+      </div>
+      ` : `
+      <div class="dash-bloque dash-fila-agrupar"${reducido ? ' style="grid-template-columns:150px minmax(0,1.2fr);"' : ''}>
         <label class="dash-etiqueta" for="dash-dim1">Agrupar por</label>
         <select id="dash-dim1" style="${ESTILO_INPUT}">${opcionesDim(0)}</select>
-        <label class="dash-etiqueta" for="dash-dim2">y luego por</label>
-        <select id="dash-dim2" style="${ESTILO_INPUT}">${opcionesDim(1)}</select>
+        ${reducido ? '' : `<label class="dash-etiqueta" for="dash-dim2">y luego por</label>
+        <select id="dash-dim2" style="${ESTILO_INPUT}">${opcionesDim(1)}</select>`}
       </div>
 
       <div class="dash-bloque dash-fila-filtros">
@@ -210,6 +317,9 @@ export async function cargarDashboardPage() {
       </div>
 
       <div class="dash-bloque dash-fila-filtros2">
+        ${reducido ? `
+        <label class="dash-campo"><span class="dash-etiqueta">Fecha del despacho</span>
+          <input type="date" id="dash-fecha" style="${ESTILO_INPUT}"></label>` : `
         <label class="dash-campo"><span class="dash-etiqueta" id="dash-lbl-desde">Desde</span>
           <input type="date" id="dash-desde" style="${ESTILO_INPUT}"></label>
         <label class="dash-campo"><span class="dash-etiqueta" id="dash-lbl-hasta">Hasta</span>
@@ -219,11 +329,12 @@ export async function cargarDashboardPage() {
             <option value="">Todos</option>
             <option value="abierto">Abiertos</option>
             <option value="cerrado">Cerrados a la fuerza</option>
-          </select></label>
+          </select></label>`}
         <button type="button" id="dash-limpiar" class="btn btn-secondary btn-sm" style="justify-self:start;">Limpiar filtros</button>
       </div>
+      `}
 
-      <div class="dash-bloque dash-fila-filtros">
+      ${reducido ? '' : `      <div class="dash-bloque dash-fila-filtros">
         ${TOGGLES.map((t) => `
         <label class="filtro-toggle" data-filtro-toggle="dash-t-${t}" title="Solo pares de pedidos con ${t}">
           <span class="filtro-toggle-lbl">${t.charAt(0).toUpperCase() + t.slice(1)}</span>
@@ -232,9 +343,9 @@ export async function cargarDashboardPage() {
             <span class="propuesta-switch-slider"></span>
           </span>
         </label>`).join('')}
-      </div>
+      </div>`}
 
-      <div class="dash-fechas" id="dash-fechas"></div>
+      ${reducido ? '' : '<div class="dash-fechas" id="dash-fechas"></div>'}
       <div id="dash-resultado"></div>
       <div class="dash-notas" id="dash-notas"></div>
     </div>
@@ -242,7 +353,7 @@ export async function cargarDashboardPage() {
 
   enlazarControles();
   sincronizarControles();
-  if (datos) pintar();
+  if (datos && datosReducidos === reducido) pintar();
   await cargarDatos(false);
 }
 
@@ -251,7 +362,7 @@ function enlazarControles() {
 
   document.getElementById('dash-tarjetas')?.addEventListener('click', (e) => {
     const tarjeta = e.target.closest('[data-medida]');
-    if (!tarjeta) return;
+    if (!tarjeta || soloDespachado()) return;
     medida = tarjeta.dataset.medida;
     // La antigüedad solo existe para el pendiente.
     dimensiones = dimensiones.map((d) => (d === 'antiguedad' && medida !== 'pendiente' ? '' : d));
@@ -291,6 +402,13 @@ function enlazarControles() {
     });
   });
 
+  // Empaque: un solo día (los despachos de esa fecha) = Desde y Hasta iguales.
+  document.getElementById('dash-fecha')?.addEventListener('change', (e) => {
+    filtros.desde = e.target.value;
+    filtros.hasta = e.target.value;
+    cargarDatos(true); // datos de ese día (vacío = todos los días: tarda más)
+  });
+
   document.getElementById('dash-estado')?.addEventListener('change', (e) => {
     filtros.estado = e.target.value;
     pintar();
@@ -305,6 +423,14 @@ function enlazarControles() {
 
   document.getElementById('dash-limpiar')?.addEventListener('click', () => {
     filtros = { ...FILTROS_VACIOS };
+    if (soloDespachado()) {
+      // Empaque: "Limpiar" vuelve a la fecha de hoy, no a todos los días.
+      filtros.desde = hoyColombia();
+      filtros.hasta = filtros.desde;
+      sincronizarControles();
+      cargarDatos(true);
+      return;
+    }
     sincronizarControles();
     pintar();
   });
@@ -320,6 +446,8 @@ function manejarClicPedido(e) {
 
 /** Refleja el estado (medida, lectura, dimensiones, filtros) en los controles. */
 function sincronizarControles() {
+  // "Bultos (por despacho)" solo existe en Despachado por fecha de despacho: si lo elegido cambia, se quita.
+  if (!despachoPermitido()) dimensiones = dimensiones.map((d) => (DIMENSIONES[d]?.soloDespachadoFlujo ? '' : d));
   const lecturaDate = fechaDeLectura(medida, lectura);
 
   const lectBloque = document.getElementById('dash-lectura');
@@ -337,7 +465,7 @@ function sincronizarControles() {
     [...sel.options].forEach((o) => {
       if (!o.dataset.dim) return;
       const def = DIMENSIONES[o.dataset.dim];
-      o.disabled = !!(def.soloPendiente && medida !== 'pendiente');
+      o.disabled = !!((def.soloPendiente && medida !== 'pendiente') || (def.soloDespachadoFlujo && !despachoPermitido()));
       if (o.dataset.dim === 'mes' || o.dataset.dim === 'dia') {
         o.textContent = `${def.etiqueta} (${lecturaDate.base === 'despacho' ? 'del despacho' : 'del pedido'})`;
       }
@@ -350,6 +478,7 @@ function sincronizarControles() {
   if (desde) desde.textContent = `Desde (fecha del ${nombreFecha})`;
   if (hasta) hasta.textContent = `Hasta (fecha del ${nombreFecha})`;
 
+  document.getElementById('dash-fecha') && (document.getElementById('dash-fecha').value = filtros.desde || '');
   document.getElementById('dash-desde') && (document.getElementById('dash-desde').value = filtros.desde || '');
   document.getElementById('dash-hasta') && (document.getElementById('dash-hasta').value = filtros.hasta || '');
   document.getElementById('dash-estado') && (document.getElementById('dash-estado').value = filtros.estado || '');
@@ -359,9 +488,28 @@ function sincronizarControles() {
   });
 }
 
+/** Pide los bultos (por despacho / por cliente) la primera vez que se elige esa agrupación. */
+function asegurarExtras(dims) {
+  if (!datos || pidiendoExtras) return;
+  const pedir = [];
+  if (dims.includes('despacho') && datos.infoDespachos === null) {
+    pedir.push(fetchInfoDespachosDashboard({ consecutivos: despachosCargados().consecutivos }).then((m) => { datos.infoDespachos = m; }));
+  }
+  if (dims.includes('bultosCliente') && datos.asignaciones === null) {
+    pedir.push(fetchBultosPorOrdenDespacho({ despachoIds: despachosCargados().ids }).then((m) => { datos.asignaciones = m; }));
+  }
+  if (pedir.length === 0) return;
+  pidiendoExtras = true;
+  Promise.all(pedir).finally(() => {
+    pidiendoExtras = false;
+    pintar();
+  });
+}
+
 function pintar() {
   if (!datos) return;
   const dims = dimensiones.filter(Boolean);
+  asegurarExtras(dims);
   const lecturaDate = fechaDeLectura(medida, lectura);
 
   // --- Tarjetas (cada una con su fecha natural) ---
@@ -373,8 +521,8 @@ function pintar() {
   };
   const tarjetas = document.getElementById('dash-tarjetas');
   if (tarjetas) {
-    tarjetas.innerHTML = Object.entries(MEDIDAS).map(([k, m]) => `
-      <button type="button" class="dash-tarjeta${medida === k ? ' activa' : ''}" data-medida="${k}" title="${escapeHtml(m.ayuda)}">
+    tarjetas.innerHTML = Object.entries(MEDIDAS).filter(([k]) => !soloDespachado() || k === 'despachado').map(([k, m]) => `
+      <button type="button" class="dash-tarjeta${medida === k ? ' activa' : ''}" data-medida="${k}" title="${escapeHtml(m.ayuda)}"${soloDespachado() ? ' style="cursor:default;"' : ''}>
         <div class="dash-tarjeta-lbl">${escapeHtml(m.etiqueta)}</div>
         <div class="dash-tarjeta-valor">${formatearPares(totales[k])}<span class="dash-tarjeta-unidad">pares</span></div>
         <div class="dash-tarjeta-fecha">${fechaTarjeta[k]}</div>
@@ -393,27 +541,37 @@ function pintar() {
   // --- Explicación de fechas ---
   const cajaFechas = document.getElementById('dash-fechas');
   if (cajaFechas) {
-    cajaFechas.innerHTML = `📅 <strong>Fechas:</strong> Mes, Día y el rango Desde/Hasta se leen por la
+    cajaFechas.innerHTML = soloDespachado()
+      ? '📅 <strong>Fechas:</strong> Mes, Día y la fecha elegida se leen por la <strong>fecha del despacho</strong>: cuenta lo que salió ese día (hora de Colombia), sin importar de qué pedido sea.'
+      : `📅 <strong>Fechas:</strong> Mes, Día y el rango Desde/Hasta se leen por la
       <strong>${lecturaDate.nombre}</strong>. ${escapeHtml(lecturaDate.porque)}`;
   }
 
   // --- Tabla ---
   const resultado = agrupar(datos, { medida, lectura, dimensiones: dims, filtros });
+  // "Bultos (por cliente)": de más a menos bultos (a igual cantidad, más pares primero).
+  let bultosCli = null;
+  if (dims.length === 1 && dims[0] === 'bultosCliente') {
+    bultosCli = bultosPorCliente(datos, filtros);
+    resultado.filas.sort((a, b) =>
+      (bultosCli.porCliente.get(b.claves[0]) || 0) - (bultosCli.porCliente.get(a.claves[0]) || 0) || b.valor - a.valor);
+  }
   const cont = document.getElementById('dash-resultado');
-  if (cont) cont.innerHTML = htmlTabla(resultado, dims, medida === 'despachado');
+  if (cont) cont.innerHTML = htmlTabla(resultado, dims, medida === 'despachado', datos.infoDespachos, bultosCli);
 
   // --- Notas ---
   const notas = notasDashboard(datos, filtros);
   const partes = [];
-  if (notas.deMas.length > 0) {
+  const completo = !soloDespachado();
+  if (completo && notas.deMas.length > 0) {
     partes.push(`<div class="dash-nota">⚠ <strong>Despachado de más:</strong> en estos pedidos salió más de lo solicitado
       (su pendiente cuenta 0): ${listaPedidos(notas.deMas)}</div>`);
   }
-  if (cambiosPendientes.length > 0) {
+  if (completo && cambiosPendientes.length > 0) {
     partes.push(`<div class="dash-nota">⚠ Hay <strong>${cambiosPendientes.length}</strong> pedido${cambiosPendientes.length === 1 ? '' : 's'}
       con cambios de Access por revisar (pestaña Cambios ERP). Estos números usan lo que hay hoy en la plataforma.</div>`);
   }
-  if (notas.cancelados.length > 0) {
+  if (completo && notas.cancelados.length > 0) {
     const pares = notas.cancelados.reduce((s, n) => s + n.pares, 0);
     partes.push(`<div class="dash-nota info">ℹ ${notas.cancelados.length} pedido${notas.cancelados.length === 1 ? '' : 's'} cancelado${notas.cancelados.length === 1 ? '' : 's'}
       en Access, o cerrado${notas.cancelados.length === 1 ? '' : 's'} a la fuerza como "Cancelado" (${formatearPares(pares)} pares), no cuenta${notas.cancelados.length === 1 ? '' : 'n'} en solicitado ni pendiente. Lo que ya se
@@ -426,7 +584,7 @@ function pintar() {
       como "Cerrado y despachado en Troya" (${formatearPares(pares)} pares) cuenta${n === 1 ? '' : 'n'} como despachado y no como pendiente. Aparece${n === 1 ? '' : 'n'} en
       "por fecha del pedido"; en "por fecha de despacho" solo si al cerrar se indicó el día en que salió en Troya. ${listaPedidos(notas.troya)}</div>`);
   }
-  if (notas.noSeDespacha.length > 0) {
+  if (completo && notas.noSeDespacha.length > 0) {
     const pares = notas.noSeDespacha.reduce((s, n) => s + n.pares, 0);
     const n = notas.noSeDespacha.length;
     partes.push(`<div class="dash-nota info">ℹ <strong>Ya no se despacharán:</strong> ${formatearPares(pares)} pares de ${n} pedido${n === 1 ? '' : 's'}
@@ -476,22 +634,44 @@ function barra(f, maximo) {
     (f.troya > 0 ? `<span class="troya" style="width:${ancho(f.troya)}%"></span>` : '');
 }
 
-function htmlTabla({ filas, total, totalTroya }, dims, mostrarLeyenda) {
+function htmlTabla({ filas, total, totalTroya }, dims, mostrarLeyenda, infoDespachos, bultosCli) {
   if (filas.length === 0) {
     return '<div class="empty">No hay pares para mostrar con estos filtros.</div>';
   }
   const maximo = Math.max(...filas.map((f) => f.valor), 1);
   const encabezados = dims.length
-    ? dims.map((d) => `<th>${escapeHtml(DIMENSIONES[d].etiqueta)}</th>`).join('')
+    ? dims.map((d) => `<th>${escapeHtml(DIMENSIONES[d].encabezado || DIMENSIONES[d].etiqueta)}</th>`).join('')
     : '<th>Total</th>';
+  // Agrupado SOLO por despacho: dos columnas más, con los bultos y los kilos de cada despacho.
+  const porDespacho = dims.length === 1 && dims[0] === 'despacho';
+  const formatoKilos = (v) => Number(v).toLocaleString('es-CO', { maximumFractionDigits: 2 });
+  let totalBultos = 0;
+  let totalKilos = 0;
+  // Agrupado SOLO por "Bultos (por cliente)": una columna de bultos por cliente (sin kilos).
+  const porBultosCliente = Boolean(bultosCli);
+  let sumaBultosCli = 0;
 
   const cuerpo = filas.map((f) => {
     const pct = total > 0 ? (f.valor / total) * 100 : 0;
     const celdas = dims.length
       ? f.etiquetas.map((e) => `<td>${escapeHtml(e)}</td>`).join('')
       : '<td>Todos los pares</td>';
+    let extra = '';
+    if (porBultosCliente) {
+      const n = bultosCli.porCliente.get(f.claves[0]);
+      sumaBultosCli += n || 0;
+      extra = `<td class="num">${n ? formatearPares(n) : '—'}</td>`;
+    }
+    if (porDespacho) {
+      const info = infoDespachos?.get(f.claves[0]);
+      if (info) {
+        totalBultos += info.bultos;
+        totalKilos += info.kilos;
+      }
+      extra = `<td class="num">${info ? formatearPares(info.bultos) : '—'}</td><td class="num">${info ? formatoKilos(info.kilos) : '—'}</td>`;
+    }
     return `<tr>${celdas}
-      <td class="num">${formatearPares(f.valor)}</td>
+      <td class="num">${formatearPares(f.valor)}</td>${extra}
       <td class="num">${pct.toFixed(1).replace('.', ',')}%</td>
       <td class="dash-barra-celda"><div class="dash-barra">${barra(f, maximo)}</div></td>
     </tr>`;
@@ -501,13 +681,17 @@ function htmlTabla({ filas, total, totalTroya }, dims, mostrarLeyenda) {
     ? '<div class="dash-leyenda"><span><i></i>Despachado en la plataforma</span><span><i class="troya"></i>Despachado en Troya</span></div>'
     : '';
 
+  const notaMixtos = porBultosCliente && sumaBultosCli > bultosCli.total
+    ? '<div class="dash-sub" style="margin:0.5rem 0 0;">Un bulto con órdenes de varios clientes cuenta para cada uno; por eso la suma por cliente supera el total de bultos.</div>'
+    : '';
+
   return `
     ${leyenda}
     <div class="dash-tabla-wrap">
       <table class="dash-tabla">
-        <thead><tr>${encabezados}<th class="num">Pares</th><th class="num">% del total</th><th></th></tr></thead>
+        <thead><tr>${encabezados}<th class="num">Pares</th>${porDespacho ? '<th class="num">Bultos</th><th class="num">Kilos</th>' : ''}${porBultosCliente ? '<th class="num">Bultos</th>' : ''}<th class="num">% del total</th><th></th></tr></thead>
         <tbody>${cuerpo}</tbody>
-        <tfoot><tr><td colspan="${Math.max(dims.length, 1)}">Total</td><td class="num">${formatearPares(total)}</td><td class="num">100%</td><td></td></tr></tfoot>
+        <tfoot><tr><td colspan="${Math.max(dims.length, 1)}">Total</td><td class="num">${formatearPares(total)}</td>${porDespacho ? `<td class="num">${formatearPares(totalBultos)}</td><td class="num">${formatoKilos(totalKilos)}</td>` : ''}${porBultosCliente ? `<td class="num">${formatearPares(bultosCli.total)}</td>` : ''}<td class="num">100%</td><td></td></tr></tfoot>
       </table>
-    </div>`;
+    </div>${notaMixtos}`;
 }

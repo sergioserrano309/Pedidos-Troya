@@ -321,6 +321,64 @@ async function fetchTodasLasTallas() {
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 }
 
+/**
+ * Unidades solicitadas por orden x talla (columnas de talla de la hoja Órdenes).
+ * Sale de p_pedidosh (tabla simple, sin cálculos) con solo 4 columnas, sin las
+ * líneas canceladas. La base ya oculta los pedidos anteriores al corte (058).
+ *
+ * Para no alargar la descarga: la primera página va sola y las demás se piden
+ * de a 8 EN PARALELO; además generarExcel la lanza al empezar, así se descarga
+ * mientras se baja el historial. Estricta como las demás: si una página falla
+ * tras reintentar, la descarga se detiene (no se entrega con tallas a medias).
+ * @returns {Promise<Map<string, Map<string, number>>>} orden -> (talla -> unidades)
+ */
+async function fetchSolicitadoPorOrdenTalla() {
+  const LOTE_PARALELO = 8;
+  const leerPagina = async (pagina) => {
+    for (let intento = 1; intento <= REINTENTOS_PAGINA; intento++) {
+      const { data, error } = await supabase
+        .from('p_pedidosh')
+        .select('PedidoNo, Talla, CantidadP, Cancelado')
+        .order('PedidoNo', { ascending: false })
+        .order('Talla', { ascending: true })
+        .order('DetalleVira', { ascending: true })
+        .order('item_id', { ascending: true })
+        .range(pagina * PAGE_SIZE, (pagina + 1) * PAGE_SIZE - 1);
+      if (!error) return data || [];
+      console.error(`[excel] Falló lo solicitado por talla (página ${pagina + 1}, intento ${intento}):`, error);
+      if (intento === REINTENTOS_PAGINA) {
+        throw new Error('No se pudo cargar lo solicitado por talla. El Excel no se generó para no entregarlo incompleto.');
+      }
+      await esperar(1000 * intento);
+    }
+    return [];
+  };
+
+  const filas = [];
+  const primera = await leerPagina(0);
+  filas.push(...primera);
+  let hayMas = primera.length === PAGE_SIZE;
+  for (let desde = 1; hayMas; desde += LOTE_PARALELO) {
+    const paginas = await Promise.all(
+      Array.from({ length: LOTE_PARALELO }, (_, i) => leerPagina(desde + i))
+    );
+    paginas.forEach((pg) => filas.push(...pg));
+    hayMas = paginas[paginas.length - 1].length === PAGE_SIZE;
+  }
+
+  const mapa = new Map();
+  filas.forEach((f) => {
+    if (f.Cancelado) return;
+    const orden = String(f.PedidoNo);
+    const talla = String(f.Talla ?? '').trim();
+    if (!talla) return;
+    if (!mapa.has(orden)) mapa.set(orden, new Map());
+    const porTalla = mapa.get(orden);
+    porTalla.set(talla, (porTalla.get(talla) || 0) + (Number(f.CantidadP) || 0));
+  });
+  return mapa;
+}
+
 async function fetchTodasLasEliminaciones() {
   let all = [];
   let page = 0;
@@ -508,6 +566,9 @@ export async function generarExcelHistorial() {
 
 export async function generarExcel() {
   const libro = XLSX.utils.book_new();
+  // Se descarga en paralelo con lo demás (ver fetchSolicitadoPorOrdenTalla).
+  const solicitadoPorTallaPromesa = fetchSolicitadoPorOrdenTalla();
+  solicitadoPorTallaPromesa.catch(() => {}); // si otro paso falla antes, evita el aviso de "promesa sin atender"
   const ordenes = await fetchTodasLasOrdenes();
   const historial = await fetchTodoElHistorial();
   const destinos = await fetchTodosLosDestinos();
@@ -524,6 +585,7 @@ export async function generarExcel() {
     registrosDespachos.filter((r) => r.numero_factura).map((r) => [r.id, r.numero_factura])
   );
   const tallas = await fetchTodasLasTallas();
+  const solicitadoPorTalla = await solicitadoPorTallaPromesa;
   const lineasInyeccionERP = await fetchLineasInyeccionERP();
   const estadoSincronizacionERP = await fetchEstadoSincronizacion();
   const cambiosERP = await fetchTodosLosCambiosERP();
@@ -547,6 +609,13 @@ export async function generarExcel() {
       [...ids].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
     );
   });
+
+  // Tallas de las columnas de la hoja Órdenes: las de la base (como la hoja Despachos) más
+  // cualquiera que aparezca en los pedidos y no esté en esa lista; en orden numérico.
+  const tallasOrdenes = [...new Set([
+    ...tallas,
+    ...[...solicitadoPorTalla.values()].flatMap((m) => [...m.keys()])
+  ])].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
   // === HOJA ÓRDENES ===
   const hojaCórdenes = ordenes.map((orden) => {
@@ -616,7 +685,18 @@ export async function generarExcel() {
       'TipoCierreF': orden.cierre_forzado ? etiquetaTipoCierre(tiposCierre.get(String(orden.order_number))) : 'No'
     };
   });
-  const wsOrdenes = XLSX.utils.json_to_sheet(hojaCórdenes);
+  // Unidades solicitadas por talla, DESPUÉS de TipoCierreF (cero donde la orden no pidió esa talla).
+  // Los nombres de talla son números ('35'): JavaScript los pondría PRIMERO en la fila, por eso
+  // el orden de las columnas se indica explícitamente con `header`.
+  hojaCórdenes.forEach((fila, i) => {
+    const porTalla = solicitadoPorTalla.get(String(ordenes[i].order_number));
+    tallasOrdenes.forEach((talla) => {
+      fila[talla] = porTalla?.get(talla) ?? 0;
+    });
+  });
+  const wsOrdenes = XLSX.utils.json_to_sheet(hojaCórdenes, {
+    header: [...Object.keys(hojaCórdenes[0] || {}).filter((k) => !tallasOrdenes.includes(k)), ...tallasOrdenes]
+  });
   formatearColumnasFecha(wsOrdenes, ['Fecha', 'F_Refilado', 'F_Acabado', 'F_Empaque', 'F_Mateado', 'F_Despacho', 'FechaCerradaF']);
   XLSX.utils.book_append_sheet(libro, wsOrdenes, 'Órdenes');
 
@@ -697,7 +777,11 @@ export async function generarExcel() {
     return fila;
   });
 
-  const wsDespachos = XLSX.utils.json_to_sheet(filasDespachos);
+  // Las tallas son números ('35') y JavaScript pone esas claves PRIMERO en la fila: sin indicar el
+  // orden, las columnas de talla salían al principio de la hoja. Con `header` quedan después de FV.
+  const wsDespachos = XLSX.utils.json_to_sheet(filasDespachos, {
+    header: [...Object.keys(filasDespachos[0] || {}).filter((k) => !tallas.includes(k)), ...tallas]
+  });
   XLSX.utils.book_append_sheet(libro, wsDespachos, 'Despachos');
 
   // === HOJA ELIMINACIONES ===
