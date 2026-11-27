@@ -45,8 +45,16 @@ export const DIMENSIONES = {
   marquilla: { etiqueta: 'Marquilla', tipo: 'si_no', campo: 'marquilla' },
   mes: { etiqueta: 'Mes', tipo: 'tiempo' },
   dia: { etiqueta: 'Día', tipo: 'tiempo' },
-  antiguedad: { etiqueta: 'Antigüedad del pedido', tipo: 'tiempo', soloPendiente: true }
+  antiguedad: { etiqueta: 'Antigüedad del pedido', tipo: 'tiempo', soloPendiente: true },
+  // Una fila por despacho (D1437…) con sus bultos y kilos. Solo existe en Despachado por fecha de
+  // despacho: es el único dato que sabe en qué despacho salió cada par.
+  despacho: { etiqueta: 'Bultos (por despacho)', encabezado: 'Despacho', tipo: 'despacho', soloDespachadoFlujo: true },
+  // Igual que Cliente, pero con la columna de bultos por cliente y ordenado por bultos (ver bultosPorCliente).
+  bultosCliente: { etiqueta: 'Bultos (por cliente)', encabezado: 'Cliente', tipo: 'texto', campo: 'cliente', soloDespachadoFlujo: true }
 };
+
+/** Texto de la fila de lo despachado en Troya, que no pertenece a ningún despacho. */
+export const DESPACHO_TROYA = 'Despachado en Troya';
 
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 const SIN_DATO = '(sin dato)';
@@ -238,6 +246,7 @@ function claveDimension(fila, dim) {
   if (dim === 'mes') return fila.mes ?? SIN_DATO;
   if (dim === 'dia') return fila.dia ?? SIN_DATO;
   if (dim === 'antiguedad') return fila.antiguedad ?? SIN_DATO;
+  if (dim === 'despacho') return fila.consecutivo ? String(fila.consecutivo) : DESPACHO_TROYA;
   if (def.tipo === 'si_no') return fila[def.campo] ? 'Sí' : 'No';
   const valor = fila[def.campo];
   return valor == null || String(valor).trim() === '' ? SIN_DATO : String(valor);
@@ -307,12 +316,18 @@ export function agrupar(datos, { medida, lectura, dimensiones = [], filtros = {}
 
   const esTiempo = (d) => d === 'mes' || d === 'dia';
   // Dimensiones con orden propio (no por cantidad): tiempo, antigüedad y talla.
-  const esOrdenada = (d) => esTiempo(d) || d === 'antiguedad' || d === 'talla';
+  const esOrdenada = (d) => esTiempo(d) || d === 'antiguedad' || d === 'talla' || d === 'despacho';
   const comparar = (dim, a, b) => {
     // Talla: de la más grande a la más pequeña (numérico: 44, 43 … 22), "(sin dato)" al final.
     if (dim === 'talla') {
       if (a === SIN_DATO) return 1;
       if (b === SIN_DATO) return -1;
+      return String(b).localeCompare(String(a), 'es', { numeric: true });
+    }
+    // Despacho: el más reciente primero (D1437 antes que D1436); lo de Troya al final.
+    if (dim === 'despacho') {
+      if (a === DESPACHO_TROYA) return 1;
+      if (b === DESPACHO_TROYA) return -1;
       return String(b).localeCompare(String(a), 'es', { numeric: true });
     }
     if (dim === 'antiguedad') return ORDEN_ANTIGUEDAD.indexOf(a) - ORDEN_ANTIGUEDAD.indexOf(b);
@@ -359,6 +374,40 @@ export function agrupar(datos, { medida, lectura, dimensiones = [], filtros = {}
   }
 
   return { filas, total, totalTroya };
+}
+
+/**
+ * Bultos por cliente en Despachado por fecha de despacho, con los mismos filtros.
+ * Un bulto que lleva órdenes de varios clientes cuenta para CADA uno de ellos; por
+ * eso la suma por cliente puede superar `total` (los bultos distintos en total).
+ * Lo despachado en Troya no tiene bultos.
+ * @param {{ despachos: Array<object>, asignaciones?: Map<string, number[]> }} datos
+ * @returns {{ porCliente: Map<string, number>, total: number }}
+ */
+export function bultosPorCliente(datos, filtros) {
+  const asignaciones = datos.asignaciones || new Map();
+  const bultosDeCliente = new Map(); // cliente -> Set('despacho|bulto')
+  const todos = new Set();
+  const vistos = new Set(); // 'despacho|orden|cliente' ya contados
+
+  datos.despachos.forEach((d) => {
+    if (!cumpleFiltros(d, filtros)) return;
+    const cliente = claveDimension(d, 'bultosCliente');
+    const par = `${d.despacho_id}|${d.order_number}`;
+    if (vistos.has(`${par}|${cliente}`)) return;
+    vistos.add(`${par}|${cliente}`);
+    const bultos = asignaciones.get(par) || [];
+    if (!bultosDeCliente.has(cliente)) bultosDeCliente.set(cliente, new Set());
+    bultos.forEach((b) => {
+      const id = `${d.despacho_id}|${b}`;
+      bultosDeCliente.get(cliente).add(id);
+      todos.add(id);
+    });
+  });
+
+  const porCliente = new Map();
+  bultosDeCliente.forEach((set, cliente) => porCliente.set(cliente, set.size));
+  return { porCliente, total: todos.size };
 }
 
 /**
